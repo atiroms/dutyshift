@@ -42,7 +42,7 @@ shift_rev = shift[shift.columns].apply(lambda r: 1-r[shift.columns],1)
 k = LpProblem()
 # 希望していない場所には入らないようにする。
 for (_, h),(_, n) in zip(shift_rev.iterrows(),var.iterrows()):
-k += lpDot(h, n) <= 0
+    k += lpDot(h, n) <= 0
 # 変数の追加
 shift['V_need_dif'] = addvars(days)         # 必要人数に達していない時のペナルティ変数
 shift['V_gender_rate'] = addvars(days)      # 女性が少ない時のペナルティ
@@ -57,29 +57,30 @@ V_lock = addvars(number_employee)
 # 足りない人が入れば終了
 shortage = []
 for index,r in shift[employee].iterrows():
-if sum(r) < int(shift.at[index,'need']):
-shortage.append(index)
-if shortage:
-day = ''
-for i in shortage:
-day += (str(i) + '日足りません')
-print(day)
-sys.exit()
+    if sum(r) < int(shift.at[index,'need']):
+        shortage.append(index)
+    if shortage:
+        day = ''
+        for i in shortage:
+            day += (str(i) + '日足りません')
+        print(day)
+        sys.exit()
+
 # 必要な人数に対するペナルティーを求める。
 for (_, r),(_, d) in zip(shift.iterrows(),var.iterrows()):
-k += r.V_need_dif >= (lpSum(d) - r.need)
-k += r.V_need_dif >= -(lpSum(d) - r.need)
+    k += r.V_need_dif >= (lpSum(d) - r.need)
+    k += r.V_need_dif >= -(lpSum(d) - r.need)
 # 連勤に対してペナルティーを求める。
 for i in list(range(number_employee)):
-for n,p in enumerate((var.values[:-2,i] + var.values[1:-1,i] + var.values[2:,i]).flat):
-k += p - V_3continuous_work[n][i] <= 2
-for i in list(range(number_employee)):
-for n,p in enumerate((var.values[:-1,i] + var.values[1:,i]).flat):
-k += p - V_2continuous_work[n][i] <= 1
+    for n,p in enumerate((var.values[:-2,i] + var.values[1:-1,i] + var.values[2:,i]).flat):
+        k += p - V_3continuous_work[n][i] <= 2
+        for i in list(range(number_employee)):
+            for n,p in enumerate((var.values[:-1,i] + var.values[1:,i]).flat):
+                k += p - V_2continuous_work[n][i] <= 1
 # 長く空きすぎるとペナルティ
 for i in list(range(number_employee)):
-for n,p in enumerate((var.values[:-6,i] + var.values[1:-5,i] + var.values[2:-4,i] + var.values[3:-3,i]+ var.values[4:-2,i]+ var.values[5:-1,i]+ var.values[6:,i]).flat):
-k += p + V_blank[n][i] >= 1
+    for n,p in enumerate((var.values[:-6,i] + var.values[1:-5,i] + var.values[2:-4,i] + var.values[3:-3,i]+ var.values[4:-2,i]+ var.values[5:-1,i]+ var.values[6:,i]).flat):
+        k += p + V_blank[n][i] >= 1
 # ある程度の入る量を調整
 amount_more_user_list = member[member['amount'].isin([0])].index
 amount_normal_user_list = member[member['amount'].isin([1])].index
@@ -96,60 +97,61 @@ amount_normal_setting = {'max': detail.at['max','normal'], 'min': detail.at['min
 amount_less_setting = {'max': detail.at['max','less'], 'min': detail.at['min','less']}
 # 制約
 for name, r in var[amount_more_user_list].iteritems():
-k += lpSum(r) + V_shift_max.at[0,name] >= amount_more_setting['min']
-k += lpSum(r) - V_shift_min.at[0,name] <= amount_more_setting['max']
+    k += lpSum(r) + V_shift_max.at[0,name] >= amount_more_setting['min']
+    k += lpSum(r) - V_shift_min.at[0,name] <= amount_more_setting['max']
 for name, r in var[amount_normal_user_list].iteritems():
-k += lpSum(r) + V_shift_max.at[0,name] >= amount_normal_setting['min']
-k += lpSum(r) - V_shift_min.at[0,name] <= amount_normal_setting['max']
+    k += lpSum(r) + V_shift_max.at[0,name] >= amount_normal_setting['min']
+    k += lpSum(r) - V_shift_min.at[0,name] <= amount_normal_setting['max']
 for name, r in var[amount_less_user_list].iteritems():
-k += lpSum(r) + V_shift_max.at[0,name] >= amount_less_setting['min']
-k += lpSum(r) - V_shift_min.at[0,name] <= amount_less_setting['max']
+    k += lpSum(r) + V_shift_max.at[0,name] >= amount_less_setting['min']
+    k += lpSum(r) - V_shift_min.at[0,name] <= amount_less_setting['max']
 for (_, h),(name, n) in zip(shift[amount_lock_user_list].iteritems(),var[amount_lock_user_list].iteritems()):
-k += lpSum(n) + V_shift_lock.at[0,name] >= lpSum(h)
-k += lpSum(n) - V_shift_lock.at[0,name] <= lpSum(h)
+    k += lpSum(n) + V_shift_lock.at[0,name] >= lpSum(h)
+    k += lpSum(n) - V_shift_lock.at[0,name] <= lpSum(h)
 # 男女偏り、新人のみにならない
 woman_list = member[member['sex'].isin([1])].index
 veteran_list = member[member['rank'].isin([1])].index
 for (_,r),(_,d) in zip(shift.iterrows(),var[woman_list].iterrows()):
-if r.need == 0:
-pass
-else:
-k += (r.V_gender_rate + lpSum(d)) >= 2
+    if r.need == 0:
+        pass
+    else:
+        k += (r.V_gender_rate + lpSum(d)) >= 2
+
 for (_,r),(_,d) in zip(shift.iterrows(),var[veteran_list].iterrows()):
-if r.need == 0:
-pass
-else:
-k += (r.V_experience + lpSum(d)) >= 1
+    if r.need == 0:
+        pass
+    else:
+        k += (r.V_experience + lpSum(d)) >= 1
 # 目的関数決定
 k += C_need_dif * lpSum(shift.V_need_dif) \
-+ C_3continuous_work * lpSum(V_3continuous_work) \
-+ C_2continuous_work * lpSum(V_2continuous_work) \
-+ C_average * lpSum(V_max) \
-+ C_average * lpSum(V_min) \
-+ C_gender * lpSum(shift.V_gender_rate) \
-+ C_experience * lpSum(shift.V_experience) \
-+ C_lock * lpSum(V_lock) \
-+ C_blank * lpSum(V_blank)
-k.solve()
+    + C_3continuous_work * lpSum(V_3continuous_work) \
+    + C_2continuous_work * lpSum(V_2continuous_work) \
+    + C_average * lpSum(V_max) \
+    + C_average * lpSum(V_min) \
+    + C_gender * lpSum(shift.V_gender_rate) \
+    + C_experience * lpSum(shift.V_experience) \
+    + C_lock * lpSum(V_lock) \
+    + C_blank * lpSum(V_blank)
+    k.solve()
 result = np.vectorize(value)(var).astype(int)
 R_continuous_work = np.vectorize(value)(V_2continuous_work).astype(int)
 print('目的関数', value(k.objective))
 print(result)
 continuous_work_list = []
 for i in np.sum(R_continuous_work,axis=0):
-if i >= 1:
-continuous_work_list.append('有')
-else:
-continuous_work_list.append('無')
+    if i >= 1:
+        continuous_work_list.append('有')
+    else:
+        continuous_work_list.append('無')
 fi = []
 for cou,r in enumerate(result):
-fi.append([])
-for i,j in zip(r,shift.columns):
-if i*j != '':
-fi[cou].append(i*j)
-amount = []
-member_rev = member.T
-for name, r in member_rev.iteritems():
+    fi.append([])
+    for i,j in zip(r,shift.columns):
+        if i*j != '':
+            fi[cou].append(i*j)
+            amount = []
+            member_rev = member.T
+        for name, r in member_rev.iteritems():
 if r.amount == 0:
 amount.append("多め")
 elif r.amount == 1:
