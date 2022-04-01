@@ -8,6 +8,8 @@ from io import StringIO
 p_test = 'D:/atiro/Dropbox/dutyshift/test'
 
 c_outlier = 1.0
+min_interval = 7
+c_continuity = 1.0
 
 # Data of Dr availability
 d_availability = pd.read_csv(os.path.join(p_test, 'night01.csv'))
@@ -39,16 +41,25 @@ for date in l_date:
     # Do not assign to a date if not available
     problem += (lpDot(s_ng, sv_assign) <= 0)
 
-# v_outlier represents excess from max or shortage from min in the shape of '\__/
-# Iterate over members
-v_outlier = pd.Series(np.array(addvars(n_dr)), index = l_dr)
-for dr in l_dr:
-    problem += (v_outlier[dr] >= lpSum(dv_assign[dr]) - d_count.loc[dr, 'max'])
-    problem += (v_outlier[dr] >= d_count.loc[dr, 'min'] - lpSum(dv_assign[dr]))
-    problem += (v_outlier[dr] >= 0)
-
 # Minimize outlier
-problem += c_outlier * lpSum(v_outlier)
+# Variable representing excess from max or shortage from min in the shape of '\__/
+sv_outlier = pd.Series(np.array(addvars(n_dr)), index = l_dr)
+# Variable representing assignments in continuous [min_interval] days
+dv_continuity = pd.DataFrame(np.array(addvars(n_date - min_interval + 1, n_dr)), index = l_date[:(-min_interval + 1)], columns = l_dr)
+
+for dr in l_dr:
+    # Define sv_outlier for each dr
+    problem += (sv_outlier[dr] >= lpSum(dv_assign[dr]) - d_count.loc[dr, 'max'])
+    problem += (sv_outlier[dr] >= d_count.loc[dr, 'min'] - lpSum(dv_assign[dr]))
+    problem += (sv_outlier[dr] >= 0)
+
+    # Define dv_continuity for each dr
+    for i_date in range(n_date - min_interval + 1):
+        sv_assign_win = dv_assign[dr].iloc[i_date:(i_date + min_interval)]
+        problem += (dv_continuity[dr].iloc[i_date] >= (lpSum(sv_assign_win) - 1))
+        problem += (dv_continuity[dr].iloc[i_date] >= 0)
+ 
+problem += c_outlier * lpSum(sv_outlier) + lpSum(dv_continuity.to_numpy())
 
 # Print problem
 #print('Problem')
@@ -65,8 +76,10 @@ v_objective = value(problem.objective)
 print(v_objective)
 
 # Extract values from variable
-d_result = pd.DataFrame(np.vectorize(value)(dv_assign), columns = l_dr, index = l_date)
+d_assign_result = pd.DataFrame(np.vectorize(value)(dv_assign), columns = l_dr, index = l_date)
 #d_result.to_csv('D:/NICT_WS/Dropbox/dutyshift/test/night01_result.csv')
 
-sn_assign_dr = pd.Series(d_result.sum(axis = 0), index = l_dr)
-sn_assign_day = pd.Series(d_result.sum(axis = 1), index = l_date)
+d_continuity_result = pd.DataFrame(np.vectorize(value)(dv_continuity), index = l_date[:(-min_interval + 1)], columns = l_dr)
+
+sn_assign_dr = pd.Series(d_assign_result.sum(axis = 0), index = l_dr)
+sn_assign_day = pd.Series(d_assign_result.sum(axis = 1), index = l_date)

@@ -54,7 +54,7 @@ V_blank = np.array(addbinvars(days-6, number_employee))
 V_max = addvars(number_employee)
 V_min = addvars(number_employee)
 V_lock = addvars(number_employee)
-# 足りない人が入れば終了
+# 足りない人がいれば終了
 shortage = []
 for index,r in shift[employee].iterrows():
     if sum(r) < int(shift.at[index,'need']):
@@ -74,9 +74,9 @@ for (_, r),(_, d) in zip(shift.iterrows(),var.iterrows()):
 for i in list(range(number_employee)):
     for n,p in enumerate((var.values[:-2,i] + var.values[1:-1,i] + var.values[2:,i]).flat):
         k += p - V_3continuous_work[n][i] <= 2
-        for i in list(range(number_employee)):
-            for n,p in enumerate((var.values[:-1,i] + var.values[1:,i]).flat):
-                k += p - V_2continuous_work[n][i] <= 1
+for i in list(range(number_employee)):
+    for n,p in enumerate((var.values[:-1,i] + var.values[1:,i]).flat):
+        k += p - V_2continuous_work[n][i] <= 1
 # 長く空きすぎるとペナルティ
 for i in list(range(number_employee)):
     for n,p in enumerate((var.values[:-6,i] + var.values[1:-5,i] + var.values[2:-4,i] + var.values[3:-3,i]+ var.values[4:-2,i]+ var.values[5:-1,i]+ var.values[6:,i]).flat):
@@ -132,7 +132,8 @@ k += C_need_dif * lpSum(shift.V_need_dif) \
     + C_experience * lpSum(shift.V_experience) \
     + C_lock * lpSum(V_lock) \
     + C_blank * lpSum(V_blank)
-    k.solve()
+
+k.solve()
 result = np.vectorize(value)(var).astype(int)
 R_continuous_work = np.vectorize(value)(V_2continuous_work).astype(int)
 print('目的関数', value(k.objective))
@@ -152,16 +153,16 @@ for cou,r in enumerate(result):
             amount = []
             member_rev = member.T
         for name, r in member_rev.iteritems():
-if r.amount == 0:
-amount.append("多め")
-elif r.amount == 1:
-amount.append("普通")
-elif r.amount == 2:
-amount.append("少なめ")
-elif r.amount == 3:
-amount.append("無し")
-elif r.amount == 4:
-amount.append("固定")
+            if r.amount == 0:
+                amount.append("多め")
+            elif r.amount == 1:
+                amount.append("普通")
+            elif r.amount == 2:
+                amount.append("少なめ")
+            elif r.amount == 3:
+                amount.append("無し")
+            elif r.amount == 4:
+                amount.append("固定")
 count = np.sum(result, axis=0)
 evaluation = pd.DataFrame([amount,count,continuous_work_list],
 index=['シフト希望量', '入る量', '連勤'],columns=employee)
