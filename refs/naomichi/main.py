@@ -170,18 +170,18 @@ print(evaluation)
 # ここで目視用のシートを作る
 result_show_color = pd.DataFrame(result,index=date,columns=employee)
 for index,i in result_show_color.iterrows():
-for column, c in i.iteritems():
-if c == 1: # 実際入ってる人
-pass
-elif c == 0 and shift.at[index,column] == 1: # 入る希望はあったが入らない人
-pass
-else:
-result_show_color.at[index,column] = 2 # 入るつもりがない人
+    for column, c in i.iteritems():
+        if c == 1: # 実際入ってる人
+            pass
+        elif c == 0 and shift.at[index,column] == 1: # 入る希望はあったが入らない人
+            pass
+        else:
+            result_show_color.at[index,column] = 2 # 入るつもりがない人
 shift_member = fi
 for values in shift_member:
-random.shuffle(values)
-shift_result = pd.DataFrame(shift_member,index=date)
-with pd.ExcelWriter('1月.xlsx') as writer:
-shift_result.to_excel(writer, sheet_name='Result')
-evaluation.to_excel(writer, sheet_name='Evaluation')
-result_show_color.to_excel(writer,sheet_name="show")
+    random.shuffle(values)
+    shift_result = pd.DataFrame(shift_member,index=date)
+    with pd.ExcelWriter('1月.xlsx') as writer:
+        shift_result.to_excel(writer, sheet_name='Result')
+        evaluation.to_excel(writer, sheet_name='Evaluation')
+        result_show_color.to_excel(writer,sheet_name="show")
