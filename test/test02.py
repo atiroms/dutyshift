@@ -13,38 +13,40 @@ c_assign_suboptimal = 0.1
 
 # Data of doctors and their assignment limits etc...
 d_member = pd.read_csv(os.path.join(p_test, 'member02.csv'))
-d_member_idx = d_member[['name_jpn','title_jpn','designation_jpn','ect_asgn_jpn','name','title_short','designation']]
+d_member_idx = d_member[['id_dr','name_jpn','title_jpn','designation_jpn','ect_asgn_jpn','name','title_short','designation']]
 s_ect_asgn = d_member['ect_asgn']
 s_designation = d_member['designation']
 d_limits = d_member[['night_tot','night_em','night_wd','night_hd','day_hd','oc_tot','oc_hd_day','oc_other','ect']]
 
 # Split assignment limit data into hard and soft
-d_limits_hard = pd.DataFrame(np.zeros(d_limits.shape), index = d_limits.index, columns = d_limits.columns)
-d_limits_soft = pd.DataFrame(np.zeros(d_limits.shape), index = d_limits.index, columns = d_limits.columns)
+d_limits_hard = pd.DataFrame([[[np.nan]*2]*d_limits.shape[1]]*d_limits.shape[0], index = d_limits.index, columns = d_limits.columns)
+d_limits_soft = pd.DataFrame([[[np.nan]*2]*d_limits.shape[1]]*d_limits.shape[0], index = d_limits.index, columns = d_limits.columns)
 for col in d_limits.columns:
     for idx in d_limits.index:
         if '(' in d_limits.loc[idx, col]:
             # If parenthesis exists, its content is hard limit
-            d_limits_hard.loc[idx, col] = str(d_limits.loc[idx, col]).split('(')[1].split(')')[0]
-            d_limits_soft.loc[idx, col] = str(d_limits.loc[idx, col]).split('(')[0]
+            d_limits_hard.loc[idx, col][0] = str(d_limits.loc[idx, col]).split('(')[1].split(')')[0]
+            d_limits_soft.loc[idx, col][0] = str(d_limits.loc[idx, col]).split('(')[0]
         else:
             # If parenthesis does not exist it's hard limit
-            d_limits_hard.loc[idx, col] = d_limits.loc[idx, col]
-            d_limits_soft.loc[idx, col] = '-'
+            d_limits_hard.loc[idx, col][0] = d_limits.loc[idx, col]
+            d_limits_soft.loc[idx, col][0] = '-'
 
         for d_temp in [d_limits_hard, d_limits_soft]:
-            if d_temp.loc[idx, col] == '-':
+            if d_temp.loc[idx, col][0] == '-':
                 # Convert '-' to np.nan
-                d_temp.loc[idx, col] = np.nan
-            elif '-' in str(d_temp.loc[idx, col]):
+                d_temp.loc[idx, col] = [np.nan, np.nan]
+            elif '-' in str(d_temp.loc[idx, col][0]):
                 # Convert string 'a-b' to list [a, b]
-                d_temp.loc[idx, col] = [int(x) for x in str(d_temp.loc[idx, col]).split('-')]
+                d_temp.loc[idx, col] = [int(x) for x in str(d_temp.loc[idx, col][0]).split('-')]
             else:
-                d_temp.loc[idx, col] = [int(d_temp.loc[idx, col])]
+                d_temp.loc[idx, col] = [int(d_temp.loc[idx, col][0])]*2
 
 # Data of Dr availability
 d_availability = pd.read_csv(os.path.join(p_test, 'availability01.csv'))
-d_availability = d_availability.set_index('dr')
+d_availability = pd.merge(d_member_idx[['id_dr', 'name_jpn']], d_availability, on='name_jpn')
+d_availability.set_index('id_dr', inplace=True)
+d_availability.drop(['name_jpn'], axis = 1, inplace = True)
 d_availability = d_availability.T
 
 l_dr = d_availability.columns.to_list()
