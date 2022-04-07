@@ -47,7 +47,7 @@ for col in l_type_duty:
                 d_temp.loc[idx, col] = [int(d_temp.loc[idx, col][0])]*2
 
 # Data of Dr availability
-d_availability = pd.read_csv(os.path.join(p_test, 'availability01.csv'))
+d_availability = pd.read_csv(os.path.join(p_test, 'availability02.csv'))
 d_availability = pd.merge(d_member_idx[['id_dr', 'name_jpn']], d_availability, on='name_jpn')
 d_availability.set_index('id_dr', inplace=True)
 d_availability.drop(['name_jpn'], axis = 1, inplace = True)
@@ -62,7 +62,7 @@ d_date_duty['duty'] = d_date_duty['date_duty'].apply(lambda x: x.split('_')[1])
 d_date_duty_ect = pd.DataFrame(zip([str(date)+'_ect' for date in l_date_ect], l_date_ect, ['ect']*len(l_date_ect)), columns = ['date_duty', 'date', 'duty'])
 d_date_duty = pd.concat([d_date_duty, d_date_duty_ect], axis = 0)
 l_date = sorted([date for date in d_date_duty['date'].unique().tolist()])
-l_duty = ['day', 'night', 'am', 'pm', 'oc', 'ect']
+l_duty = ['day', 'night', 'am', 'pm', 'ocday', 'ocnight', 'ect']
 l_date_hd = sorted(d_date_duty.loc[d_date_duty['duty'] == 'day', 'date'].unique().tolist())
 l_date_wd = [date for date in l_date if date not in l_date_hd]
 n_date = len(l_date)
@@ -70,23 +70,40 @@ n_duty = len(l_duty)
 n_duty_date = d_date_duty.shape[0]
 
 # Specify which type_duty's apply to each date_duty
-d_date_duty['type_duty_apl'] = [[]] * n_duty_date
+d_duty_date_type = pd.DataFrame([[False]*len(l_type_duty)]*n_duty_date, index = d_date_duty['date_duty'], columns = l_type_duty)
 # night_tot
 for date in l_date:
-    v_in = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'night'), 'type_duty_apl'].to_list()[0]
-    v_out = v_in + ['night_tot']
-    d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'night'), 'type_duty_apl'] = [v_out]
+    idx_temp = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'night'), 'date_duty'].to_list()
+    d_duty_date_type.loc[idx_temp, 'night_tot'] = True
 # night_em
 for date in l_date_em:
-    v_in = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'night'), 'type_duty_apl'].to_list()[0]
-    v_out = v_in + ['night_em']
-    d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'night'), 'type_duty_apl'] = [v_out]
+    idx_temp = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'night'), 'date_duty'].to_list()
+    d_duty_date_type.loc[idx_temp, 'night_em'] = True
 # night_wd
 for date in l_date_wd:
-    v_in = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'night'), 'type_duty_apl'].to_list()[0]
-    v_out = v_in + ['night_wd']
-    d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'night'), 'type_duty_apl'] = [v_out]
-
+    idx_temp = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'night'), 'date_duty'].to_list()
+    d_duty_date_type.loc[idx_temp, 'night_wd'] = True
+# night_hd
+for date in l_date_hd:
+    idx_temp = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'night'), 'date_duty'].to_list()
+    d_duty_date_type.loc[idx_temp, 'night_hd'] = True
+# day_hd
+for date in l_date_hd:
+    idx_temp = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'day'), 'date_duty'].to_list()
+    d_duty_date_type.loc[idx_temp, 'day_hd'] = True
+# oc_tot, oc_hd_day, oc_other
+for date in l_date:
+    idx_temp = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'ocnight'), 'date_duty'].to_list()
+    d_duty_date_type.loc[idx_temp, 'oc_tot'] = True
+    d_duty_date_type.loc[idx_temp, 'oc_other'] = True
+for date in l_date_hd:
+    idx_temp = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'ocday'), 'date_duty'].to_list()
+    d_duty_date_type.loc[idx_temp, 'oc_tot'] = True
+    d_duty_date_type.loc[idx_temp, 'oc_hd_day'] = True
+# ect
+for date in l_date_ect:
+    idx_temp = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'ect'), 'date_duty'].to_list()
+    d_duty_date_type.loc[idx_temp, 'ect'] = True
 
 # Binary assignment variables to be optimized
 dv_assign = pd.DataFrame(np.array(addbinvars(n_duty_date, n_dr)), columns = l_dr, index = d_date_duty['date_duty'].to_list())
