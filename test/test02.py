@@ -19,23 +19,23 @@ d_member = pd.read_csv(os.path.join(p_test, 'member02.csv'))
 d_member_idx = d_member[['id_dr','name_jpn','title_jpn','designation_jpn','ect_asgn_jpn','name','title_short','designation']]
 s_ect_asgn = d_member['ect_asgn']
 s_designation = d_member['designation']
-d_limits = d_member[l_type_duty]
+d_lim = d_member[l_type_duty]
 
 # Split assignment limit data into hard and soft
-d_limits_hard = pd.DataFrame([[[np.nan]*2]*d_limits.shape[1]]*d_limits.shape[0], index = d_limits.index, columns = d_limits.columns)
-d_limits_soft = pd.DataFrame([[[np.nan]*2]*d_limits.shape[1]]*d_limits.shape[0], index = d_limits.index, columns = d_limits.columns)
+d_lim_hard = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0], index = d_lim.index, columns = d_lim.columns)
+d_lim_soft = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0], index = d_lim.index, columns = d_lim.columns)
 for col in l_type_duty:
-    for idx in d_limits.index:
-        if '(' in d_limits.loc[idx, col]:
+    for idx in d_lim.index:
+        if '(' in d_lim.loc[idx, col]:
             # If parenthesis exists, its content is hard limit
-            d_limits_hard.loc[idx, col][0] = str(d_limits.loc[idx, col]).split('(')[1].split(')')[0]
-            d_limits_soft.loc[idx, col][0] = str(d_limits.loc[idx, col]).split('(')[0]
+            d_lim_hard.loc[idx, col][0] = str(d_lim.loc[idx, col]).split('(')[1].split(')')[0]
+            d_lim_soft.loc[idx, col][0] = str(d_lim.loc[idx, col]).split('(')[0]
         else:
             # If parenthesis does not exist it's hard limit
-            d_limits_hard.loc[idx, col][0] = d_limits.loc[idx, col]
-            d_limits_soft.loc[idx, col][0] = '-'
+            d_lim_hard.loc[idx, col][0] = d_lim.loc[idx, col]
+            d_lim_soft.loc[idx, col][0] = '-'
 
-        for d_temp in [d_limits_hard, d_limits_soft]:
+        for d_temp in [d_lim_hard, d_lim_soft]:
             if d_temp.loc[idx, col][0] == '-':
                 # Convert '-' to [np.nan, np.nan]
                 d_temp.loc[idx, col] = [np.nan]*2
@@ -116,7 +116,22 @@ for duty in ['night', 'day', 'am', 'pm']:
     for duty_date in d_date_duty[d_date_duty['duty'] == duty]['date_duty'].to_list():
         problem += (lpSum(dv_assign.loc[duty_date]) == 1)
 
-# 
+# Penalize excess from max or shortage from min in the shape of '\__/'
+dv_outlier_hard = pd.DataFrame(np.array(addvars(n_dr, len(l_type_duty))), columns = l_type_duty, index = l_dr)
+dv_outlier_soft = pd.DataFrame(np.array(addvars(n_dr, len(l_type_duty))), columns = l_type_duty, index = l_dr)
+for dr in l_dr:
+    for type_duty in l_type_duty:
+        lim_hard = d_lim_hard.loc[dr, type_duty]
+        if ~np.isnan(lim_hard[0]):
+            problem += (dv_outlier_hard.loc[dr, type_duty] >= lpDot(dv_assign.loc[:, dr], d_duty_date_type.loc[:, type_duty]) - lim_hard[1])
+            problem += (dv_outlier_hard.loc[dr, type_duty] >= lim_hard[0] - lpDot(dv_assign.loc[:, dr], d_duty_date_type.loc[:, type_duty]))
+            problem += (dv_outlier_hard.loc[dr, type_duty] >= 0)
+
+        lim_soft = d_lim_soft.loc[dr, type_duty]
+        if ~np.isnan(lim_soft[0]):
+            problem += (dv_outlier_soft.loc[dr, type_duty] >= lpDot(dv_assign.loc[:, dr], d_duty_date_type.loc[:, type_duty]) - lim_soft[1])
+            problem += (dv_outlier_soft.loc[dr, type_duty] >= lim_soft[0] - lpDot(dv_assign.loc[:, dr], d_duty_date_type.loc[:, type_duty]))
+            problem += (dv_outlier_soft.loc[dr, type_duty] >= 0)
 
 
 # Do not assign to a date if not available
