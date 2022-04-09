@@ -52,6 +52,9 @@ d_availability = pd.merge(d_member_idx[['id_dr', 'name_jpn']], d_availability, o
 d_availability.set_index('id_dr', inplace=True)
 d_availability.drop(['name_jpn'], axis = 1, inplace = True)
 d_availability = d_availability.T
+d_availability_ect = d_availability.loc[[str(date_ect) + '_am' for date_ect in l_date_ect], :]
+d_availability_ect.index = ([str(date_ect) + '_ect' for date_ect in l_date_ect])
+d_availability = pd.concat([d_availability, d_availability_ect], axis = 0)
 
 # Dr, date and duty lists and dataframes
 l_dr = d_availability.columns.to_list()
@@ -59,8 +62,8 @@ n_dr = len(l_dr)
 d_date_duty = pd.DataFrame([[date_duty] for date_duty in d_availability.index.to_list()], columns = ['date_duty'])
 d_date_duty['date'] = d_date_duty['date_duty'].apply(lambda x: int(x.split('_')[0]))
 d_date_duty['duty'] = d_date_duty['date_duty'].apply(lambda x: x.split('_')[1])
-d_date_duty_ect = pd.DataFrame(zip([str(date)+'_ect' for date in l_date_ect], l_date_ect, ['ect']*len(l_date_ect)), columns = ['date_duty', 'date', 'duty'])
-d_date_duty = pd.concat([d_date_duty, d_date_duty_ect], axis = 0)
+#d_date_duty_ect = pd.DataFrame(zip([str(date)+'_ect' for date in l_date_ect], l_date_ect, ['ect']*len(l_date_ect)), columns = ['date_duty', 'date', 'duty'])
+#d_date_duty = pd.concat([d_date_duty, d_date_duty_ect], axis = 0)
 l_date = sorted([date for date in d_date_duty['date'].unique().tolist()])
 l_duty = ['day', 'night', 'am', 'pm', 'ocday', 'ocnight', 'ect']
 l_date_hd = sorted(d_date_duty.loc[d_date_duty['duty'] == 'day', 'date'].unique().tolist())
@@ -111,10 +114,15 @@ dv_assign = pd.DataFrame(np.array(addbinvars(n_duty_date, n_dr)), columns = l_dr
 # Initialize model to be optimized
 problem = LpProblem()
 
-# Assign one Dr per date_duty for ['night', 'day', 'am', 'pm']
-for duty in ['night', 'day', 'am', 'pm']:
+# Assign one Dr per date_duty for ['night', 'day', 'am', 'pm', 'ect']
+for duty in ['night', 'day', 'am', 'pm', 'ect']:
     for duty_date in d_date_duty[d_date_duty['duty'] == duty]['date_duty'].to_list():
         problem += (lpSum(dv_assign.loc[duty_date]) == 1)
+
+# Assign one Dr per date_duty for ['oc_night', 'oc_day']
+# if non-designated Dr is assigned to ['night', 'day'] for the same date/time
+####
+
 
 # Penalize excess from max or shortage from min in the shape of '\__/'
 dv_outlier_hard = pd.DataFrame(np.array(addvars(n_dr, len(l_type_duty))), columns = l_type_duty, index = l_dr)
@@ -133,21 +141,12 @@ for dr in l_dr:
             problem += (dv_outlier_soft.loc[dr, type_duty] >= lim_soft[0] - lpDot(dv_assign.loc[:, dr], d_duty_date_type.loc[:, type_duty]))
             problem += (dv_outlier_soft.loc[dr, type_duty] >= 0)
 
-
 # Do not assign to a date if not available
 problem += (lpDot((d_availability == 0).to_numpy(), dv_assign.to_numpy()) <= 0)
 
 # Penalize suboptimal assignment
-dv_assign_suboptimal = lpDot((d_availability == 1).to_numpy(), dv_assign.to_numpy())
+v_assign_suboptimal = lpDot((d_availability == 1).to_numpy(), dv_assign.to_numpy())
 
-# Minimize outlier
-# Penalize excess from max or shortage from min in the shape of '\__/'
-sv_outlier = pd.Series(np.array(addvars(n_dr)), index = l_dr)
-for dr in l_dr:
-    # Define sv_outlier for each dr
-    problem += (sv_outlier[dr] >= lpSum(dv_assign[dr]) - d_count.loc[dr, 'max'])
-    problem += (sv_outlier[dr] >= d_count.loc[dr, 'min'] - lpSum(dv_assign[dr]))
-    problem += (sv_outlier[dr] >= 0)
 
 # Avoid continuous assignment
 # Penalize assignments in continuous [min_interval] days
@@ -162,7 +161,7 @@ for dr in l_dr:
 # Define objective function to be minimized
 problem += (c_outlier * lpSum(sv_outlier) \
           + c_continuity * lpSum(dv_continuity.to_numpy()) \
-          + c_assign_suboptimal * dv_assign_suboptimal)
+          + c_assign_suboptimal * v_assign_suboptimal)
 
 # Print problem
 #print('Problem')
