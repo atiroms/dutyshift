@@ -9,6 +9,8 @@ p_test = 'D:/atiro/Dropbox/dutyshift/test'
 l_date_em = [6, 20]
 l_date_ect = [4, 6, 7, 11, 13, 14, 18, 20, 21, 25, 27, 28]
 l_type_duty = ['night_tot','night_em','night_wd','night_hd','day_hd','oc_tot','oc_hd_day','oc_other','ect']
+#l_duty = ['ect', 'am', 'pm','day', 'ocday', 'night', 'ocnight']
+dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'ocnight': 6}
 c_outlier = 1.0
 min_interval = 7
 c_continuity = 1.0
@@ -56,7 +58,7 @@ d_availability_ect = d_availability.loc[[str(date_ect) + '_am' for date_ect in l
 d_availability_ect.index = ([str(date_ect) + '_ect' for date_ect in l_date_ect])
 d_availability = pd.concat([d_availability, d_availability_ect], axis = 0)
 
-# Dr, date and duty lists and dataframes
+# Lists and dataframes of Dr, date and duty
 l_dr = d_availability.columns.to_list()
 n_dr = len(l_dr)
 d_date_duty = pd.DataFrame([[date_duty] for date_duty in d_availability.index.to_list()], columns = ['date_duty'])
@@ -65,15 +67,15 @@ d_date_duty['duty'] = d_date_duty['date_duty'].apply(lambda x: x.split('_')[1])
 #d_date_duty_ect = pd.DataFrame(zip([str(date)+'_ect' for date in l_date_ect], l_date_ect, ['ect']*len(l_date_ect)), columns = ['date_duty', 'date', 'duty'])
 #d_date_duty = pd.concat([d_date_duty, d_date_duty_ect], axis = 0)
 l_date = sorted([date for date in d_date_duty['date'].unique().tolist()])
-l_duty = ['day', 'night', 'am', 'pm', 'ocday', 'ocnight', 'ect']
+
 l_date_hd = sorted(d_date_duty.loc[d_date_duty['duty'] == 'day', 'date'].unique().tolist())
 l_date_wd = [date for date in l_date if date not in l_date_hd]
 n_date = len(l_date)
-n_duty = len(l_duty)
-n_duty_date = d_date_duty.shape[0]
+n_duty = len(dict_duty)
+n_date_duty = d_date_duty.shape[0]
 
 # Specify which type_duty's apply to each date_duty
-d_duty_date_type = pd.DataFrame([[False]*len(l_type_duty)]*n_duty_date, index = d_date_duty['date_duty'], columns = l_type_duty)
+d_duty_date_type = pd.DataFrame([[False]*len(l_type_duty)]*n_date_duty, index = d_date_duty['date_duty'], columns = l_type_duty)
 # night_tot
 for date in l_date:
     idx_temp = d_date_duty.loc[(d_date_duty['date'] == date) & (d_date_duty['duty'] == 'night'), 'date_duty'].to_list()
@@ -109,20 +111,26 @@ for date in l_date_ect:
     d_duty_date_type.loc[idx_temp, 'ect'] = True
 
 # Binary assignment variables to be optimized
-dv_assign = pd.DataFrame(np.array(addbinvars(n_duty_date, n_dr)), columns = l_dr, index = d_date_duty['date_duty'].to_list())
+dv_assign = pd.DataFrame(np.array(addbinvars(n_date_duty, n_dr)), columns = l_dr, index = d_date_duty['date_duty'].to_list())
 
 # Initialize model to be optimized
 problem = LpProblem()
 
 # Assign one Dr per date_duty for ['night', 'day', 'am', 'pm', 'ect']
 for duty in ['night', 'day', 'am', 'pm', 'ect']:
-    for duty_date in d_date_duty[d_date_duty['duty'] == duty]['date_duty'].to_list():
-        problem += (lpSum(dv_assign.loc[duty_date]) == 1)
+    for date_duty in d_date_duty[d_date_duty['duty'] == duty]['date_duty'].to_list():
+        problem += (lpSum(dv_assign.loc[date_duty]) == 1)
 
-# Assign one Dr per date_duty for ['oc_night', 'oc_day']
+# Assign one Dr per date_duty for ['oc_night', 'oc_day'],
 # if non-designated Dr is assigned to ['night', 'day'] for the same date/time
-####
-
+for duty in ['night', 'day']:
+    for date in d_date_duty[d_date_duty['duty'] == duty]['date'].to_list():
+        date_duty = str(date) + '_' + duty
+        date_duty_oc = str(date) + '_oc' + duty
+        # Sum of dot product of (normal and oc assignments) and (designation)
+        # Returns number of 'designated' dr assigned in the same date/time, which should be 1
+        problem += (lpSum(lpDot(dv_assign.loc[[date_duty, date_duty_oc]].to_numpy(),
+                                np.array([s_designation.loc[l_dr]]*2))) == 1)
 
 # Penalize excess from max or shortage from min in the shape of '\__/'
 dv_outlier_hard = pd.DataFrame(np.array(addvars(n_dr, len(l_type_duty))), columns = l_type_duty, index = l_dr)
@@ -147,6 +155,20 @@ problem += (lpDot((d_availability == 0).to_numpy(), dv_assign.to_numpy()) <= 0)
 # Penalize suboptimal assignment
 v_assign_suboptimal = lpDot((d_availability == 1).to_numpy(), dv_assign.to_numpy())
 
+# Avoid overlapping / adjacent / close assignment
+# Sort ['ect', 'am', 'pm', 'day', 'ocday', 'night', 'ocnight'] in temporal order
+d_date_duty_ord = d_date_duty.copy()
+d_date_duty_ord['duty_sort'] = d_date_duty_ord['duty'].map(dict_duty)
+d_date_duty_ord = d_date_duty_ord.sort_values(by = ['date', 'duty_sort'])
+d_date_duty_ord.index = range(len(d_date_duty_ord))
+
+# Avoid same-date 'am' and 'pm'
+# Avoid same-date 'pm', 'night' and 'ocnight'
+# Avoid 'night', 'ocnight' and following-date 'ect','am'
+# Avoid 'day', 'ocday', 'night', 'ocnight' in N continuous days
+
+
+###############################################################################
 
 # Avoid continuous assignment
 # Penalize assignments in continuous [min_interval] days
