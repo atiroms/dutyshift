@@ -3,12 +3,24 @@ import os, datetime, calendar
 from math import ceil
 from pulp import *
 from ortoolpy import addvars, addbinvars
+from helper import *
 
+# Unfixed parameters
+l_holiday = [29]
 #p_test = 'D:/NICT_WS/Dropbox/dutyshift/test'
 p_test = 'D:/atiro/Dropbox/dutyshift/test'
 
-l_date_em = [6, 20]
-l_date_ect = [4, 6, 7, 11, 13, 14, 18, 20, 21, 25, 27, 28]
+# Temporaly values
+year_plan = 2022
+month_plan = 4
+
+# Fixed parameters
+l_day_ect = [0, 2, 3]
+day_em = 2
+l_emweek = [1, 3]
+
+#l_date_em = [6, 20]
+#l_date_ect = [4, 6, 7, 11, 13, 14, 18, 20, 21, 25, 27, 28]
 l_type_duty = ['night_tot','night_em','night_wd','night_hd','day_hd','oc_tot','oc_hd_day','oc_other','ect']
 #l_duty = ['ect', 'am', 'pm','day', 'ocday', 'night', 'ocnight']
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'ocnight': 6}
@@ -17,7 +29,9 @@ thr_interval = 3
 c_interval = 1.0
 c_assign_suboptimal = 0.1
 
-# Data of doctors and their assignment limits etc...
+d_cal = prep_calendar(l_holiday, l_day_ect, day_em, l_emweek, year_plan, month_plan)
+
+# Data of members and their assignment limits etc...
 d_member = pd.read_csv(os.path.join(p_test, 'member03.csv'))
 d_member_idx = d_member[['id_member','name_jpn','title_jpn','designation_jpn','ect_asgn_jpn','name','title_short','designation', 'team', 'ect_leader', 'ect_subleader']]
 #s_ect_subleader = d_member['ect_subleader']
