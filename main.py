@@ -209,6 +209,8 @@ print('Solved: ' + str(LpStatus[problem.status]) + ', ' + str(round(v_objective,
 ###############################################################################
 
 d_assign = pd.DataFrame(np.vectorize(value)(dv_assign), columns = l_member, index = dv_assign.index).astype(bool)
+
+# Assignments with date_duty as row
 d_assign_date = pd.concat([pd.Series(d_assign.index, index = d_assign.index, name = 'date_duty'),
                            pd.Series(d_assign.sum(axis = 1), name = 'cnt'),
                            pd.Series(d_assign.apply(lambda row: row[row].index.to_list(), axis = 1), name = 'id_member')],
@@ -219,6 +221,7 @@ d_assign_date = pd.merge(d_assign_date, d_member.loc[:,['id_member','name_jpn','
 d_assign_date = pd.merge(d_assign_date, d_date_duty, on = 'date_duty', how = 'left')
 d_assign_date = d_assign_date.loc[:,['date_duty', 'date','duty', 'id_member','name','name_jpn','cnt']]
 
+# Assignments with date as row
 d_assign_print = d_cal.loc[:,['date','wday_jpn','holiday', 'em']].copy()
 d_assign_print[['am','pm','day','night','ocday','ocnight','ect']] = np.nan
 for idx, row in d_assign_date.iterrows():
@@ -227,14 +230,14 @@ for idx, row in d_assign_date.iterrows():
     name_jpn = row['name_jpn']
     d_assign_print.loc[d_assign_print['date'] == date, duty] = name_jpn
 
-
+# Assignments with member as row
 d_assign_optimal = pd.DataFrame((d_availability == 2) & d_assign, columns = l_member, index = dv_assign.index)                         
 d_assign_suboptimal = pd.DataFrame((d_availability == 1) & d_assign, columns = l_member, index = dv_assign.index)
 d_assign_error = pd.DataFrame((d_availability == 0) & d_assign, columns = l_member, index = dv_assign.index)
-d_assign_member = pd.concat([pd.Series(d_assign.sum(axis = 0), index = l_member, name = 'c_all'),
+d_assign_member = pd.concat([pd.Series(d_assign.sum(axis = 0), index = l_member, name = 'cnt_all'),
                          pd.Series(d_assign.apply(lambda col: col[col].index.to_list(), axis = 0), index = l_member, name = 'date_all'),
-                         pd.Series(d_assign_optimal.sum(axis = 0), index = l_member, name = 'c_opt'),
+                         pd.Series(d_assign_optimal.sum(axis = 0), index = l_member, name = 'cnt_opt'),
                          pd.Series(d_assign_optimal.apply(lambda col: col[col].index.to_list(), axis = 0), index = l_member, name = 'date_opt'),
-                         pd.Series(d_assign_suboptimal.sum(axis = 0), index = l_member, name = 'c_sub'),
+                         pd.Series(d_assign_suboptimal.sum(axis = 0), index = l_member, name = 'cnt_sub'),
                          pd.Series(d_assign_suboptimal.apply(lambda col: col[col].index.to_list(), axis = 0), index = l_member, name = 'date_sub')],
                          axis = 1)
