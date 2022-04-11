@@ -1,5 +1,6 @@
 import numpy as np, pandas as pd
-import os
+import os, datetime, calendar
+from math import ceil
 from pulp import *
 from ortoolpy import addvars, addbinvars
 
@@ -17,9 +18,9 @@ c_interval = 1.0
 c_assign_suboptimal = 0.1
 
 # Data of doctors and their assignment limits etc...
-d_member = pd.read_csv(os.path.join(p_test, 'member02.csv'))
-d_member_idx = d_member[['id_member','name_jpn','title_jpn','designation_jpn','ect_asgn_jpn','name','title_short','designation']]
-s_ect_asgn = d_member['ect_asgn']
+d_member = pd.read_csv(os.path.join(p_test, 'member03.csv'))
+d_member_idx = d_member[['id_member','name_jpn','title_jpn','designation_jpn','ect_asgn_jpn','name','title_short','designation', 'team', 'ect_leader', 'ect_subleader']]
+#s_ect_subleader = d_member['ect_subleader']
 s_designation = d_member['designation']
 d_lim = d_member[l_type_duty]
 
@@ -35,10 +36,10 @@ for col in l_type_duty:
         else:
             # If parenthesis does not exist it's hard limit
             d_lim_hard.loc[idx, col][0] = d_lim.loc[idx, col]
-            d_lim_soft.loc[idx, col][0] = '--'
+            d_lim_soft.loc[idx, col][0] = '-'
 
         for d_temp in [d_lim_hard, d_lim_soft]:
-            if d_temp.loc[idx, col][0] == '--':
+            if d_temp.loc[idx, col][0] == '-':
                 # Convert '-' to [np.nan, np.nan]
                 d_temp.loc[idx, col] = [np.nan]*2
             elif '-' in str(d_temp.loc[idx, col][0]):
