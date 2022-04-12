@@ -148,6 +148,9 @@ for date_start in [d for d in range(-thr_interval + 2, 1)] + l_date:
         for member in l_member:
             problem += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
 
+# Penalize 'ect' in N(thr_interval) continuous days
+# TODO: consider previous month assignment
+
 # Avoid [same-date 'am' and 'pm'],
 #       [same-date 'pm', 'night' and 'ocnight'],
 #   and ['night', 'ocnight' and following-date 'ect','am']
@@ -175,8 +178,17 @@ for date in [0] + l_date:
 
 
 ###############################################################################
-# TODO: Avoid ECT from the leader's team
+# Avoid ECT from the leader's team
 ###############################################################################
+l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].to_list()
+l_team = sorted(list(set(d_member['team'].to_list())))
+for date in l_date_ect:
+    wday = d_cal.loc[d_cal['date'] == date, 'wday'].to_list()[0]
+    team_leader = d_member.loc[d_member['ect_leader'] == str(wday), 'team'].to_list()[0]
+    if team_leader != '-':
+        l_id_member_team = d_member.loc[d_member['team'] == team_leader, 'id_member'].to_list()
+        for id_member in l_id_member_team:
+            problem += (dv_assign.loc[str(date) + '_ect', id_member] == 0)
 
 
 ###############################################################################
