@@ -150,6 +150,17 @@ for date_start in [d for d in range(-thr_interval + 2, 1)] + l_date:
 
 # Penalize 'ect' in N(thr_interval) continuous days
 # TODO: consider previous month assignment
+for date_start in [d for d in range(-thr_interval + 2, 1)] + l_date:
+    # Create list of continuous date_duty's
+    l_date_duty_temp = []
+    for date in range(date_start, date_start + thr_interval):
+        for duty in ['ect']:
+            date_duty_temp = str(date) + '_' + duty
+            if date_duty_temp in dv_assign.index:
+                l_date_duty_temp.append(date_duty_temp)
+    if len(l_date_duty_temp) >= 2:
+        for member in l_member:
+            problem += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
 
 # Avoid [same-date 'am' and 'pm'],
 #       [same-date 'pm', 'night' and 'ocnight'],
