@@ -13,12 +13,16 @@ from ortoolpy import addvars, addbinvars
 # Parameters
 ###############################################################################
 # Unfixed parameters
-year_plan = 2022
-month_plan = 4
-l_holiday = [29]
+#year_plan = 2022
+#month_plan = 4
+#l_holiday = [29]
+year_plan = None
+month_plan = None
+l_holiday = [3, 4, 5]
 
 #p_src = 'D:/NICT_WS/Dropbox/dutyshift/test'
 p_src = 'D:/atiro/Dropbox/dutyshift/test'
+p_dst = 'D:/atiro/Dropbox/dutyshift/test'
 f_member = 'member03.csv'
 f_availability = 'availability02.csv'
 
@@ -55,6 +59,8 @@ from helper import *
 # Prepare calendar of the month
 d_cal, l_date, d_date_duty, d_duty_date_class, year_plan, month_plan \
     = prep_calendar(l_holiday, l_day_ect, day_em, l_week_em, year_plan, month_plan)
+
+d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
 
 # Prepare data of member specs and assignment limits
 d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
