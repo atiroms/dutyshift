@@ -51,6 +51,7 @@ def prep_forms(p_dst, d_cal, month_plan, dict_duty):
     
     return d_cal_duty
 
+
 ################################################################################
 # Prepare data of member availability
 ################################################################################
@@ -71,7 +72,7 @@ def prep_availability(p_src, f_availability, d_date_duty, d_member, d_cal):
 
 
 ################################################################################
-# Prepare data of member specs and  assignment limits
+# Prepare data of member specs and assignment limits
 ################################################################################
 def prep_member(p_member, f_member, l_class_duty):
     l_col_member = ['id_member','name_jpn','title_jpn','designation_jpn','ect_asgn_jpn','name','title_short','designation', 'team', 'ect_leader', 'ect_subleader']
@@ -158,16 +159,17 @@ def prep_calendar(l_holiday, l_day_ect, day_em, l_week_em,
     l_date_hd = d_cal.loc[d_cal['holiday'] == True, 'date'].tolist()
     l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].tolist()
 
-    l_class_duty = {
-        'day_wd': [[l_date_wd, 'am'], [l_date_wd, 'pm']],'day_hd': [[l_date_hd, 'day']],
-        'night_tot': [[l_date_all, 'night']], 'night_em': [[l_date_em, 'night']],
-        'night_wd': [[l_date_wd, 'night']], 'night_hd': [[l_date_hd, 'night']],
+    dict_class_duty = {
+        'ampm': [[l_date_wd, 'am'], [l_date_wd, 'pm']],
+        'daynight_tot': [[l_date_hd, 'day'],[l_date_all, 'night']], 
+        'night_em': [[l_date_em, 'night']],'night_wd': [[l_date_wd, 'night']],
+        'day_hd': [[l_date_hd, 'day']],'night_hd': [[l_date_hd, 'night']],
         'oc_tot': [[l_date_hd, 'ocday'], [l_date_all, 'ocnight']],'oc_hd_day': [[l_date_hd, 'ocday']],
         'oc_other': [[l_date_all, 'ocnight']],'ect': [[l_date_ect, 'ect']]}
     
-    d_duty_date_class = pd.DataFrame([[False]*len(l_class_duty)]*len(d_date_duty), index = d_date_duty['date_duty'], columns = l_class_duty)
-    for class_duty in l_class_duty:
-        ll_date_duty= l_class_duty[class_duty]
+    d_duty_date_class = pd.DataFrame([[False]*len(dict_class_duty)]*len(d_date_duty), index = d_date_duty['date_duty'], columns = list(dict_class_duty.keys()))
+    for class_duty in dict_class_duty:
+        ll_date_duty= dict_class_duty[class_duty]
         for l_date_duty in ll_date_duty:
             l_date = l_date_duty[0]
             duty =  l_date_duty[1]

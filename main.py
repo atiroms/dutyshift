@@ -20,13 +20,9 @@ l_holiday = [29]
 #month_plan = None
 #l_holiday = [3, 4, 5]
 
-#p_src = 'D:/NICT_WS/Dropbox/dutyshift/test'
-#p_dst = 'D:/NICT_WS/Dropbox/dutyshift/test'
-p_src = 'D:/atiro/Dropbox/dutyshift/test'
-p_dst = 'D:/atiro/Dropbox/dutyshift/test'
-#p_src = '/Users/smrt/Dropbox/dutyshift/test'
-#p_dst = '/Users/smrt/Dropbox/dutyshift/test'
-f_member = 'member03.csv'
+d_src = 'test'
+d_dst = 'test'
+f_member = 'member04.csv'
 f_availability = 'availability02.csv'
 
 # Fixed parameters
@@ -34,7 +30,7 @@ l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em = 2 # Wednesday
 l_week_em = [1, 3] # 1st and 3rd weeks
 
-l_class_duty = ['day_wd','day_hd','night_tot','night_em','night_wd','night_hd','oc_tot','oc_hd_day','oc_other','ect']
+l_class_duty = ['ampm','daynight_tot','night_em','night_wd','day_hd','night_hd','oc_tot','oc_hd_day','oc_other','ect']
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'ocnight': 6}
 c_outlier_hard = 0.7
 c_outlier_soft = 0.3
@@ -50,10 +46,12 @@ c_assign_suboptimal = 0.1
 # Script path
 ###############################################################################
 p_script = None
-for dir in ['/home/atiroms/Documents','D:/atiro','C:/Users/NICT_WS','/Users/smrt']:
-    if os.path.isdir(dir):
-        p_script=os.path.join(dir,'GitHub/dutyshift')
-        os.chdir(p_script) 
+for p_root in ['/home/atiroms/Documents','D:/atiro','C:/Users/NICT_WS','/Users/smrt']:
+    if os.path.isdir(p_root):
+        p_script=os.path.join(p_root,'GitHub/dutyshift')
+        os.chdir(p_script)
+        p_src = os.path.join(p_root, 'Dropbox/dutyshift', d_src)
+        p_dst = os.path.join(p_root, 'Dropbox/dutyshift', d_dst)
 if p_script is None:
     print('No root directory.')
 
@@ -67,6 +65,7 @@ from helper import *
 d_cal, l_date, d_date_duty, d_duty_date_class, year_plan, month_plan \
     = prep_calendar(l_holiday, l_day_ect, day_em, l_week_em, year_plan, month_plan)
 
+# Prepare calendar for google forms
 #d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
 
 # Prepare data of member specs and assignment limits
@@ -111,10 +110,11 @@ for duty in ['day', 'night']:
     for date in d_date_duty[d_date_duty['duty'] == duty]['date'].to_list():
         date_duty = str(date) + '_' + duty
         date_duty_oc = str(date) + '_oc' + duty
-        # Sum of dot product of (normal and oc assignments) and (designation)
-        # Returns number of 'designated' member assigned in the same date/time, which should be 1
-        problem += (lpSum(lpDot(dv_assign.loc[[date_duty, date_duty_oc]].to_numpy(),
-                                np.array([d_member.loc[d_member['id_member'].isin(l_member), 'designation']]*2))) == 1)
+        if date_duty_oc in d_date_duty['date_duty'].to_list():
+            # Sum of dot product of (normal and oc assignments) and (designation)
+            # Returns number of 'designated' member assigned in the same date/time, which should be 1
+            problem += (lpSum(lpDot(dv_assign.loc[[date_duty, date_duty_oc]].to_numpy(),
+                                    np.array([d_member.loc[d_member['id_member'].isin(l_member), 'designation']]*2))) == 1)
 
 
 ###############################################################################
