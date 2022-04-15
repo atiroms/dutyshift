@@ -13,12 +13,12 @@ from ortoolpy import addvars, addbinvars
 # Parameters
 ###############################################################################
 # Unfixed parameters
-#year_plan = 2022
-#month_plan = 4
-#l_holiday = [29]
-year_plan = None
-month_plan = None
-l_holiday = [3, 4, 5]
+year_plan = 2022
+month_plan = 4
+l_holiday = [29]
+#year_plan = None
+#month_plan = None
+#l_holiday = [3, 4, 5]
 
 #p_src = 'D:/NICT_WS/Dropbox/dutyshift/test'
 #p_src = 'D:/atiro/Dropbox/dutyshift/test'
@@ -37,20 +37,24 @@ l_class_duty = ['day_wd','day_hd','night_tot','night_em','night_wd','night_hd','
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'ocnight': 6}
 c_outlier_hard = 0.7
 c_outlier_soft = 0.3
-thr_interval = 4
+#thr_interval = 4
+thr_interval_daynight = 4
+thr_interval_ect = 4
+thr_interval_ampm = 2
 c_interval = 0.5
 c_assign_suboptimal = 0.1
+
 
 ###############################################################################
 # Script path
 ###############################################################################
-path_script=None
+p_script = None
 for dir in ['/home/atiroms/Documents','D:/atiro','C:/Users/NICT_WS','/Users/smrt']:
     if os.path.isdir(dir):
-        path_script=os.path.join(dir,'GitHub/dutyshift')
-        os.chdir(path_script) 
-if path_script is None:
-    print('No Script directory.')
+        p_script=os.path.join(dir,'GitHub/dutyshift')
+        os.chdir(p_script) 
+if p_script is None:
+    print('No root directory.')
 
 from helper import *
 
@@ -62,7 +66,7 @@ from helper import *
 d_cal, l_date, d_date_duty, d_duty_date_class, year_plan, month_plan \
     = prep_calendar(l_holiday, l_day_ect, day_em, l_week_em, year_plan, month_plan)
 
-d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
+#d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
 
 # Prepare data of member specs and assignment limits
 d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
@@ -142,36 +146,30 @@ for member in l_member:
 ###############################################################################
 # Avoid overlapping / adjacent / close assignments
 ###############################################################################
-# Penalize ['day', 'ocday', 'night', 'ocnight'] in N(thr_interval) continuous days
+# Penalize ['day', 'ocday', 'night', 'ocnight'] in N(thr_interval_daynight) continuous days
+# Penalize 'ect' in N(thr_interval_ect) continuous days
+# Penalize ['am','pm'] in N(thr_interval_ampm) continuous days
 # TODO: consider previous month assignment
-for date_start in [d for d in range(-thr_interval + 2, 1)] + l_date:
-    # Create list of continuous date_duty's
-    l_date_duty_temp = []
-    for date in range(date_start, date_start + thr_interval):
-        for duty in ['day', 'ocday', 'night', 'ocnight']:
-            date_duty_temp = str(date) + '_' + duty
-            if date_duty_temp in dv_assign.index:
-                l_date_duty_temp.append(date_duty_temp)
-    if len(l_date_duty_temp) >= 2:
-        for member in l_member:
-            problem += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
+l_closeduty = [[thr_interval_daynight, ['day', 'ocday', 'night', 'ocnight']],
+               [thr_interval_ect, ['ect']],
+               [thr_interval_ampm, ['am', 'pm']]]
 
-# Penalize 'ect' in N(thr_interval) continuous days
-# TODO: consider previous month assignment
-for date_start in [d for d in range(-thr_interval + 2, 1)] + l_date:
-    # Create list of continuous date_duty's
-    l_date_duty_temp = []
-    for date in range(date_start, date_start + thr_interval):
-        for duty in ['ect']:
-            date_duty_temp = str(date) + '_' + duty
-            if date_duty_temp in dv_assign.index:
-                l_date_duty_temp.append(date_duty_temp)
-    if len(l_date_duty_temp) >= 2:
-        for member in l_member:
-            problem += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
+for closeduty in l_closeduty:
+    thr_interval = closeduty[0]
+    l_duty = closeduty[1]
+    for date_start in [d for d in range(-thr_interval + 2, 1)] + l_date:
+        # Create list of continuous date_duty's
+        l_date_duty_temp = []
+        for date in range(date_start, date_start + thr_interval):
+            for duty in l_duty:
+                date_duty_temp = str(date) + '_' + duty
+                if date_duty_temp in dv_assign.index:
+                    l_date_duty_temp.append(date_duty_temp)
+        if len(l_date_duty_temp) >= 2:
+            for member in l_member:
+                problem += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
 
-# Avoid [same-date 'am' and 'pm'],
-#       [same-date 'pm', 'night' and 'ocnight'],
+# Avoid [same-date 'pm', 'night' and 'ocnight'],
 #   and ['night', 'ocnight' and following-date 'ect','am']
 # TODO: consider previous month assignment
 for date in [0] + l_date:
@@ -182,8 +180,7 @@ for date in [0] + l_date:
     date_duty_ect_next = str(date+1) + '_ect'
     date_duty_am_next = str(date+1) + '_am'
     # List of lists of date_duty groups to avoid
-    ll_avoid = [[date_duty_am, date_duty_pm],
-                [date_duty_pm, date_duty_night, date_duty_ocnight],
+    ll_avoid = [[date_duty_pm, date_duty_night, date_duty_ocnight],
                 [date_duty_night, date_duty_ocnight, date_duty_ect_next, date_duty_am_next]]
     for l_avoid in ll_avoid:
         # Check if date_duty exists
