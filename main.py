@@ -21,10 +21,11 @@ l_holiday = [29]
 #l_holiday = [3, 4, 5]
 
 #p_src = 'D:/NICT_WS/Dropbox/dutyshift/test'
-#p_src = 'D:/atiro/Dropbox/dutyshift/test'
-#p_dst = 'D:/atiro/Dropbox/dutyshift/test'
-p_src = '/Users/smrt/Dropbox/dutyshift/test'
-p_dst = '/Users/smrt/Dropbox/dutyshift/test'
+#p_dst = 'D:/NICT_WS/Dropbox/dutyshift/test'
+p_src = 'D:/atiro/Dropbox/dutyshift/test'
+p_dst = 'D:/atiro/Dropbox/dutyshift/test'
+#p_src = '/Users/smrt/Dropbox/dutyshift/test'
+#p_dst = '/Users/smrt/Dropbox/dutyshift/test'
 f_member = 'member03.csv'
 f_availability = 'availability02.csv'
 
