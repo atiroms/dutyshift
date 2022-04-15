@@ -33,18 +33,21 @@ def prep_forms(p_dst, d_cal, month_plan, dict_duty):
 
     # All duties
     d_cal_duty.to_csv(os.path.join(p_dst, 'cal_duty_all.csv'), index = False)
-
     # Associate professor
-    d_cal_duty_assoc = d_cal_duty[d_cal_duty['duty'].isin(['odcay','ocnight'])]
+    d_cal_duty_assoc = d_cal_duty[d_cal_duty['duty'].isin(['ocday','ocnight'])]
     d_cal_duty_assoc.to_csv(os.path.join(p_dst, 'cal_duty_assoc.csv'), index = False, columns = ['title_dateduty'])  
-    
     # Instructor
-    d_cal_duty_instr = d_cal_duty[d_cal_duty['duty'].isin(['am','pm','odcay','ocnight'])]
+    d_cal_duty_instr = d_cal_duty[d_cal_duty['duty'].isin(['am','pm','ocday','ocnight'])]
     d_cal_duty_instr.to_csv(os.path.join(p_dst, 'cal_duty_instr.csv'), index = False, columns = ['title_dateduty'])  
-    
     # Limited-term instructor and assistant professor
-    d_cal_duty_assist = d_cal_duty[d_cal_duty['duty'].isin(['am','pm','odcay','ocnight'])]
+    d_cal_duty_assist = d_cal_duty[d_cal_duty['duty'].isin(['am','pm','day','night','ocday','ocnight'])]
     d_cal_duty_assist.to_csv(os.path.join(p_dst, 'cal_duty_assist.csv'), index = False, columns = ['title_dateduty'])  
+    # Limited-term clinician
+    d_cal_duty_limtermclin = d_cal_duty[d_cal_duty['duty'].isin(['am','pm','day','night']) & (d_cal_duty['em'] == False)]
+    d_cal_duty_limtermclin.to_csv(os.path.join(p_dst, 'cal_duty_limtermclin.csv'), index = False, columns = ['title_dateduty'])  
+    # Graduate student
+    d_cal_duty_stud = d_cal_duty[d_cal_duty['duty'].isin(['day','night']) & (d_cal_duty['em'] == False)]
+    d_cal_duty_stud.to_csv(os.path.join(p_dst, 'cal_duty_stud.csv'), index = False, columns = ['title_dateduty'])  
     
     return d_cal_duty
 
