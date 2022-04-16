@@ -115,6 +115,10 @@ def prep_member(p_member, f_member, l_class_duty):
 def prep_calendar(l_holiday, l_day_ect, day_em, l_week_em,
                   year_plan = None, month_plan = None):
     dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
+    d_duty_score = pd.DataFrame({'duty': ['am', 'pm', 'day', 'night', 'ocday', 'ocnight', 'ect'],
+                                 'score_duty': [0.5, 0.5, 1, 1, 0, 0, 0],
+                                 'score_oc': [0, 0, 0, 0, 1, 1, 0],
+                                 'score_ect': [0, 0, 0, 0, 0, 0, 1]})
     
     if month_plan is None:
         # Prepare next month
@@ -141,15 +145,17 @@ def prep_calendar(l_holiday, l_day_ect, day_em, l_week_em,
     d_cal.loc[d_cal['em'] == True, 'ocnight'] = False
 
     # Prepare d_date_duty
-    l_date_duty, l_date, l_duty = [], [], []
+    ld_date_duty = []
     for duty in ['am', 'pm', 'day', 'night', 'ocday', 'ocnight', 'ect']:
-        l_date_append = d_cal.loc[d_cal[duty] == True, 'date'].tolist()
-        l_date += l_date_append
-        l_duty_append = [duty]*len(l_date_append)
-        l_duty += l_duty_append
-        l_date_duty_append = [str(date) + '_' + duty for date in l_date_append]
-        l_date_duty += l_date_duty_append
-    d_date_duty = pd.DataFrame({'date_duty': l_date_duty, 'date': l_date, 'duty': l_duty})
+        d_date_duty_append = d_cal.loc[d_cal[duty] == True, ['date', 'holiday','em']]
+        d_date_duty_append['duty'] = duty
+        d_date_duty_append['date_duty'] = d_date_duty_append['date'].apply(lambda x: str(x) + '_' + duty)
+        ld_date_duty.append(d_date_duty_append)
+    d_date_duty = pd.concat(ld_date_duty, axis = 0)
+    d_date_duty = d_date_duty[['date_duty','date','duty','holiday','em']]
+    d_date_duty.index = range(len(d_date_duty))
+    d_date_duty = pd.merge(d_date_duty, d_duty_score, on = 'duty', how = 'left')
+    d_date_duty.loc[(d_date_duty['duty'] == 'night') & (d_date_duty['em'] == True), 'score_duty'] = 1.5
 
     # d_duty_date_class
     # Specify which class_duty's apply to each date_duty
@@ -167,15 +173,13 @@ def prep_calendar(l_holiday, l_day_ect, day_em, l_week_em,
         'oc_tot': [[l_date_hd, 'ocday'], [l_date_all, 'ocnight']],'oc_hd_day': [[l_date_hd, 'ocday']],
         'oc_other': [[l_date_all, 'ocnight']],'ect': [[l_date_ect, 'ect']]}
     
-    d_duty_date_class = pd.DataFrame([[False]*len(dict_class_duty)]*len(d_date_duty), index = d_date_duty['date_duty'], columns = list(dict_class_duty.keys()))
     for class_duty in dict_class_duty:
+        d_date_duty[class_duty] = False
         ll_date_duty= dict_class_duty[class_duty]
         for l_date_duty in ll_date_duty:
             l_date = l_date_duty[0]
             duty =  l_date_duty[1]
             idx_temp = d_date_duty.loc[(d_date_duty['date'].isin(l_date)) & (d_date_duty['duty'] == duty), 'date_duty'].tolist()
-            d_duty_date_class.loc[idx_temp, class_duty] = True
+            d_date_duty.loc[d_date_duty['date_duty'].isin(idx_temp), class_duty] = True
 
-    l_date = d_date_duty['date'].tolist()
-
-    return d_cal, l_date, d_date_duty, d_duty_date_class, year_plan, month_plan
+    return d_cal, d_date_duty, year_plan, month_plan

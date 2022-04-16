@@ -32,9 +32,16 @@ l_week_em = [1, 3] # 1st and 3rd weeks
 
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','day_hd','night_hd','oc_tot','oc_hd_day','oc_other','ect']
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'ocnight': 6}
+l_title_scoregroup = [['assoc'], ['instr'], ['limterm_instr','assist'], ['limterm_clin'], ['stud']]
+
 c_outlier_hard = 0.7
 c_outlier_soft = 0.3
-#thr_interval = 4
+c_scorediff_total = 0.5
+c_scorediff_dutyoc = 0.5
+c_scorediff_duty = 0.5
+c_scorediff_oc = 0.5
+c_scorediff_ect = 0.5
+
 thr_interval_daynight = 4
 thr_interval_ect = 4
 thr_interval_ampm = 2
@@ -62,11 +69,11 @@ from helper import *
 # Load and prepare data
 ###############################################################################
 # Prepare calendar of the month
-d_cal, l_date, d_date_duty, d_duty_date_class, year_plan, month_plan \
+d_cal, d_date_duty, year_plan, month_plan \
     = prep_calendar(l_holiday, l_day_ect, day_em, l_week_em, year_plan, month_plan)
 
 # Prepare calendar for google forms
-#d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
+d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
 
 # Prepare data of member specs and assignment limits
 d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
@@ -130,17 +137,17 @@ for member in l_member:
         lim_hard = d_lim_hard.loc[member, class_duty]
         if ~np.isnan(lim_hard[0]):
             problem += (dv_outlier_hard.loc[member, class_duty] >= \
-                        lpDot(dv_assign.loc[:, member], d_duty_date_class.loc[:, class_duty]) - lim_hard[1])
+                        lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_hard[1])
             problem += (dv_outlier_hard.loc[member, class_duty] >= \
-                        lim_hard[0] - lpDot(dv_assign.loc[:, member], d_duty_date_class.loc[:, class_duty]))
+                        lim_hard[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
             problem += (dv_outlier_hard.loc[member, class_duty] >= 0)
 
         lim_soft = d_lim_soft.loc[member, class_duty]
         if ~np.isnan(lim_soft[0]):
             problem += (dv_outlier_soft.loc[member, class_duty] >= \
-                        lpDot(dv_assign.loc[:, member], d_duty_date_class.loc[:, class_duty]) - lim_soft[1])
+                        lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_soft[1])
             problem += (dv_outlier_soft.loc[member, class_duty] >= \
-                        lim_soft[0] - lpDot(dv_assign.loc[:, member], d_duty_date_class.loc[:, class_duty]))
+                        lim_soft[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
             problem += (dv_outlier_soft.loc[member, class_duty] >= 0)
 
 
@@ -158,7 +165,7 @@ l_closeduty = [[thr_interval_daynight, ['day', 'ocday', 'night', 'ocnight']],
 for closeduty in l_closeduty:
     thr_interval = closeduty[0]
     l_duty = closeduty[1]
-    for date_start in [d for d in range(-thr_interval + 2, 1)] + l_date:
+    for date_start in [d for d in range(-thr_interval + 2, 1)] + d_cal['date'].tolist():
         # Create list of continuous date_duty's
         l_date_duty_temp = []
         for date in range(date_start, date_start + thr_interval):
@@ -173,7 +180,7 @@ for closeduty in l_closeduty:
 # Avoid [same-date 'pm', 'night' and 'ocnight'],
 #   and ['night', 'ocnight' and following-date 'ect','am']
 # TODO: consider previous month assignment
-for date in [0] + l_date:
+for date in [0] + d_cal['date'].tolist():
     date_duty_am = str(date) + '_am'
     date_duty_pm = str(date) + '_pm'
     date_duty_night = str(date) + '_night'
@@ -209,8 +216,40 @@ for date in l_date_ect:
 
 
 ###############################################################################
-# TODO: Equalize points per member
+# Equalize scores per member
 ###############################################################################
+# Calculate scores
+dv_score = pd.DataFrame(np.array(addvars(len(l_member), 5)),
+                        index = l_member, columns = ['score_total', 'score_dutyoc','score_duty','score_oc','score_ect'])
+for type_score in ['duty','oc','ect']:
+    a_score = d_date_duty['score_' + type_score].to_numpy()
+    for id_member in l_member:
+        problem += (dv_score.loc[id_member, 'score_' + type_score] ==\
+                    lpSum(lpDot(a_score,dv_assign.loc[:, id_member])))
+for id_member in l_member:
+    problem += (dv_score.loc[id_member, 'score_dutyoc'] ==\
+                dv_score.loc[id_member, 'score_duty'] + dv_score.loc[id_member, 'score_oc'])
+    problem += (dv_score.loc[id_member, 'score_total'] ==\
+                dv_score.loc[id_member, 'score_dutyoc'] + dv_score.loc[id_member, 'score_ect'])
+
+# Calculate score differences
+l_type_score = ['total','dutyoc','duty','oc','ect']
+dv_scorediff = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
+                            index = range(len(l_title_scoregroup)), columns = l_type_score)
+lav_scorediff = []
+for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
+    l_member_scoregroup = d_member.loc[d_member['title_short'].isin(title_scoregroup), 'id_member'].to_list()
+    l_member_scoregroup = [id_member for id_member in l_member_scoregroup if id_member in l_member]
+    lav_scorediff_append = []
+    for type_score in l_type_score:
+        lav_scorediff_append.append(np.array(addvars(len(l_member_scoregroup), len(l_member_scoregroup))))
+        for i in range(len(l_member_scoregroup)):
+            for j in range(len(l_member_scoregroup)):
+                problem += (lav_scorediff_append[-1][i,j] >= dv_score.loc[l_member_scoregroup[i], 'score_' + type_score] -\
+                                                             dv_score.loc[l_member_scoregroup[j], 'score_' + type_score])
+                problem += (lav_scorediff_append[-1][i,j] >= 0)
+        problem += (dv_scorediff.loc[id_scoregroup, type_score] == lpSum(lav_scorediff_append[-1]))
+    lav_scorediff.append(lav_scorediff_append)
 
 
 ###############################################################################
@@ -218,6 +257,10 @@ for date in l_date_ect:
 ###############################################################################
 problem += (c_outlier_hard * lpSum(dv_outlier_hard.to_numpy()) \
           + c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
+          + c_scorediff_dutyoc * lpSum(dv_scorediff['dutyoc'].to_numpy()) \
+          + c_scorediff_duty * lpSum(dv_scorediff['duty'].to_numpy()) \
+          + c_scorediff_oc * lpSum(dv_scorediff['oc'].to_numpy()) \
+          + c_scorediff_ect * lpSum(dv_scorediff['ect'].to_numpy()) \
           + c_assign_suboptimal * v_assign_suboptimal)
 
 
