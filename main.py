@@ -36,11 +36,11 @@ l_title_scoregroup = [['assoc'], ['instr'], ['limterm_instr','assist'], ['limter
 
 c_outlier_hard = 0.7
 c_outlier_soft = 0.3
-c_scorediff_total = 0.0
-c_scorediff_dutyoc = 0.5
-c_scorediff_duty = 0.5
-c_scorediff_oc = 0.5
-c_scorediff_ect = 0.5
+c_scorediff_total = 0.0001
+c_scorediff_dutyoc = 0.001
+c_scorediff_duty = 0.001
+c_scorediff_oc = 0.001
+c_scorediff_ect = 0.001
 
 thr_interval_daynight = 4
 thr_interval_ect = 4
@@ -218,7 +218,6 @@ for date in l_date_ect:
 ###############################################################################
 # Calculate scores
 l_type_score = ['total','dutyoc','duty','oc','ect']
-
 dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
                         index = l_member, columns = l_type_score)
 for type_score in ['duty','oc','ect']:
@@ -232,39 +231,23 @@ for id_member in l_member:
     problem += (dv_score.loc[id_member, 'total'] ==\
                 dv_score.loc[id_member, 'dutyoc'] + dv_score.loc[id_member, 'ect'])
 
-# Calculate score max - min
-dv_score_max = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
-                            index = range(len(l_title_scoregroup)), columns = l_type_score)
-dv_score_min = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
-                            index = range(len(l_title_scoregroup)), columns = l_type_score)            
+# Calculate score differences
+dv_scorediff_sum = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
+                                index = range(len(l_title_scoregroup)), columns = l_type_score)
+dict_dv_scorediff = {}
+for type_score in l_type_score:
+    dict_dv_scorediff[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
 
 for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
     l_member_scoregroup = d_member.loc[d_member['title_short'].isin(title_scoregroup), 'id_member'].to_list()
     l_member_scoregroup = [id_member for id_member in l_member_scoregroup if id_member in l_member]
     for type_score in l_type_score:
-        for id_member in l_member_scoregroup:
-            problem += (dv_score_max.loc[id_scoregroup, type_score] >=\
-                        dv_score.loc[id_member, type_score])
-            problem += (dv_score_min.loc[id_scoregroup, type_score] <=\
-                        dv_score.loc[id_member, type_score])
-
-## Calculate score differences
-#dv_scorediff_sum = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
-#                                index = range(len(l_title_scoregroup)), columns = l_type_score)
-#dict_dv_scorediff = {}
-#for type_score in l_type_score:
-#    dict_dv_scorediff[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
-#
-#for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
-#    l_member_scoregroup = d_member.loc[d_member['title_short'].isin(title_scoregroup), 'id_member'].to_list()
-#    l_member_scoregroup = [id_member for id_member in l_member_scoregroup if id_member in l_member]
-#    for type_score in l_type_score:
-#        for id_member_0 in l_member_scoregroup:
-#            for id_member_1 in l_member_scoregroup:
-#                problem += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >=\
-#                            dv_score.loc[id_member_0, type_score] - dv_score.loc[id_member_1, type_score])
-#        problem += (dv_scorediff_sum.loc[id_scoregroup, type_score] ==\
-#                    lpSum(dict_dv_scorediff[type_score].loc[l_member_scoregroup, l_member_scoregroup].to_numpy()))
+        for id_member_0 in l_member_scoregroup:
+            for id_member_1 in l_member_scoregroup:
+                problem += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >=\
+                            dv_score.loc[id_member_0, type_score] - dv_score.loc[id_member_1, type_score])
+        problem += (dv_scorediff_sum.loc[id_scoregroup, type_score] ==\
+                    lpSum(dict_dv_scorediff[type_score].loc[l_member_scoregroup, l_member_scoregroup].to_numpy()))
 
 
 ###############################################################################
@@ -272,23 +255,12 @@ for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
 ###############################################################################
 problem += (c_outlier_hard * lpSum(dv_outlier_hard.to_numpy()) \
           + c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
-          + c_scorediff_total * lpSum(dv_score_max['total'].to_numpy()) \
-          + (-1) * c_scorediff_total * lpSum(dv_score_min['total'].to_numpy()) \
-          + c_scorediff_dutyoc * lpSum(dv_score_max['dutyoc'].to_numpy()) \
-          + (-1) * c_scorediff_dutyoc * lpSum(dv_score_min['dutyoc'].to_numpy()) \
-          + c_scorediff_duty * lpSum(dv_score_max['duty'].to_numpy()) \
-          + (-1) * c_scorediff_duty * lpSum(dv_score_min['duty'].to_numpy()) \
-          + c_scorediff_oc * lpSum(dv_score_max['oc'].to_numpy()) \
-          + (-1) * c_scorediff_oc * lpSum(dv_score_min['oc'].to_numpy()) \
-          + c_scorediff_ect * lpSum(dv_score_max['ect'].to_numpy()) \
-          + (-1) * c_scorediff_ect * lpSum(dv_score_min['ect'].to_numpy()) \
+          + c_scorediff_total * lpSum(dv_scorediff_sum['total'].to_numpy()) \
+          + c_scorediff_dutyoc * lpSum(dv_scorediff_sum['dutyoc'].to_numpy()) \
+          + c_scorediff_duty * lpSum(dv_scorediff_sum['duty'].to_numpy()) \
+          + c_scorediff_oc * lpSum(dv_scorediff_sum['oc'].to_numpy()) \
+          + c_scorediff_ect * lpSum(dv_scorediff_sum['ect'].to_numpy()) \
           + c_assign_suboptimal * v_assign_suboptimal)
-
-          #+ c_scorediff_total * lpSum(dv_scorediff_sum['total'].to_numpy()) \
-          #+ c_scorediff_dutyoc * lpSum(dv_scorediff_sum['dutyoc'].to_numpy()) \
-          #+ c_scorediff_duty * lpSum(dv_scorediff_sum['duty'].to_numpy()) \
-          #+ c_scorediff_oc * lpSum(dv_scorediff_sum['oc'].to_numpy()) \
-          #+ c_scorediff_ect * lpSum(dv_scorediff_sum['ect'].to_numpy()) \
 
           
 ###############################################################################
