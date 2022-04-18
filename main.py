@@ -36,7 +36,7 @@ l_title_scoregroup = [['assoc'], ['instr'], ['limterm_instr','assist'], ['limter
 
 c_outlier_hard = 0.7
 c_outlier_soft = 0.3
-c_scorediff_total = 0.5
+c_scorediff_total = 0.0
 c_scorediff_dutyoc = 0.5
 c_scorediff_duty = 0.5
 c_scorediff_oc = 0.5
@@ -219,37 +219,38 @@ for date in l_date_ect:
 # Equalize scores per member
 ###############################################################################
 # Calculate scores
+l_type_score = ['total','dutyoc','duty','oc','ect']
 dv_score = pd.DataFrame(np.array(addvars(len(l_member), 5)),
-                        index = l_member, columns = ['score_total', 'score_dutyoc','score_duty','score_oc','score_ect'])
+                        index = l_member, columns = l_type_score)
 for type_score in ['duty','oc','ect']:
     a_score = d_date_duty['score_' + type_score].to_numpy()
     for id_member in l_member:
-        problem += (dv_score.loc[id_member, 'score_' + type_score] ==\
-                    lpSum(lpDot(a_score,dv_assign.loc[:, id_member])))
+        problem += (dv_score.loc[id_member, type_score] ==\
+                    lpDot(a_score,dv_assign.loc[:, id_member]))
 for id_member in l_member:
-    problem += (dv_score.loc[id_member, 'score_dutyoc'] ==\
-                dv_score.loc[id_member, 'score_duty'] + dv_score.loc[id_member, 'score_oc'])
-    problem += (dv_score.loc[id_member, 'score_total'] ==\
-                dv_score.loc[id_member, 'score_dutyoc'] + dv_score.loc[id_member, 'score_ect'])
+    problem += (dv_score.loc[id_member, 'dutyoc'] ==\
+                dv_score.loc[id_member, 'duty'] + dv_score.loc[id_member, 'oc'])
+    problem += (dv_score.loc[id_member, 'total'] ==\
+                dv_score.loc[id_member, 'dutyoc'] + dv_score.loc[id_member, 'ect'])
 
 # Calculate score differences
-l_type_score = ['total','dutyoc','duty','oc','ect']
-dv_scorediff = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
-                            index = range(len(l_title_scoregroup)), columns = l_type_score)
-lav_scorediff = []
+#dv_scorediff_sum = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
+#                                index = range(len(l_title_scoregroup)), columns = l_type_score)
+dict_dv_scorediff = {}
+for type_score in l_type_score:
+    dict_dv_scorediff[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
+
 for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
     l_member_scoregroup = d_member.loc[d_member['title_short'].isin(title_scoregroup), 'id_member'].to_list()
     l_member_scoregroup = [id_member for id_member in l_member_scoregroup if id_member in l_member]
-    lav_scorediff_append = []
     for type_score in l_type_score:
-        lav_scorediff_append.append(np.array(addvars(len(l_member_scoregroup), len(l_member_scoregroup))))
-        for i in range(len(l_member_scoregroup)):
-            for j in range(len(l_member_scoregroup)):
-                problem += (lav_scorediff_append[-1][i,j] >= dv_score.loc[l_member_scoregroup[i], 'score_' + type_score] -\
-                                                             dv_score.loc[l_member_scoregroup[j], 'score_' + type_score])
-                problem += (lav_scorediff_append[-1][i,j] >= 0)
-        problem += (dv_scorediff.loc[id_scoregroup, type_score] == lpSum(lav_scorediff_append[-1]))
-    lav_scorediff.append(lav_scorediff_append)
+        for id_member_0 in l_member_scoregroup:
+            for id_member_1 in l_member_scoregroup:
+                problem += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >=\
+                            dv_score.loc[id_member_0, type_score] - dv_score.loc[id_member_1, type_score])
+                problem += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >= 0)
+        #problem += (dv_scorediff_sum.loc[id_scoregroup, type_score] ==\
+        #            lpSum(dict_dv_scorediff[type_score].loc[l_member_scoregroup, l_member_scoregroup].to_numpy()))
 
 
 ###############################################################################
@@ -257,13 +258,18 @@ for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
 ###############################################################################
 problem += (c_outlier_hard * lpSum(dv_outlier_hard.to_numpy()) \
           + c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
-          + c_scorediff_dutyoc * lpSum(dv_scorediff['dutyoc'].to_numpy()) \
-          + c_scorediff_duty * lpSum(dv_scorediff['duty'].to_numpy()) \
-          + c_scorediff_oc * lpSum(dv_scorediff['oc'].to_numpy()) \
-          + c_scorediff_ect * lpSum(dv_scorediff['ect'].to_numpy()) \
+          + c_scorediff_dutyoc * lpSum(dict_dv_scorediff['dutyoc'].to_numpy()) \
+          + c_scorediff_duty * lpSum(dict_dv_scorediff['duty'].to_numpy()) \
+          + c_scorediff_oc * lpSum(dict_dv_scorediff['oc'].to_numpy()) \
+          + c_scorediff_ect * lpSum(dict_dv_scorediff['ect'].to_numpy()) \
           + c_assign_suboptimal * v_assign_suboptimal)
 
-
+          #+ c_scorediff_total * lpSum(dv_scorediff_sum['total'].to_numpy()) \
+          #+ c_scorediff_dutyoc * lpSum(dv_scorediff_sum['dutyoc'].to_numpy()) \
+          #+ c_scorediff_duty * lpSum(dv_scorediff_sum['duty'].to_numpy()) \
+          #+ c_scorediff_oc * lpSum(dv_scorediff_sum['oc'].to_numpy()) \
+          #+ c_scorediff_ect * lpSum(dv_scorediff_sum['ect'].to_numpy()) \
+          
 ###############################################################################
 # Solve problem
 ###############################################################################
@@ -280,36 +286,10 @@ print('Solved: ' + str(LpStatus[problem.status]) + ', ' + str(round(v_objective,
 # Extract data
 ###############################################################################
 
-d_assign = pd.DataFrame(np.vectorize(value)(dv_assign), columns = l_member, index = dv_assign.index).astype(bool)
 
-# Assignments with date_duty as row
-d_assign_date = pd.concat([pd.Series(d_assign.index, index = d_assign.index, name = 'date_duty'),
-                           pd.Series(d_assign.sum(axis = 1), name = 'cnt'),
-                           pd.Series(d_assign.apply(lambda row: row[row].index.to_list(), axis = 1), name = 'id_member')],
-                           axis = 1)
-d_assign_date.index = range(len(d_assign_date))
-d_assign_date['id_member'] = d_assign_date['id_member'].apply(lambda x: x[0] if len(x) > 0 else np.nan)
-d_assign_date = pd.merge(d_assign_date, d_member.loc[:,['id_member','name_jpn','name']], on = 'id_member', how = 'left')
-d_assign_date = pd.merge(d_assign_date, d_date_duty, on = 'date_duty', how = 'left')
-d_assign_date = d_assign_date.loc[:,['date_duty', 'date','duty', 'id_member','name','name_jpn','cnt']]
-
-# Assignments with date as row
-d_assign_print = d_cal.loc[:,['date','wday_jpn','holiday', 'em']].copy()
-d_assign_print[['am','pm','day','night','ocday','ocnight','ect']] = np.nan
-for idx, row in d_assign_date.iterrows():
-    date = row['date']
-    duty = row['duty']
-    name_jpn = row['name_jpn']
-    d_assign_print.loc[d_assign_print['date'] == date, duty] = name_jpn
-
-# Assignments with member as row
-d_assign_optimal = pd.DataFrame((d_availability == 2) & d_assign, columns = l_member, index = dv_assign.index)                         
-d_assign_suboptimal = pd.DataFrame((d_availability == 1) & d_assign, columns = l_member, index = dv_assign.index)
-d_assign_error = pd.DataFrame((d_availability == 0) & d_assign, columns = l_member, index = dv_assign.index)
-d_assign_member = pd.concat([pd.Series(d_assign.sum(axis = 0), index = l_member, name = 'cnt_all'),
-                         pd.Series(d_assign.apply(lambda col: col[col].index.to_list(), axis = 0), index = l_member, name = 'date_all'),
-                         pd.Series(d_assign_optimal.sum(axis = 0), index = l_member, name = 'cnt_opt'),
-                         pd.Series(d_assign_optimal.apply(lambda col: col[col].index.to_list(), axis = 0), index = l_member, name = 'date_opt'),
-                         pd.Series(d_assign_suboptimal.sum(axis = 0), index = l_member, name = 'cnt_sub'),
-                         pd.Series(d_assign_suboptimal.apply(lambda col: col[col].index.to_list(), axis = 0), index = l_member, name = 'date_sub')],
-                         axis = 1)
+d_assign_date, d_assign_date_print, d_assign_member, d_optimization =\
+    prep_output(p_dst, dv_assign, dv_score, dv_outlier_hard, dv_outlier_soft,
+                dv_scorediff_sum, v_assign_suboptimal,
+                c_outlier_hard, c_outlier_soft, c_scorediff_total, c_scorediff_dutyoc,
+                c_scorediff_duty, c_scorediff_oc, c_scorediff_ect, c_assign_suboptimal,
+                d_availability, d_member, l_member, d_date_duty, d_cal)

@@ -2,6 +2,85 @@ import datetime, calendar, os
 import numpy as np
 import pandas as pd
 from math import ceil
+from pulp import *
+
+################################################################################
+# Extract data from optimized variables
+################################################################################
+def prep_output(p_dst, dv_assign, dv_score, dv_outlier_hard, dv_outlier_soft,
+                dv_scorediff_sum, v_assign_suboptimal,
+                c_outlier_hard, c_outlier_soft, c_scorediff_total, c_scorediff_dutyoc,
+                c_scorediff_duty, c_scorediff_oc, c_scorediff_ect, c_assign_suboptimal,
+                d_availability, d_member, l_member, d_date_duty, d_cal):
+    d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
+                        columns = dv_assign.columns, index = dv_assign.index).astype(bool)
+    d_score = pd.DataFrame(np.vectorize(value)(dv_score),
+                        columns = dv_score.columns, index = dv_score.index).astype(float)
+    d_outlier_hard = pd.DataFrame(np.vectorize(value)(dv_outlier_hard),
+                        columns = dv_outlier_hard.columns, index = dv_outlier_hard.index).astype(float)
+    d_outlier_soft = pd.DataFrame(np.vectorize(value)(dv_outlier_soft),
+                        columns = dv_outlier_soft.columns, index = dv_outlier_soft.index).astype(float)
+    d_scorediff_sum = pd.DataFrame(np.vectorize(value)(dv_scorediff_sum),
+                        columns = dv_scorediff_sum.columns, index = dv_scorediff_sum.index).astype(float)
+    v_assign_suboptimal = value(v_assign_suboptimal)
+    
+    # Assignments with date_duty as row
+    d_assign_date = pd.concat([pd.Series(d_assign.index, index = d_assign.index, name = 'date_duty'),
+                               pd.Series(d_assign.sum(axis = 1), name = 'cnt'),
+                               pd.Series(d_assign.apply(lambda row: row[row].index.to_list(), axis = 1), name = 'id_member')],
+                               axis = 1)
+    d_assign_date.index = range(len(d_assign_date))
+    d_assign_date['id_member'] = d_assign_date['id_member'].apply(lambda x: x[0] if len(x) > 0 else np.nan)
+    d_assign_date = pd.merge(d_assign_date, d_member.loc[:,['id_member','name_jpn','name']], on = 'id_member', how = 'left')
+    d_assign_date = pd.merge(d_assign_date, d_date_duty, on = 'date_duty', how = 'left')
+    d_assign_date = d_assign_date.loc[:,['date_duty', 'date','duty', 'id_member','name','name_jpn','cnt']]
+    d_assign_date.to_csv(os.path.join(p_dst, 'assign_date_duty.csv'), index = False)
+
+    # Assignments with date as row for printing
+    d_assign_date_print = d_cal.loc[:,['title_date','date','em']].copy()
+    d_assign_date_print[['am','pm','night','ocday','ocnight','ect']] = ''
+    for idx, row in d_assign_date.loc[d_assign_date['cnt'] > 0].iterrows():
+        date = row['date']
+        duty = row['duty']
+        name_jpn = row['name_jpn']
+        if duty == 'day':
+            d_assign_date_print.loc[d_assign_date_print['date'] == date, 'am'] = name_jpn
+            d_assign_date_print.loc[d_assign_date_print['date'] == date, 'pm'] = name_jpn
+        else:
+            d_assign_date_print.loc[d_assign_date_print['date'] == date, duty] = name_jpn
+    for date in d_assign_date_print.loc[d_assign_date_print['em'] == True, 'date'].tolist():
+        d_assign_date_print.loc[d_assign_date_print['date'] == date, 'night'] += '(救急)'
+    d_assign_date_print = d_assign_date_print.loc[:,['title_date','am','pm','night','ocday','ocnight','ect']]
+    d_assign_date_print.columns = ['日付', '午前日直', '午後日直', '当直', '日直OC', '当直OC', 'ECT']
+    d_assign_date_print.to_csv(os.path.join(p_dst, 'assign_date.csv'), index = False)
+
+    # Assignments with member as row
+    d_assign_optimal = pd.DataFrame((d_availability == 2) & d_assign, columns = l_member, index = d_assign.index)                         
+    d_assign_suboptimal = pd.DataFrame((d_availability == 1) & d_assign, columns = l_member, index = d_assign.index)
+    #d_assign_error = pd.DataFrame((d_availability == 0) & d_assign, columns = l_member, index = d_assign.index)
+    d_assign_member = pd.DataFrame({'id_member': l_member,
+                                    'name_jpn': d_member.loc[d_member['id_member'].isin(l_member),'name_jpn'].tolist(),
+                                    'duty_all': d_assign.apply(lambda col: col[col].index.to_list(), axis = 0),
+                                    'duty_opt': d_assign_optimal.apply(lambda col: col[col].index.to_list(), axis = 0),
+                                    'duty_sub': d_assign_suboptimal.apply(lambda col: col[col].index.to_list(), axis = 0),
+                                    'cnt_all': d_assign.sum(axis = 0),
+                                    'cnt_opt': d_assign_optimal.sum(axis = 0),
+                                    'cnt_sub': d_assign_suboptimal.sum(axis = 0)},
+                                    index = l_member)
+    d_assign_member = pd.concat([d_assign_member, d_score], axis = 1)
+
+    # Optimization results
+    d_optimization = pd.DataFrame([['outlier_hard', c_outlier_hard, d_outlier_hard.sum().sum()],
+                                   ['outlier_soft', c_outlier_soft, d_outlier_soft.sum().sum()],
+                                   ['scorediff_total',c_scorediff_total, d_scorediff_sum['total'].sum()],
+                                   ['scorediff_dutyoc',c_scorediff_dutyoc, d_scorediff_sum['dutyoc'].sum()],
+                                   ['scorediff_duty',c_scorediff_duty, d_scorediff_sum['duty'].sum()],
+                                   ['scorediff_oc',c_scorediff_oc, d_scorediff_sum['oc'].sum()],
+                                   ['scorediff_ect',c_scorediff_ect, d_scorediff_sum['ect'].sum()],
+                                   ['assign_suboptimal', c_assign_suboptimal, v_assign_suboptimal]],
+                                   columns = ['term','constant','value'])
+
+    return d_assign_date, d_assign_date_print, d_assign_member, d_optimization
 
 
 ################################################################################
