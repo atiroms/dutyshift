@@ -53,7 +53,7 @@ c_assign_suboptimal = 0.1
 # Script path
 ###############################################################################
 p_script = None
-for p_root in ['/home/atiroms/Documents','D:/atiro','C:/Users/NICT_WS','/Users/smrt']:
+for p_root in ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']:
     if os.path.isdir(p_root):
         p_script=os.path.join(p_root,'GitHub/dutyshift')
         os.chdir(p_script)
@@ -140,7 +140,6 @@ for member in l_member:
                         lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_hard[1])
             problem += (dv_outlier_hard.loc[member, class_duty] >= \
                         lim_hard[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
-            problem += (dv_outlier_hard.loc[member, class_duty] >= 0)
 
         lim_soft = d_lim_soft.loc[member, class_duty]
         if ~np.isnan(lim_soft[0]):
@@ -148,7 +147,6 @@ for member in l_member:
                         lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_soft[1])
             problem += (dv_outlier_soft.loc[member, class_duty] >= \
                         lim_soft[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
-            problem += (dv_outlier_soft.loc[member, class_duty] >= 0)
 
 
 ###############################################################################
@@ -219,40 +217,54 @@ for date in l_date_ect:
 # Equalize scores per member
 ###############################################################################
 # Calculate scores
-#l_type_score = ['total','dutyoc','duty','oc','ect']
-l_type_score = ['duty']
+l_type_score = ['total','dutyoc','duty','oc','ect']
+
 dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
                         index = l_member, columns = l_type_score)
-#for type_score in ['duty','oc','ect']:
-for type_score in ['duty']:
+for type_score in ['duty','oc','ect']:
     a_score = d_date_duty['score_' + type_score].to_numpy()
     for id_member in l_member:
         problem += (dv_score.loc[id_member, type_score] ==\
                     lpDot(a_score,dv_assign.loc[:, id_member]))
-#for id_member in l_member:
-#    problem += (dv_score.loc[id_member, 'dutyoc'] ==\
-#                dv_score.loc[id_member, 'duty'] + dv_score.loc[id_member, 'oc'])
-#    problem += (dv_score.loc[id_member, 'total'] ==\
-#                dv_score.loc[id_member, 'dutyoc'] + dv_score.loc[id_member, 'ect'])
+for id_member in l_member:
+    problem += (dv_score.loc[id_member, 'dutyoc'] ==\
+                dv_score.loc[id_member, 'duty'] + dv_score.loc[id_member, 'oc'])
+    problem += (dv_score.loc[id_member, 'total'] ==\
+                dv_score.loc[id_member, 'dutyoc'] + dv_score.loc[id_member, 'ect'])
 
-# Calculate score differences
-#dv_scorediff_sum = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
-#                                index = range(len(l_title_scoregroup)), columns = l_type_score)
-dict_dv_scorediff = {}
-for type_score in l_type_score:
-    dict_dv_scorediff[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
+# Calculate score max - min
+dv_score_max = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
+                            index = range(len(l_title_scoregroup)), columns = l_type_score)
+dv_score_min = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
+                            index = range(len(l_title_scoregroup)), columns = l_type_score)            
 
 for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
     l_member_scoregroup = d_member.loc[d_member['title_short'].isin(title_scoregroup), 'id_member'].to_list()
     l_member_scoregroup = [id_member for id_member in l_member_scoregroup if id_member in l_member]
     for type_score in l_type_score:
-        for id_member_0 in l_member_scoregroup:
-            for id_member_1 in l_member_scoregroup:
-                problem += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >=\
-                            dv_score.loc[id_member_0, type_score] - dv_score.loc[id_member_1, type_score])
-                problem += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >= 0)
-        #problem += (dv_scorediff_sum.loc[id_scoregroup, type_score] ==\
-        #            lpSum(dict_dv_scorediff[type_score].loc[l_member_scoregroup, l_member_scoregroup].to_numpy()))
+        for id_member in l_member_scoregroup:
+            problem += (dv_score_max.loc[id_scoregroup, type_score] >=\
+                        dv_score.loc[id_member, type_score])
+            problem += (dv_score_min.loc[id_scoregroup, type_score] <=\
+                        dv_score.loc[id_member, type_score])
+
+## Calculate score differences
+#dv_scorediff_sum = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
+#                                index = range(len(l_title_scoregroup)), columns = l_type_score)
+#dict_dv_scorediff = {}
+#for type_score in l_type_score:
+#    dict_dv_scorediff[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
+#
+#for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
+#    l_member_scoregroup = d_member.loc[d_member['title_short'].isin(title_scoregroup), 'id_member'].to_list()
+#    l_member_scoregroup = [id_member for id_member in l_member_scoregroup if id_member in l_member]
+#    for type_score in l_type_score:
+#        for id_member_0 in l_member_scoregroup:
+#            for id_member_1 in l_member_scoregroup:
+#                problem += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >=\
+#                            dv_score.loc[id_member_0, type_score] - dv_score.loc[id_member_1, type_score])
+#        problem += (dv_scorediff_sum.loc[id_scoregroup, type_score] ==\
+#                    lpSum(dict_dv_scorediff[type_score].loc[l_member_scoregroup, l_member_scoregroup].to_numpy()))
 
 
 ###############################################################################
@@ -260,18 +272,24 @@ for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
 ###############################################################################
 problem += (c_outlier_hard * lpSum(dv_outlier_hard.to_numpy()) \
           + c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
-          + c_scorediff_duty * lpSum(dict_dv_scorediff['duty'].to_numpy()) \
+          + c_scorediff_total * lpSum(dv_score_max['total'].to_numpy()) \
+          + (-1) * c_scorediff_total * lpSum(dv_score_min['total'].to_numpy()) \
+          + c_scorediff_dutyoc * lpSum(dv_score_max['dutyoc'].to_numpy()) \
+          + (-1) * c_scorediff_dutyoc * lpSum(dv_score_min['dutyoc'].to_numpy()) \
+          + c_scorediff_duty * lpSum(dv_score_max['duty'].to_numpy()) \
+          + (-1) * c_scorediff_duty * lpSum(dv_score_min['duty'].to_numpy()) \
+          + c_scorediff_oc * lpSum(dv_score_max['oc'].to_numpy()) \
+          + (-1) * c_scorediff_oc * lpSum(dv_score_min['oc'].to_numpy()) \
+          + c_scorediff_ect * lpSum(dv_score_max['ect'].to_numpy()) \
+          + (-1) * c_scorediff_ect * lpSum(dv_score_min['ect'].to_numpy()) \
           + c_assign_suboptimal * v_assign_suboptimal)
-
-          #+ c_scorediff_dutyoc * lpSum(dict_dv_scorediff['dutyoc'].to_numpy()) \
-          #+ c_scorediff_duty * lpSum(dict_dv_scorediff['duty'].to_numpy()) \
-          #+ c_scorediff_oc * lpSum(dict_dv_scorediff['oc'].to_numpy()) \
 
           #+ c_scorediff_total * lpSum(dv_scorediff_sum['total'].to_numpy()) \
           #+ c_scorediff_dutyoc * lpSum(dv_scorediff_sum['dutyoc'].to_numpy()) \
           #+ c_scorediff_duty * lpSum(dv_scorediff_sum['duty'].to_numpy()) \
           #+ c_scorediff_oc * lpSum(dv_scorediff_sum['oc'].to_numpy()) \
           #+ c_scorediff_ect * lpSum(dv_scorediff_sum['ect'].to_numpy()) \
+
           
 ###############################################################################
 # Solve problem
@@ -288,8 +306,6 @@ print('Solved: ' + str(LpStatus[problem.status]) + ', ' + str(round(v_objective,
 ###############################################################################
 # Extract data
 ###############################################################################
-
-
 d_assign_date, d_assign_date_print, d_assign_member, d_optimization =\
     prep_output(p_dst, dv_assign, dv_score, dv_outlier_hard, dv_outlier_soft,
                 dv_scorediff_sum, v_assign_suboptimal,
