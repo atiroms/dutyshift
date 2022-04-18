@@ -32,18 +32,52 @@ from helper import *
 
 
 ###############################################################################
-# List member
+# Collect data
 ###############################################################################
 lf_result = os.listdir(p_src)
 lf_result = [f for f in lf_result if '（回答）' in f]
 l_member_ans = []
 
+ld_availability = []
+
 for f_result in lf_result:
-    d_result = pd.read_csv(os.path.join(p_src, f_result))
-    l_member_ans += d_result['お名前（敬称略）'].values.tolist()
+    ld_availability.append(pd.read_csv(os.path.join(p_src, f_result)))
+
+d_availability = pd.concat(ld_availability, axis = 0)
+d_availability.index = range(len(d_availability))
+
+col_ans = [col for col in d_availability.columns if 'ご希望' in col]
+col_date = [col.split('/')[1].split('(')[0] for col in col_ans]
+col_duty = []
+for col in col_ans:
+    if '午前' in col:
+        col_duty.append('am')
+    elif '午後' in col:
+        col_duty.append('pm')
+    elif '日直OC' in col:
+        col_duty.append('ocday')
+    elif '当直OC' in col:
+        col_duty.append('ocnight')
+    elif '日直' in col:
+        col_duty.append('day')
+    elif '当直' in col:
+        col_duty.append('night')
+    else:
+        col_duty.append('')
+col_date_duty = [col_date[i] + '_' + col_duty[i] for i in range(len(col_duty))]
+
+d_availability = d_availability[['お名前（敬称略）'] + col_ans]
+d_availability.columns = ['name_jpn'] + col_date_duty
+d_availability = d_availability.fillna(0)
+d_availability = d_availability.replace('不可', 0)
+d_availability = d_availability.replace('可', 1)
+d_availability = d_availability.replace('希望', 2)
+d_availability.dtype = 'int64'
+
+d_availability.to_csv(os.path.join(p_dst, 'availability.csv'), index = False)
 
 # List of members who have answered
-l_member_ans = list(set(l_member_ans))
+l_member_ans = list(set(d_availability['name_jpn'].tolist()))
 
 # Prepare data of member specs and assignment limits
 d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
@@ -52,3 +86,4 @@ d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
 l_member_all = d_member['name_jpn'].tolist()
 # List of members who have not answered
 l_member_missing = [m for m in l_member_all if m not in l_member_ans]
+
