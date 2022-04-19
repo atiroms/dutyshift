@@ -127,7 +127,11 @@ def prep_forms(p_dst, d_cal, month_plan, dict_duty):
     # Graduate student
     d_cal_duty_stud = d_cal_duty[d_cal_duty['duty'].isin(['day','night']) & (d_cal_duty['em'] == False)]
     d_cal_duty_stud.to_csv(os.path.join(p_dst, 'cal_duty_stud.csv'), index = False, columns = ['title_dateduty'])  
-    
+    # Manual assignment
+    d_cal_duty_manual = d_cal_duty.copy()
+    d_cal_duty['assign'] = ''
+    d_cal_duty.to_csv(os.path.join(p_dst, 'cal_duty_manual.csv'), index = False, columns = ['title_dateduty','assign'])
+
     return d_cal_duty
 
 
