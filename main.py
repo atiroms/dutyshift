@@ -127,18 +127,16 @@ for duty in ['day', 'night']:
 # Penalize limit outliers per member per class_duty
 ###############################################################################
 # Penalize excess from max or shortage from min in the shape of '\__/'
-dv_outlier_hard = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
-                               columns = l_class_duty, index = l_member)
+#dv_outlier_hard = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
+#                               index = l_member, columns = l_class_duty)
 dv_outlier_soft = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
-                               columns = l_class_duty, index = l_member)
+                               index = l_member, columns = l_class_duty)
 for member in l_member:
     for class_duty in l_class_duty:
         lim_hard = d_lim_hard.loc[member, class_duty]
         if ~np.isnan(lim_hard[0]):
-            problem += (dv_outlier_hard.loc[member, class_duty] >= \
-                        lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_hard[1])
-            problem += (dv_outlier_hard.loc[member, class_duty] >= \
-                        lim_hard[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
+            problem += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) <= lim_hard[1])
+            problem += (lim_hard[0] <= lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
 
         lim_soft = d_lim_soft.loc[member, class_duty]
         if ~np.isnan(lim_soft[0]):
@@ -146,6 +144,28 @@ for member in l_member:
                         lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_soft[1])
             problem += (dv_outlier_soft.loc[member, class_duty] >= \
                         lim_soft[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
+
+
+# Penalize excess from max or shortage from min in the shape of '\__/'
+#dv_outlier_hard = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
+#                               index = l_member, columns = l_class_duty)
+#dv_outlier_soft = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
+#                               index = l_member, columns = l_class_duty)
+#for member in l_member:
+#    for class_duty in l_class_duty:
+#        lim_hard = d_lim_hard.loc[member, class_duty]
+#        if ~np.isnan(lim_hard[0]):
+#            problem += (dv_outlier_hard.loc[member, class_duty] >= \
+#                        lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_hard[1])
+#            problem += (dv_outlier_hard.loc[member, class_duty] >= \
+#                        lim_hard[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
+#
+#        lim_soft = d_lim_soft.loc[member, class_duty]
+#        if ~np.isnan(lim_soft[0]):
+#            problem += (dv_outlier_soft.loc[member, class_duty] >= \
+#                        lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_soft[1])
+#            problem += (dv_outlier_soft.loc[member, class_duty] >= \
+#                        lim_soft[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
 
 
 ###############################################################################
@@ -253,13 +273,13 @@ for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
 ###############################################################################
 # Define objective function to be minimized
 ###############################################################################
-problem += (c_outlier_hard * lpSum(dv_outlier_hard.to_numpy()) \
-          + c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
+problem += (c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
           + c_scorediff_duty * lpSum(dv_scorediff_sum['duty'].to_numpy()) \
           + c_scorediff_oc * lpSum(dv_scorediff_sum['oc'].to_numpy()) \
           + c_scorediff_ect * lpSum(dv_scorediff_sum['ect'].to_numpy()) \
           + c_assign_suboptimal * v_assign_suboptimal)
 
+          #+ c_outlier_hard * lpSum(dv_outlier_hard.to_numpy()) \
           #+ c_scorediff_total * lpSum(dv_scorediff_sum['total'].to_numpy()) \
           #+ c_scorediff_dutyoc * lpSum(dv_scorediff_sum['dutyoc'].to_numpy()) \
           
