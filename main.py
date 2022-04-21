@@ -3,8 +3,7 @@
 # Libraries
 ###############################################################################
 import numpy as np, pandas as pd
-import os, datetime, calendar
-from math import ceil
+import os
 from pulp import *
 from ortoolpy import addvars, addbinvars
 
@@ -13,17 +12,17 @@ from ortoolpy import addvars, addbinvars
 # Parameters
 ###############################################################################
 # Unfixed parameters
-year_plan = 2022
-month_plan = 4
-l_holiday = [29]
-#year_plan = None
-#month_plan = None
-#l_holiday = [3, 4, 5]
+#year_plan = 2022
+#month_plan = 4
+#l_holiday = [29]
+year_plan = None
+month_plan = None
+l_holiday = [3, 4, 5]
 
-d_src = 'test'
-d_dst = 'test'
-f_member = 'member04.csv'
-f_availability = 'availability02.csv'
+d_src = '202205'
+d_dst = '202205'
+f_member = 'member.csv'
+f_availability = 'availability.csv'
 
 # Fixed parameters
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
@@ -217,7 +216,8 @@ for date in l_date_ect:
 # Equalize scores per member
 ###############################################################################
 # Calculate scores
-l_type_score = ['total','dutyoc','duty','oc','ect']
+#l_type_score = ['total','dutyoc','duty','oc','ect']
+l_type_score = ['duty','oc','ect']
 dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
                         index = l_member, columns = l_type_score)
 for type_score in ['duty','oc','ect']:
@@ -225,11 +225,11 @@ for type_score in ['duty','oc','ect']:
     for id_member in l_member:
         problem += (dv_score.loc[id_member, type_score] ==\
                     lpDot(a_score,dv_assign.loc[:, id_member]))
-for id_member in l_member:
-    problem += (dv_score.loc[id_member, 'dutyoc'] ==\
-                dv_score.loc[id_member, 'duty'] + dv_score.loc[id_member, 'oc'])
-    problem += (dv_score.loc[id_member, 'total'] ==\
-                dv_score.loc[id_member, 'dutyoc'] + dv_score.loc[id_member, 'ect'])
+#for id_member in l_member:
+#    problem += (dv_score.loc[id_member, 'dutyoc'] ==\
+#                dv_score.loc[id_member, 'duty'] + dv_score.loc[id_member, 'oc'])
+#    problem += (dv_score.loc[id_member, 'total'] ==\
+#                dv_score.loc[id_member, 'dutyoc'] + dv_score.loc[id_member, 'ect'])
 
 # Calculate score differences
 dv_scorediff_sum = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
@@ -255,13 +255,13 @@ for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
 ###############################################################################
 problem += (c_outlier_hard * lpSum(dv_outlier_hard.to_numpy()) \
           + c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
-          + c_scorediff_total * lpSum(dv_scorediff_sum['total'].to_numpy()) \
-          + c_scorediff_dutyoc * lpSum(dv_scorediff_sum['dutyoc'].to_numpy()) \
           + c_scorediff_duty * lpSum(dv_scorediff_sum['duty'].to_numpy()) \
           + c_scorediff_oc * lpSum(dv_scorediff_sum['oc'].to_numpy()) \
           + c_scorediff_ect * lpSum(dv_scorediff_sum['ect'].to_numpy()) \
           + c_assign_suboptimal * v_assign_suboptimal)
 
+          #+ c_scorediff_total * lpSum(dv_scorediff_sum['total'].to_numpy()) \
+          #+ c_scorediff_dutyoc * lpSum(dv_scorediff_sum['dutyoc'].to_numpy()) \
           
 ###############################################################################
 # Solve problem

@@ -72,8 +72,8 @@ def prep_output(p_dst, dv_assign, dv_score, dv_outlier_hard, dv_outlier_soft,
     # Optimization results
     d_optimization = pd.DataFrame([['outlier_hard', c_outlier_hard, d_outlier_hard.sum().sum()],
                                    ['outlier_soft', c_outlier_soft, d_outlier_soft.sum().sum()],
-                                   ['scorediff_total',c_scorediff_total, d_scorediff_sum['total'].sum()],
-                                   ['scorediff_dutyoc',c_scorediff_dutyoc, d_scorediff_sum['dutyoc'].sum()],
+                                   #['scorediff_total',c_scorediff_total, d_scorediff_sum['total'].sum()],
+                                   #['scorediff_dutyoc',c_scorediff_dutyoc, d_scorediff_sum['dutyoc'].sum()],
                                    ['scorediff_duty',c_scorediff_duty, d_scorediff_sum['duty'].sum()],
                                    ['scorediff_oc',c_scorediff_oc, d_scorediff_sum['oc'].sum()],
                                    ['scorediff_ect',c_scorediff_ect, d_scorediff_sum['ect'].sum()],
@@ -163,12 +163,15 @@ def prep_member(p_member, f_member, l_class_duty):
     d_src = pd.read_csv(os.path.join(p_member, f_member))
     d_member = d_src[l_col_member]
     d_lim = d_src[l_class_duty]
+    d_lim.index = d_member['id_member'].tolist()
 
     # Split assignment limit data into hard and soft
-    d_lim_hard = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0], index = d_lim.index, columns = d_lim.columns)
-    d_lim_soft = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0], index = d_lim.index, columns = d_lim.columns)
+    d_lim_hard = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0],
+                              index = d_member['id_member'].tolist(), columns = d_lim.columns)
+    d_lim_soft = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0],
+                              index = d_member['id_member'].tolist(), columns = d_lim.columns)
     for col in l_class_duty:
-        for idx in d_lim.index:
+        for idx in d_member['id_member'].tolist():
             if '(' in d_lim.loc[idx, col]:
                 # If parenthesis exists, its content is hard limit
                 d_lim_hard.loc[idx, col][0] = str(d_lim.loc[idx, col]).split('(')[1].split(')')[0]

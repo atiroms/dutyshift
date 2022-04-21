@@ -9,7 +9,7 @@ import os
 ###############################################################################
 # Parameters
 ###############################################################################
-f_member = 'member04.csv'
+f_member = 'member.csv'
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','day_hd','night_hd','oc_tot','oc_hd_day','oc_other','ect']
 d_src = '202205'
 d_dst = '202205'
