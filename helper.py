@@ -4,20 +4,26 @@ import pandas as pd
 from math import ceil
 from pulp import *
 
+
+################################################################################
+# Check availability of duty
+################################################################################
+
+
 ################################################################################
 # Extract data from optimized variables
 ################################################################################
-def prep_output(p_dst, dv_assign, dv_score, dv_outlier_hard, dv_outlier_soft,
+def prep_output(p_dst, dv_assign, dv_score, dv_outlier_soft,
                 dv_scorediff_sum, v_assign_suboptimal,
-                c_outlier_hard, c_outlier_soft, c_scorediff_total, c_scorediff_dutyoc,
+                c_outlier_soft, c_scorediff_total, c_scorediff_dutyoc,
                 c_scorediff_duty, c_scorediff_oc, c_scorediff_ect, c_assign_suboptimal,
                 d_availability, d_member, l_member, d_date_duty, d_cal):
     d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
                         columns = dv_assign.columns, index = dv_assign.index).astype(bool)
     d_score = pd.DataFrame(np.vectorize(value)(dv_score),
                         columns = dv_score.columns, index = dv_score.index).astype(float)
-    d_outlier_hard = pd.DataFrame(np.vectorize(value)(dv_outlier_hard),
-                        columns = dv_outlier_hard.columns, index = dv_outlier_hard.index).astype(float)
+    #d_outlier_hard = pd.DataFrame(np.vectorize(value)(dv_outlier_hard),
+    #                    columns = dv_outlier_hard.columns, index = dv_outlier_hard.index).astype(float)
     d_outlier_soft = pd.DataFrame(np.vectorize(value)(dv_outlier_soft),
                         columns = dv_outlier_soft.columns, index = dv_outlier_soft.index).astype(float)
     d_scorediff_sum = pd.DataFrame(np.vectorize(value)(dv_scorediff_sum),
@@ -70,7 +76,7 @@ def prep_output(p_dst, dv_assign, dv_score, dv_outlier_hard, dv_outlier_soft,
     d_assign_member = pd.concat([d_assign_member, d_score], axis = 1)
 
     # Optimization results
-    d_optimization = pd.DataFrame([['outlier_hard', c_outlier_hard, d_outlier_hard.sum().sum()],
+    d_optimization = pd.DataFrame([#['outlier_hard', c_outlier_hard, d_outlier_hard.sum().sum()],
                                    ['outlier_soft', c_outlier_soft, d_outlier_soft.sum().sum()],
                                    #['scorediff_total',c_scorediff_total, d_scorediff_sum['total'].sum()],
                                    #['scorediff_dutyoc',c_scorediff_dutyoc, d_scorediff_sum['dutyoc'].sum()],

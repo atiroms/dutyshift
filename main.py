@@ -12,15 +12,15 @@ from ortoolpy import addvars, addbinvars
 # Parameters
 ###############################################################################
 # Unfixed parameters
-#year_plan = 2022
-#month_plan = 4
-#l_holiday = [29]
-year_plan = None
-month_plan = None
-l_holiday = [3, 4, 5]
+year_plan = 2022
+month_plan = 4
+l_holiday = [29]
+#year_plan = None
+#month_plan = None
+#l_holiday = [3, 4, 5]
 
-d_src = '202205'
-d_dst = '202205'
+d_src = '202204'
+d_dst = '202204'
 f_member = 'member.csv'
 f_availability = 'availability.csv'
 
@@ -33,18 +33,18 @@ l_class_duty = ['ampm','daynight_tot','night_em','night_wd','day_hd','night_hd',
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'ocnight': 6}
 l_title_scoregroup = [['assoc'], ['instr'], ['limterm_instr','assist'], ['limterm_clin'], ['stud']]
 
-c_outlier_hard = 0.7
-c_outlier_soft = 0.3
+c_outlier_hard = 0.001
+c_outlier_soft = 0.0001
 c_scorediff_total = 0.0001
 c_scorediff_dutyoc = 0.001
 c_scorediff_duty = 0.001
 c_scorediff_oc = 0.001
 c_scorediff_ect = 0.001
 
-thr_interval_daynight = 4
-thr_interval_ect = 4
+thr_interval_daynight = 3
+thr_interval_ect = 2
 thr_interval_ampm = 2
-c_interval = 0.5
+#c_interval = 0.5
 c_assign_suboptimal = 0.1
 
 
@@ -79,6 +79,8 @@ d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
 
 # Prepare data of member availability
 d_availability, l_member = prep_availability(p_src, f_availability, d_date_duty, d_member, d_cal)
+
+# Check feasiability of assignment limits
 
 
 ###############################################################################
@@ -126,9 +128,8 @@ for duty in ['day', 'night']:
 ###############################################################################
 # Penalize limit outliers per member per class_duty
 ###############################################################################
+'''
 # Penalize excess from max or shortage from min in the shape of '\__/'
-#dv_outlier_hard = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
-#                               index = l_member, columns = l_class_duty)
 dv_outlier_soft = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
                                index = l_member, columns = l_class_duty)
 for member in l_member:
@@ -144,28 +145,28 @@ for member in l_member:
                         lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_soft[1])
             problem += (dv_outlier_soft.loc[member, class_duty] >= \
                         lim_soft[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
-
+'''
 
 # Penalize excess from max or shortage from min in the shape of '\__/'
-#dv_outlier_hard = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
-#                               index = l_member, columns = l_class_duty)
-#dv_outlier_soft = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
-#                               index = l_member, columns = l_class_duty)
-#for member in l_member:
-#    for class_duty in l_class_duty:
-#        lim_hard = d_lim_hard.loc[member, class_duty]
-#        if ~np.isnan(lim_hard[0]):
-#            problem += (dv_outlier_hard.loc[member, class_duty] >= \
-#                        lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_hard[1])
-#            problem += (dv_outlier_hard.loc[member, class_duty] >= \
-#                        lim_hard[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
-#
-#        lim_soft = d_lim_soft.loc[member, class_duty]
-#        if ~np.isnan(lim_soft[0]):
-#            problem += (dv_outlier_soft.loc[member, class_duty] >= \
-#                        lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_soft[1])
-#            problem += (dv_outlier_soft.loc[member, class_duty] >= \
-#                        lim_soft[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
+dv_outlier_hard = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
+                               index = l_member, columns = l_class_duty)
+dv_outlier_soft = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
+                               index = l_member, columns = l_class_duty)
+for member in l_member:
+    for class_duty in l_class_duty:
+        lim_hard = d_lim_hard.loc[member, class_duty]
+        if ~np.isnan(lim_hard[0]):
+            problem += (dv_outlier_hard.loc[member, class_duty] >= \
+                        lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_hard[1])
+            problem += (dv_outlier_hard.loc[member, class_duty] >= \
+                        lim_hard[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
+
+        lim_soft = d_lim_soft.loc[member, class_duty]
+        if ~np.isnan(lim_soft[0]):
+            problem += (dv_outlier_soft.loc[member, class_duty] >= \
+                        lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_soft[1])
+            problem += (dv_outlier_soft.loc[member, class_duty] >= \
+                        lim_soft[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
 
 
 ###############################################################################
@@ -274,6 +275,7 @@ for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
 # Define objective function to be minimized
 ###############################################################################
 problem += (c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
+          + c_outlier_hard * lpSum(dv_outlier_hard.to_numpy()) \
           + c_scorediff_duty * lpSum(dv_scorediff_sum['duty'].to_numpy()) \
           + c_scorediff_oc * lpSum(dv_scorediff_sum['oc'].to_numpy()) \
           + c_scorediff_ect * lpSum(dv_scorediff_sum['ect'].to_numpy()) \
@@ -299,8 +301,8 @@ print('Solved: ' + str(LpStatus[problem.status]) + ', ' + str(round(v_objective,
 # Extract data
 ###############################################################################
 d_assign_date, d_assign_date_print, d_assign_member, d_optimization =\
-    prep_output(p_dst, dv_assign, dv_score, dv_outlier_hard, dv_outlier_soft,
+    prep_output(p_dst, dv_assign, dv_score, dv_outlier_soft,
                 dv_scorediff_sum, v_assign_suboptimal,
-                c_outlier_hard, c_outlier_soft, c_scorediff_total, c_scorediff_dutyoc,
+                c_outlier_soft, c_scorediff_total, c_scorediff_dutyoc,
                 c_scorediff_duty, c_scorediff_oc, c_scorediff_ect, c_assign_suboptimal,
                 d_availability, d_member, l_member, d_date_duty, d_cal)
