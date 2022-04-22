@@ -168,7 +168,7 @@ def prep_member(p_member, f_member, l_class_duty):
 
     d_src = pd.read_csv(os.path.join(p_member, f_member))
     d_member = d_src[l_col_member]
-    d_lim = d_src[l_class_duty]
+    d_lim = d_src[l_class_duty].copy()
     d_lim.index = d_member['id_member'].tolist()
 
     # Split assignment limit data into hard and soft
@@ -177,6 +177,7 @@ def prep_member(p_member, f_member, l_class_duty):
     d_lim_soft = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0],
                               index = d_member['id_member'].tolist(), columns = d_lim.columns)
     for col in l_class_duty:
+        d_lim[col] = d_lim[col].astype(str)
         for idx in d_member['id_member'].tolist():
             if '(' in d_lim.loc[idx, col]:
                 # If parenthesis exists, its content is hard limit
