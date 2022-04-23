@@ -18,10 +18,13 @@ from ortoolpy import addvars, addbinvars
 year_plan = None
 month_plan = None
 l_holiday = [3, 4, 5]
+l_date_ect_cancel = [25]
+#l_date_ect_cancel = []
 
 d_src = '202205'
 d_dst = '202205'
-f_member = 'member.csv'
+#f_member = 'member.csv'
+f_member = 'member_old2.csv'
 f_availability = 'availability.csv'
 
 # Fixed parameters
@@ -35,15 +38,18 @@ l_title_scoregroup = [['assoc'], ['instr'], ['limterm_instr','assist'], ['limter
 
 c_outlier_hard = 0.1
 c_outlier_soft = 0.0001
-c_scorediff_total = 0.0001
-c_scorediff_dutyoc = 0.001
-c_scorediff_duty = 0.001
+#c_scorediff_total = 0.0001
+#c_scorediff_dutyoc = 0.001
+#c_scorediff_duty = 0.001
+c_scorediff_ampm = 0.001
+c_scorediff_daynight = 0.001
+c_scorediff_ampmdaynight = 0.001
 c_scorediff_oc = 0.001
 c_scorediff_ect = 0.001
 
 thr_interval_daynight = 4
 thr_interval_ect = 3
-thr_interval_ampm = 2
+thr_interval_ampm = 1
 #c_interval = 0.5
 c_assign_suboptimal = 0.1
 
@@ -69,7 +75,7 @@ from helper import *
 ###############################################################################
 # Prepare calendar of the month
 d_cal, d_date_duty, year_plan, month_plan \
-    = prep_calendar(l_holiday, l_day_ect, day_em, l_week_em, year_plan, month_plan)
+    = prep_calendar(l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em, year_plan, month_plan)
 
 # Prepare calendar for google forms
 d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
@@ -216,10 +222,10 @@ for date in l_date_ect:
 ###############################################################################
 # Calculate scores
 #l_type_score = ['total','dutyoc','duty','oc','ect']
-l_type_score = ['duty','oc','ect']
+l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
                         index = l_member, columns = l_type_score)
-for type_score in ['duty','oc','ect']:
+for type_score in l_type_score:
     a_score = d_date_duty['score_' + type_score].to_numpy()
     for id_member in l_member:
         problem += (dv_score.loc[id_member, type_score] ==\
@@ -253,7 +259,8 @@ for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
 # Define objective function to be minimized
 ###############################################################################
 problem += (c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
-          + c_scorediff_duty * lpSum(dv_scorediff_sum['duty'].to_numpy()) \
+          + c_scorediff_ampm * lpSum(dv_scorediff_sum['ampm'].to_numpy()) \
+          + c_scorediff_daynight * lpSum(dv_scorediff_sum['daynight'].to_numpy()) \
           + c_scorediff_oc * lpSum(dv_scorediff_sum['oc'].to_numpy()) \
           + c_scorediff_ect * lpSum(dv_scorediff_sum['ect'].to_numpy()) \
           + c_assign_suboptimal * v_assign_suboptimal)

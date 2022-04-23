@@ -205,13 +205,15 @@ def prep_member(p_member, f_member, l_class_duty):
 ################################################################################
 # Prepare calendar of the month
 ################################################################################
-def prep_calendar(l_holiday, l_day_ect, day_em, l_week_em,
+def prep_calendar(l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
                   year_plan = None, month_plan = None):
     dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
     d_duty_score = pd.DataFrame({'duty': ['am', 'pm', 'day', 'night', 'ocday', 'ocnight', 'ect'],
-                                 'score_duty': [0.5, 0.5, 1, 1, 0, 0, 0],
-                                 'score_oc': [0, 0, 0, 0, 1, 1, 0],
-                                 'score_ect': [0, 0, 0, 0, 0, 0, 1]})
+                                 'score_ampm':        [0.5, 0,5, 0, 0, 0, 0, 0],
+                                 'score_daynight':    [0,   0,   1, 1, 0, 0, 0],
+                                 'score_ampmdaynight':[0.5, 0.5, 1, 1, 0, 0, 0],
+                                 'score_oc':          [0,   0,   0, 0, 1, 1, 0],
+                                 'score_ect':         [0,   0,   0, 0, 0, 0, 1]})
     
     if month_plan is None:
         # Prepare next month
@@ -235,6 +237,7 @@ def prep_calendar(l_holiday, l_day_ect, day_em, l_week_em,
     d_cal.loc[d_cal['em'] == True, 'ocnight'] = False
     d_cal.loc[d_cal['holiday'] == True, ['day', 'night', 'bday', 'bnight', 'ocday', 'ocnight']] = True
     d_cal.loc[(d_cal['wday'].isin(l_day_ect)) & (d_cal['holiday'] == False), 'ect'] = True
+    d_cal.loc[d_cal['date'].isin(l_date_ect_cancel), 'ect'] = False
     d_cal.loc[d_cal['em'] == True, 'ocnight'] = False
 
     # Prepare d_date_duty
