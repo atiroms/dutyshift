@@ -4,48 +4,64 @@ import pandas as pd
 from math import ceil
 from pulp import *
 
-
 ################################################################################
-# Check availability of duty
+# Extract optimization parameters
 ################################################################################
-
-
-################################################################################
-# Extract data from optimized variables
-################################################################################
-def prep_output(p_dst, dv_assign, dv_score, dv_outlier_soft,
-                dv_scorediff_sum, v_assign_suboptimal,
-                c_outlier_soft, c_scorediff_total, c_scorediff_dutyoc,
-                c_scorediff_duty, c_scorediff_oc, c_scorediff_ect, c_assign_suboptimal,
-                d_availability, d_member, l_member, d_date_duty, d_cal):
-    d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
-                        columns = dv_assign.columns, index = dv_assign.index).astype(bool)
-    d_score = pd.DataFrame(np.vectorize(value)(dv_score),
-                        columns = dv_score.columns, index = dv_score.index).astype(float)
-    #d_outlier_hard = pd.DataFrame(np.vectorize(value)(dv_outlier_hard),
-    #                    columns = dv_outlier_hard.columns, index = dv_outlier_hard.index).astype(float)
+def prep_optim(p_dst, dv_outlier_soft,dv_scorediff_sum, v_assign_suboptimal, c_outlier_soft,
+               c_scorediff_ampm, c_scorediff_daynight, c_scorediff_ampmdaynight,
+               c_scorediff_oc, c_scorediff_ect, c_assign_suboptimal):
     d_outlier_soft = pd.DataFrame(np.vectorize(value)(dv_outlier_soft),
                         columns = dv_outlier_soft.columns, index = dv_outlier_soft.index).astype(float)
     d_scorediff_sum = pd.DataFrame(np.vectorize(value)(dv_scorediff_sum),
                         columns = dv_scorediff_sum.columns, index = dv_scorediff_sum.index).astype(float)
     v_assign_suboptimal = value(v_assign_suboptimal)
+
+    # Optimization results
+    d_optimization = pd.DataFrame([['outlier_soft', c_outlier_soft, d_outlier_soft.sum().sum()],
+                                   #['scorediff_ampm',c_scorediff_ampm, d_scorediff_sum['ampm'].sum()],
+                                   #['scorediff_daynight',c_scorediff_daynight, d_scorediff_sum['daynight'].sum()],
+                                   ['scorediff_ampmdaynight',c_scorediff_ampmdaynight, d_scorediff_sum['ampmdaynight'].sum()],
+                                   ['scorediff_oc',c_scorediff_oc, d_scorediff_sum['oc'].sum()],
+                                   ['scorediff_ect',c_scorediff_ect, d_scorediff_sum['ect'].sum()],
+                                   ['assign_suboptimal', c_assign_suboptimal, v_assign_suboptimal]],
+                                   columns = ['term','constant','value'])
+    d_optimization['product'] = d_optimization['constant'] * d_optimization['value']
+    d_optimization = pd.concat([d_optimization,
+                                pd.DataFrame([['total', None, None, d_optimization['product'].sum()]],
+                                             columns = d_optimization.columns)],
+                                axis = 0)
     
+    d_optimization.to_csv(os.path.join(p_dst,'optimizaion.csv'), index = False)
+
+    return d_optimization
+
+
+################################################################################
+# Extract data from optimized variables
+################################################################################
+def prep_assign(p_dst, dv_assign, dv_score, d_score_history,
+                d_availability, d_member, l_member, d_date_duty, d_cal):
+    d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
+                            index = dv_assign.index, columns = dv_assign.columns).astype(bool)
+    d_score_sigma = pd.DataFrame(np.vectorize(value)(dv_score),
+                                 index = dv_score.index, columns = dv_score.columns).astype(float)
+
     # Assignments with date_duty as row
-    d_assign_date = pd.concat([pd.Series(d_assign.index, index = d_assign.index, name = 'date_duty'),
+    d_assign_date_duty = pd.concat([pd.Series(d_assign.index, index = d_assign.index, name = 'date_duty'),
                                pd.Series(d_assign.sum(axis = 1), name = 'cnt'),
                                pd.Series(d_assign.apply(lambda row: row[row].index.to_list(), axis = 1), name = 'id_member')],
                                axis = 1)
-    d_assign_date.index = range(len(d_assign_date))
-    d_assign_date['id_member'] = d_assign_date['id_member'].apply(lambda x: x[0] if len(x) > 0 else np.nan)
-    d_assign_date = pd.merge(d_assign_date, d_member.loc[:,['id_member','name_jpn','name']], on = 'id_member', how = 'left')
-    d_assign_date = pd.merge(d_assign_date, d_date_duty, on = 'date_duty', how = 'left')
-    d_assign_date = d_assign_date.loc[:,['date_duty', 'date','duty', 'id_member','name','name_jpn','cnt']]
-    d_assign_date.to_csv(os.path.join(p_dst, 'assign_date_duty.csv'), index = False)
+    d_assign_date_duty.index = range(len(d_assign_date_duty))
+    d_assign_date_duty['id_member'] = d_assign_date_duty['id_member'].apply(lambda x: x[0] if len(x) > 0 else np.nan)
+    d_assign_date_duty = pd.merge(d_assign_date_duty, d_member.loc[:,['id_member','name_jpn','name']], on = 'id_member', how = 'left')
+    d_assign_date_duty = pd.merge(d_assign_date_duty, d_date_duty, on = 'date_duty', how = 'left')
+    d_assign_date_duty = d_assign_date_duty.loc[:,['date_duty', 'date','duty', 'id_member','name','name_jpn','cnt']]
+    d_assign_date_duty.to_csv(os.path.join(p_dst, 'assign_date_duty.csv'), index = False)
 
     # Assignments with date as row for printing
     d_assign_date_print = d_cal.loc[:,['title_date','date','em']].copy()
     d_assign_date_print[['am','pm','night','ocday','ocnight','ect']] = ''
-    for idx, row in d_assign_date.loc[d_assign_date['cnt'] > 0].iterrows():
+    for _, row in d_assign_date_duty.loc[d_assign_date_duty['cnt'] > 0].iterrows():
         date = row['date']
         duty = row['duty']
         name_jpn = row['name_jpn']
@@ -73,20 +89,17 @@ def prep_output(p_dst, dv_assign, dv_score, dv_outlier_soft,
                                     'cnt_opt': d_assign_optimal.sum(axis = 0),
                                     'cnt_sub': d_assign_suboptimal.sum(axis = 0)},
                                     index = l_member)
-    d_assign_member = pd.concat([d_assign_member, d_score], axis = 1)
+    d_assign_member.to_csv(os.path.join(p_dst, 'assign_member.csv'), index = False)
 
-    # Optimization results
-    d_optimization = pd.DataFrame([#['outlier_hard', c_outlier_hard, d_outlier_hard.sum().sum()],
-                                   ['outlier_soft', c_outlier_soft, d_outlier_soft.sum().sum()],
-                                   #['scorediff_total',c_scorediff_total, d_scorediff_sum['total'].sum()],
-                                   #['scorediff_dutyoc',c_scorediff_dutyoc, d_scorediff_sum['dutyoc'].sum()],
-                                   ['scorediff_duty',c_scorediff_duty, d_scorediff_sum['duty'].sum()],
-                                   ['scorediff_oc',c_scorediff_oc, d_scorediff_sum['oc'].sum()],
-                                   ['scorediff_ect',c_scorediff_ect, d_scorediff_sum['ect'].sum()],
-                                   ['assign_suboptimal', c_assign_suboptimal, v_assign_suboptimal]],
-                                   columns = ['term','constant','value'])
+    d_score_history.index = d_score_history['id_member']
+    d_score_history = d_score_history.loc[d_assign_member['id_member'],['score_ampm','score_daynight','score_ampmdaynight','score_oc','score_ect']]
+    d_score_sigma.columns = ['score_' + col for col in d_score_sigma.columns]
+    d_score_current = d_score_sigma - d_score_history
+    d_score_sigma.columns = ['sigma_' + col for col in d_score_sigma.columns]
+    d_score = pd.concat([d_assign_member[['id_member', 'name_jpn']], d_score_current, d_score_sigma], axis = 1)
+    d_score.to_csv(os.path.join(p_dst, 'score.csv'), index = False)
 
-    return d_assign_date, d_assign_date_print, d_assign_member, d_optimization
+    return d_assign_date_duty, d_assign_date_print, d_assign_member, d_score
 
 
 ################################################################################
@@ -209,7 +222,7 @@ def prep_calendar(l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
                   year_plan = None, month_plan = None):
     dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
     d_duty_score = pd.DataFrame({'duty': ['am', 'pm', 'day', 'night', 'ocday', 'ocnight', 'ect'],
-                                 'score_ampm':        [0.5, 0,5, 0, 0, 0, 0, 0],
+                                 'score_ampm':        [0.5, 0.5, 0, 0, 0, 0, 0],
                                  'score_daynight':    [0,   0,   1, 1, 0, 0, 0],
                                  'score_ampmdaynight':[0.5, 0.5, 1, 1, 0, 0, 0],
                                  'score_oc':          [0,   0,   0, 0, 1, 1, 0],
@@ -251,7 +264,7 @@ def prep_calendar(l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
     d_date_duty = d_date_duty[['date_duty','date','duty','holiday','em']]
     d_date_duty.index = range(len(d_date_duty))
     d_date_duty = pd.merge(d_date_duty, d_duty_score, on = 'duty', how = 'left')
-    d_date_duty.loc[(d_date_duty['duty'] == 'night') & (d_date_duty['em'] == True), 'score_duty'] = 1.5
+    d_date_duty.loc[(d_date_duty['duty'] == 'night') & (d_date_duty['em'] == True), ['score_daynight','score_ampmdaynight']] = 1.5
 
     # d_duty_date_class
     # Specify which class_duty's apply to each date_duty

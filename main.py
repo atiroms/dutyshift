@@ -6,6 +6,7 @@ import numpy as np, pandas as pd
 import os
 from pulp import *
 from ortoolpy import addvars, addbinvars
+from datetime import datetime as dt
 
 
 ###############################################################################
@@ -21,11 +22,10 @@ l_holiday = [3, 4, 5]
 l_date_ect_cancel = [25]
 #l_date_ect_cancel = []
 
-d_src = '202205'
-d_dst = '202205'
 #f_member = 'member.csv'
-f_member = 'member_old2.csv'
-f_availability = 'availability.csv'
+f_member = 'member2.csv'
+#f_availability = 'availability.csv'
+f_availability = 'availability2.csv'
 
 # Fixed parameters
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
@@ -36,36 +36,32 @@ l_class_duty = ['ampm','daynight_tot','night_em','night_wd','day_hd','night_hd',
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'ocnight': 6}
 l_title_scoregroup = [['assoc'], ['instr'], ['limterm_instr','assist'], ['limterm_clin'], ['stud']]
 
-c_outlier_hard = 0.1
 c_outlier_soft = 0.0001
-#c_scorediff_total = 0.0001
-#c_scorediff_dutyoc = 0.001
-#c_scorediff_duty = 0.001
 c_scorediff_ampm = 0.001
 c_scorediff_daynight = 0.001
-c_scorediff_ampmdaynight = 0.001
-c_scorediff_oc = 0.001
-c_scorediff_ect = 0.001
+c_scorediff_ampmdaynight = 0.1
+c_scorediff_oc = 0.0001
+c_scorediff_ect = 0.0001
+c_assign_suboptimal = 0.0001
 
 thr_interval_daynight = 4
 thr_interval_ect = 3
-thr_interval_ampm = 1
-#c_interval = 0.5
-c_assign_suboptimal = 0.1
-
+thr_interval_ampm = 2
 
 ###############################################################################
 # Script path
 ###############################################################################
-p_script = None
-for p_root in ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']:
-    if os.path.isdir(p_root):
-        p_script=os.path.join(p_root,'GitHub/dutyshift')
-        os.chdir(p_script)
-        p_src = os.path.join(p_root, 'Dropbox/dutyshift', d_src)
-        p_dst = os.path.join(p_root, 'Dropbox/dutyshift', d_dst)
-if p_script is None:
+p_root = None
+for p_test in ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']:
+    if os.path.isdir(p_test):
+        p_root = p_test
+        #p_src = os.path.join(p_test, 'Dropbox/dutyshift', d_src)
+        #p_dst = os.path.join(p_test, 'Dropbox/dutyshift', d_dst)
+if p_root is None:
     print('No root directory.')
+else:
+    p_script=os.path.join(p_root,'GitHub/dutyshift')
+    os.chdir(p_script)
 
 from helper import *
 
@@ -77,16 +73,27 @@ from helper import *
 d_cal, d_date_duty, year_plan, month_plan \
     = prep_calendar(l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em, year_plan, month_plan)
 
+# Set paths and directories
+d_src = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
+p_src = os.path.join(p_root, 'Dropbox/dutyshift', d_src)
+d_dst = dt.now().strftime('%Y%m%d_%H%M%S')
+p_dst = os.path.join(p_src, d_dst)
+if ~os.path.exists(p_dst):
+    os.makedirs(p_dst)
+
 # Prepare calendar for google forms
+# TODO: output in one file
+# TODO: split assistant professor into team leader and subleader
 d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
 
 # Prepare data of member specs and assignment limits
+# TODO: explicitly specify assignment counts for each member
 d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
 
 # Prepare data of member availability
 d_availability, l_member = prep_availability(p_src, f_availability, d_date_duty, d_member, d_cal)
 
-# Check feasiability of assignment limits
+# TODO: Check feasiability of assignment limits
 
 
 ###############################################################################
@@ -134,7 +141,6 @@ for duty in ['day', 'night']:
 ###############################################################################
 # Penalize limit outliers per member per class_duty
 ###############################################################################
-
 # Penalize excess from max or shortage from min in the shape of '\__/'
 dv_outlier_soft = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
                                index = l_member, columns = l_class_duty)
@@ -220,6 +226,10 @@ for date in l_date_ect:
 ###############################################################################
 # Equalize scores per member
 ###############################################################################
+# TODO: import all-month data
+# preliminary: read April score data
+d_score_history = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/202204', 'score.csv'))
+
 # Calculate scores
 #l_type_score = ['total','dutyoc','duty','oc','ect']
 l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
@@ -228,13 +238,13 @@ dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
 for type_score in l_type_score:
     a_score = d_date_duty['score_' + type_score].to_numpy()
     for id_member in l_member:
+        # Single-month scores
+        #problem += (dv_score.loc[id_member, type_score] ==\
+        #            lpDot(a_score,dv_assign.loc[:, id_member]))
+        # Past + current month scores
+        score_history = d_score_history.loc[d_score_history['id_member'] == id_member, 'score_' + type_score].to_numpy()[0]
         problem += (dv_score.loc[id_member, type_score] ==\
-                    lpDot(a_score,dv_assign.loc[:, id_member]))
-#for id_member in l_member:
-#    problem += (dv_score.loc[id_member, 'dutyoc'] ==\
-#                dv_score.loc[id_member, 'duty'] + dv_score.loc[id_member, 'oc'])
-#    problem += (dv_score.loc[id_member, 'total'] ==\
-#                dv_score.loc[id_member, 'dutyoc'] + dv_score.loc[id_member, 'ect'])
+                    lpDot(a_score,dv_assign.loc[:, id_member]) + score_history)        
 
 # Calculate score differences
 dv_scorediff_sum = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
@@ -259,12 +269,14 @@ for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
 # Define objective function to be minimized
 ###############################################################################
 problem += (c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
-          + c_scorediff_ampm * lpSum(dv_scorediff_sum['ampm'].to_numpy()) \
-          + c_scorediff_daynight * lpSum(dv_scorediff_sum['daynight'].to_numpy()) \
+          + c_scorediff_ampmdaynight * lpSum(dv_scorediff_sum['ampmdaynight'].to_numpy()) \
           + c_scorediff_oc * lpSum(dv_scorediff_sum['oc'].to_numpy()) \
           + c_scorediff_ect * lpSum(dv_scorediff_sum['ect'].to_numpy()) \
           + c_assign_suboptimal * v_assign_suboptimal)
 
+          #+ c_scorediff_ampm * lpSum(dv_scorediff_sum['ampm'].to_numpy()) \
+          #+ c_scorediff_ampmdaynight * lpSum(dv_scorediff_sum['ampmdaynight'].to_numpy()) \
+          #+ c_scorediff_daynight * lpSum(dv_scorediff_sum['daynight'].to_numpy()) \
           #+ c_outlier_hard * lpSum(dv_outlier_hard.to_numpy()) \
           #+ c_scorediff_total * lpSum(dv_scorediff_sum['total'].to_numpy()) \
           #+ c_scorediff_dutyoc * lpSum(dv_scorediff_sum['dutyoc'].to_numpy()) \
@@ -284,9 +296,10 @@ print('Solved: ' + str(LpStatus[problem.status]) + ', ' + str(round(v_objective,
 ###############################################################################
 # Extract data
 ###############################################################################
-d_assign_date, d_assign_date_print, d_assign_member, d_optimization =\
-    prep_output(p_dst, dv_assign, dv_score, dv_outlier_soft,
-                dv_scorediff_sum, v_assign_suboptimal,
-                c_outlier_soft, c_scorediff_total, c_scorediff_dutyoc,
-                c_scorediff_duty, c_scorediff_oc, c_scorediff_ect, c_assign_suboptimal,
+d_assign_date_duty, d_assign_date_print, d_assign_member, d_score=\
+    prep_assign(p_dst, dv_assign, dv_score, d_score_history,
                 d_availability, d_member, l_member, d_date_duty, d_cal)
+
+d_optimization = prep_optim(p_dst, dv_outlier_soft,dv_scorediff_sum, v_assign_suboptimal, c_outlier_soft,
+                            c_scorediff_ampm, c_scorediff_daynight, c_scorediff_ampmdaynight,
+                            c_scorediff_oc, c_scorediff_ect, c_assign_suboptimal)
