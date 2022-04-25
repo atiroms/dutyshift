@@ -49,6 +49,6 @@ d_duty_url = pd.DataFrame([['am', '0830', '13:00', 'Z&text=%E5%8D%88%E5%89%8D%E6
 ################################################################################
 # Return Googe calendar URL
 ################################################################################
-def get_gca_url(year, month, date, duty, d_duty_url):
-    str_start = '{year:0>4d}{month:0>2d}{date:0>2d}_{hourminute:0>4d}00'.format(year = year, month = month, date = date, hourminute = )
-    dt_start = dt.strptime(date_time_str, '%d/%m/%y %H:%M:%S')
+#def get_gca_url(year, month, date, duty, d_duty_url):
+#    str_start = '{year:0>4d}{month:0>2d}{date:0>2d}_{hourminute:0>4d}00'.format(year = year, month = month, date = date, hourminute = )
+#    dt_start = dt.strptime(date_time_str, '%d/%m/%y %H:%M:%S')
