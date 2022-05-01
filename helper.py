@@ -177,9 +177,10 @@ def prep_availability(p_src, f_availability, d_date_duty, d_member, d_cal):
 # Prepare data of member specs and assignment limits
 ################################################################################
 def prep_member(p_member, f_member, l_class_duty):
-    l_col_member = ['id_member','name_jpn','title_jpn','designation_jpn','ect_asgn_jpn','name','title_short','designation', 'team', 'ect_leader', 'ect_subleader']
+    l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn','designation_jpn','ect_asgn_jpn','name','title_short','designation', 'team', 'ect_leader', 'ect_subleader']
 
     d_src = pd.read_csv(os.path.join(p_member, f_member))
+    l_col_member = [col for col in l_col_member if col in d_src.columns]
     d_member = d_src[l_col_member]
     d_lim = d_src[l_class_duty].copy()
     d_lim.index = d_member['id_member'].tolist()
