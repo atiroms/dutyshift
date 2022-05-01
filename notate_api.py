@@ -3,9 +3,9 @@
 # Libraries
 ###############################################################################
 import numpy as np, pandas as pd
-from datetime import datetime as datetime
-from datetime import timedelta
-import os
+#from datetime import datetime as datetime
+#from datetime import timedelta
+import os, datetime
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -31,8 +31,8 @@ d_type_duty = pd.DataFrame([['am', '午前日直', '08:30', '12:30'],
                             ['pm', '午後日直', '12:30', '17:15'],
                             ['day', '日直', '08:30', '17:15'],
                             ['night', '当直', '17:15', '32:30'],
-                            ['day_oc', '日直OC', '08:30', '17:15'],
-                            ['night_oc', '当直OC', '17:15', '32:30'],
+                            ['ocday', '日直OC', '08:30', '17:15'],
+                            ['ocnight', '当直OC', '17:15', '32:30'],
                             ['ect', 'ECT当番', '07:30', '11:00']],
                            columns = ['duty','duty_jpn','start','end'])
 
@@ -104,9 +104,9 @@ d_src = '{year:0>4d}{month:0>2d}'.format(year = year, month = month)
 d_date_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', d_src, 'assign_date_duty_edited.csv'))
 d_date_duty = d_date_duty.loc[d_date_duty['cnt'] > 0, :]
 ####
-d_date_duty = d_date_duty.loc[d_date_duty['id_member'] == 11,:]
+#d_date_duty = d_date_duty.loc[d_date_duty['id_member'] == 11,:]
 ####
-d_date_duty = pd.merge(d_date_duty, d_member[['id_member','email']], on = 'id_member', how = 'left')
+d_date_duty = pd.merge(d_date_duty, d_member[['id_member','name_jpn_full','email']], on = 'id_member', how = 'left')
 d_date_duty = pd.merge(d_date_duty, d_type_duty, on = 'duty', how = 'left')
 
 service = build('calendar', 'v3', credentials=creds)
@@ -117,20 +117,23 @@ for id, row in d_date_duty.iterrows():
     title_duty = row['duty_jpn']
     date = int(row['date'])
     type_duty = row['duty']
-    id_member = int(row['id_member'])
+    #id_member = int(row['id_member'])
+    name_member = row['name_jpn_full'] + '先生'
     email = row['email']
     str_start = row['start']
     str_end = row['end']
-    t_start = (datetime(year = year, month = month, day = date) +\
-              timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
-    t_end = (datetime(year = year, month = month, day = date) +\
-            timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
+    t_start = (datetime.datetime(year = year, month = month, day = date) +\
+               datetime.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
+    t_end = (datetime.datetime(year = year, month = month, day = date) +\
+             datetime.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
 
     body_event = {'summary': title_duty,
                 'location': '東大病院',
                 'start': {'dateTime': t_start, 'timeZone': 'Asia/Tokyo'},
                 'end': {'dateTime': t_end, 'timeZone': 'Asia/Tokyo'},
                 'attendees': [{'email': email}],
+                #'attendees': [{'email': email, 'displayName':name_member}],
+                #'attendees': [{'email': email, 'responseStatus':'accepted'}],
                 'description': 'https://github.com/atiroms/dutyshift で自動生成'
                 }
     result_event = service.events().insert(calendarId=id_calendar_duty,body=body_event).execute()
