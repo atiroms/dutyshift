@@ -188,6 +188,7 @@ for closeduty in l_closeduty:
 # Avoid [same-date 'pm', 'night' and 'ocnight'],
 #   and ['night', 'ocnight' and following-date 'ect','am']
 # TODO: consider previous month assignment
+# TODO: consider team leader ECT assignment (defined elsewhere)
 for date in [0] + d_cal['date'].tolist():
     date_duty_am = str(date) + '_am'
     date_duty_pm = str(date) + '_pm'
