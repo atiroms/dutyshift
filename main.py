@@ -3,10 +3,9 @@
 # Libraries
 ###############################################################################
 import numpy as np, pandas as pd
-import os
+import os, datetime
 from pulp import *
 from ortoolpy import addvars, addbinvars
-from datetime import datetime as dt
 
 
 ###############################################################################
@@ -16,8 +15,8 @@ from datetime import datetime as dt
 #year_plan = 2022
 #month_plan = 4
 #l_holiday = [29]
-year_plan = None
-month_plan = None
+year_plan = 2022
+month_plan = 5
 l_holiday = [3, 4, 5]
 l_date_ect_cancel = [25]
 #l_date_ect_cancel = []
@@ -48,6 +47,7 @@ thr_interval_daynight = 4
 thr_interval_ect = 3
 thr_interval_ampm = 2
 
+
 ###############################################################################
 # Script path
 ###############################################################################
@@ -55,13 +55,19 @@ p_root = None
 for p_test in ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']:
     if os.path.isdir(p_test):
         p_root = p_test
-        #p_src = os.path.join(p_test, 'Dropbox/dutyshift', d_src)
-        #p_dst = os.path.join(p_test, 'Dropbox/dutyshift', d_dst)
+
 if p_root is None:
     print('No root directory.')
 else:
     p_script=os.path.join(p_root,'GitHub/dutyshift')
     os.chdir(p_script)
+    # Set paths and directories
+    d_src = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
+    p_src = os.path.join(p_root, 'Dropbox/dutyshift', d_src)
+    d_dst = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+    p_dst = os.path.join(p_src, d_dst)
+    if ~os.path.exists(p_dst):
+        os.makedirs(p_dst)
 
 from helper import *
 
@@ -70,30 +76,24 @@ from helper import *
 # Load and prepare data
 ###############################################################################
 # Prepare calendar of the month
-d_cal, d_date_duty, year_plan, month_plan \
-    = prep_calendar(l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em, year_plan, month_plan)
-
-# Set paths and directories
-d_src = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
-p_src = os.path.join(p_root, 'Dropbox/dutyshift', d_src)
-d_dst = dt.now().strftime('%Y%m%d_%H%M%S')
-p_dst = os.path.join(p_src, d_dst)
-if ~os.path.exists(p_dst):
-    os.makedirs(p_dst)
+d_cal, s_cnt_duty, d_date_duty \
+    = prep_calendar(p_root, l_holiday, l_day_ect, l_date_ect_cancel,
+                    day_em, l_week_em, year_plan, month_plan)
 
 # Prepare calendar for google forms
 # TODO: output in one file
 # TODO: split assistant professor into team leader and subleader
-d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
+#d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
 
 # Prepare data of member specs and assignment limits
 # TODO: explicitly specify assignment counts for each member
-d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
+#d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
+d_member, d_score_past, d_lim_hard, d_lim_soft, d_lim_exact\
+    = prep_member2(p_root, f_member, s_cnt_duty, d_date_duty,
+                   l_class_duty, year_plan, month_plan)
 
 # Prepare data of member availability
 d_availability, l_member = prep_availability(p_src, f_availability, d_date_duty, d_member, d_cal)
-
-# TODO: Check feasiability of assignment limits
 
 
 ###############################################################################
