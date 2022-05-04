@@ -1,10 +1,7 @@
 import datetime, calendar, os
-import numpy as np
-import pandas as pd
+import numpy as np, pandas as pd
 from math import ceil
 from pulp import *
-
-
 
 ################################################################################
 # Prepare data of member specs and assignment limits
@@ -28,11 +25,7 @@ def prep_member2(p_root, f_member, s_cnt_duty, d_date_duty, l_class_duty, year_p
     # Split assignment limit data into hard and soft
     d_lim_hard, d_lim_soft = split_lim(d_lim, l_class_duty)
 
-    # Calculate assignment
-    # TODO: Calculate exact assignment counts for each menber
-    d_lim_exact = None
-
-    return d_member, d_score_past, d_lim_hard, d_lim_soft, d_lim_exact
+    return d_member, d_score_past, d_lim_hard, d_lim_soft
 
 
 ################################################################################
