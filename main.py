@@ -87,7 +87,6 @@ d_cal, s_cnt_duty, d_date_duty \
 #d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
 
 # Prepare data of member specs and assignment limits
-# TODO: explicitly specify assignment counts for each member
 #d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
 d_member, d_score_past, d_lim_hard, d_lim_soft\
     = prep_member2(p_root, f_member, s_cnt_duty, d_date_duty,
@@ -100,6 +99,7 @@ d_availability, l_member = prep_availability(p_src, f_availability, d_date_duty,
 ###############################################################################
 # Initialize assignment count problem and model
 ###############################################################################
+# TODO: Calculate exact assignment counts per class_duty per member
 dv_count = pd.DataFrame(np.array(addvars(len(l_member), len(l_member))),
                         index = l_member, columns = l_class_duty)
 
@@ -114,7 +114,7 @@ for type_score in l_type_score:
         #            lpDot(a_score,dv_assign.loc[:, id_member]))
         # Past + current month scores
         score_history = d_score_history.loc[d_score_history['id_member'] == id_member, 'score_' + type_score].to_numpy()[0]
-        problem_assign += (dv_score.loc[id_member, type_score] ==\
+        prob_assign += (dv_score.loc[id_member, type_score] ==\
                     lpDot(a_score,dv_assign.loc[:, id_member]) + score_history)        
 
 
@@ -122,7 +122,7 @@ for type_score in l_type_score:
 # Initialize assignment problem and model
 ###############################################################################
 # Initialize model to be optimized
-problem_assign = LpProblem()
+prob_assign = LpProblem()
 
 # Binary assignment variables to be optimized
 dv_assign = pd.DataFrame(np.array(addbinvars(len(d_date_duty), len(l_member))),
@@ -133,7 +133,7 @@ dv_assign = pd.DataFrame(np.array(addbinvars(len(d_date_duty), len(l_member))),
 # Availability per member per date_duty
 ###############################################################################
 # Do not assign to a date if not available
-problem_assign += (lpDot((d_availability == 0).to_numpy(), dv_assign.to_numpy()) <= 0)
+prob_assign += (lpDot((d_availability == 0).to_numpy(), dv_assign.to_numpy()) <= 0)
 
 # Penalize suboptimal assignment
 v_assign_suboptimal = lpDot((d_availability == 1).to_numpy(), dv_assign.to_numpy())
@@ -145,7 +145,7 @@ v_assign_suboptimal = lpDot((d_availability == 1).to_numpy(), dv_assign.to_numpy
 # Assign one member per date_duty for ['am', 'pm', 'day', 'night', 'ect']
 for duty in ['am', 'pm', 'day', 'night', 'ect']:
     for date_duty in d_date_duty[d_date_duty['duty'] == duty]['date_duty'].to_list():
-        problem_assign += (lpSum(dv_assign.loc[date_duty]) == 1)
+        prob_assign += (lpSum(dv_assign.loc[date_duty]) == 1)
 
 # Assign one member per date_duty for ['oc_day', 'oc_night'],
 # if non-designated member is assigned to ['day', 'night'] for the same date/time
@@ -156,7 +156,7 @@ for duty in ['day', 'night']:
         if date_duty_oc in d_date_duty['date_duty'].to_list():
             # Sum of dot product of (normal and oc assignments) and (designation)
             # Returns number of 'designated' member assigned in the same date/time, which should be 1
-            problem_assign += (lpSum(lpDot(dv_assign.loc[[date_duty, date_duty_oc]].to_numpy(),
+            prob_assign += (lpSum(lpDot(dv_assign.loc[[date_duty, date_duty_oc]].to_numpy(),
                                     np.array([d_member.loc[d_member['id_member'].isin(l_member), 'designation']]*2))) == 1)
 
 
@@ -170,14 +170,14 @@ for member in l_member:
     for class_duty in l_class_duty:
         lim_hard = d_lim_hard.loc[member, class_duty]
         if ~np.isnan(lim_hard[0]):
-            problem_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) <= lim_hard[1])
-            problem_assign += (lim_hard[0] <= lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
+            prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) <= lim_hard[1])
+            prob_assign += (lim_hard[0] <= lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
 
         lim_soft = d_lim_soft.loc[member, class_duty]
         if ~np.isnan(lim_soft[0]):
-            problem_assign += (dv_outlier_soft.loc[member, class_duty] >= \
+            prob_assign += (dv_outlier_soft.loc[member, class_duty] >= \
                         lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_soft[1])
-            problem_assign += (dv_outlier_soft.loc[member, class_duty] >= \
+            prob_assign += (dv_outlier_soft.loc[member, class_duty] >= \
                         lim_soft[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
 
 
@@ -205,7 +205,7 @@ for closeduty in l_closeduty:
                     l_date_duty_temp.append(date_duty_temp)
         if len(l_date_duty_temp) >= 2:
             for member in l_member:
-                problem_assign += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
+                prob_assign += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
 
 # Avoid [same-date 'pm', 'night' and 'ocnight'],
 #   and ['night', 'ocnight' and following-date 'ect','am']
@@ -229,7 +229,7 @@ for date in [0] + d_cal['date'].tolist():
                 l_date_duty_temp.append(date_duty)
         if len(l_date_duty_temp) >= 2:
             for member in l_member:
-                problem_assign += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
+                prob_assign += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
 
 
 ###############################################################################
@@ -243,7 +243,7 @@ for date in l_date_ect:
     if team_leader != '-':
         l_id_member_team = d_member.loc[d_member['team'] == team_leader, 'id_member'].to_list()
         for id_member in l_id_member_team:
-            problem_assign += (dv_assign.loc[str(date) + '_ect', id_member] == 0)
+            prob_assign += (dv_assign.loc[str(date) + '_ect', id_member] == 0)
 
 
 ###############################################################################
@@ -266,7 +266,7 @@ for type_score in l_type_score:
         #            lpDot(a_score,dv_assign.loc[:, id_member]))
         # Past + current month scores
         score_history = d_score_history.loc[d_score_history['id_member'] == id_member, 'score_' + type_score].to_numpy()[0]
-        problem_assign += (dv_score.loc[id_member, type_score] ==\
+        prob_assign += (dv_score.loc[id_member, type_score] ==\
                     lpDot(a_score,dv_assign.loc[:, id_member]) + score_history)        
 
 # Calculate score differences
@@ -282,16 +282,16 @@ for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
     for type_score in l_type_score:
         for id_member_0 in l_member_scoregroup:
             for id_member_1 in l_member_scoregroup:
-                problem_assign += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >=\
+                prob_assign += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >=\
                             dv_score.loc[id_member_0, type_score] - dv_score.loc[id_member_1, type_score])
-        problem_assign += (dv_scorediff_sum.loc[id_scoregroup, type_score] ==\
+        prob_assign += (dv_scorediff_sum.loc[id_scoregroup, type_score] ==\
                     lpSum(dict_dv_scorediff[type_score].loc[l_member_scoregroup, l_member_scoregroup].to_numpy()))
 
 
 ###############################################################################
 # Define objective function to be minimized
 ###############################################################################
-problem_assign += (c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
+prob_assign += (c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
           + c_scorediff_ampmdaynight * lpSum(dv_scorediff_sum['ampmdaynight'].to_numpy()) \
           + c_scorediff_oc * lpSum(dv_scorediff_sum['oc'].to_numpy()) \
           + c_scorediff_ect * lpSum(dv_scorediff_sum['ect'].to_numpy()) \
@@ -311,9 +311,9 @@ problem_assign += (c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
 #print('Problem: ', problem)
 
 # Solve problem
-problem_assign.solve()
-v_objective = value(problem_assign.objective)
-print('Solved: ' + str(LpStatus[problem_assign.status]) + ', ' + str(round(v_objective, 2)))
+prob_assign.solve()
+v_objective = value(prob_assign.objective)
+print('Solved: ' + str(LpStatus[prob_assign.status]) + ', ' + str(round(v_objective, 2)))
 
 
 ###############################################################################
