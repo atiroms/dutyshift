@@ -206,10 +206,10 @@ def prep_availability(p_src, f_availability, d_date_duty, d_member, d_cal):
 ################################################################################
 # Prepare data of member specs and assignment limits
 ################################################################################
-def prep_member(p_member, f_member, l_class_duty):
+def prep_member(p_src, f_member, l_class_duty):
     l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn','designation_jpn','ect_asgn_jpn','name','title_short','designation', 'team', 'ect_leader', 'ect_subleader']
 
-    d_src = pd.read_csv(os.path.join(p_member, f_member))
+    d_src = pd.read_csv(os.path.join(p_src, f_member))
     l_col_member = [col for col in l_col_member if col in d_src.columns]
     d_member = d_src[l_col_member]
     d_lim = d_src[l_class_duty].copy()
@@ -286,6 +286,7 @@ def prep_calendar(p_root, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_wee
 
     # Calculate scores
     d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
+    d_score_duty.columns = [d_score_duty.columns.tolist()[0]] + ['score_' + col for col in d_score_duty.columns.tolist()[1:]]
     d_date_duty = pd.merge(d_date_duty, d_score_duty, on = 'duty', how = 'left')
 
     # Calculate class of duty
@@ -349,7 +350,7 @@ def past_score(p_root, d_member, year_plan, month_plan):
 
     # Calculate past scores
     d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
-    l_type_score = [col for col in d_score_duty.columns if col.startswith('score_')]
+    l_type_score = [col for col in d_score_duty.columns if col != 'duty']
     d_assign_date_duty = pd.merge(d_assign_date_duty, d_score_duty, on = 'duty', how = 'left')
 
     d_score_past = d_member.copy()
@@ -362,7 +363,6 @@ def past_score(p_root, d_member, year_plan, month_plan):
 
     d_score_past.index = d_score_past['id_member'].tolist()
     d_score_past = d_score_past[['id_member'] + l_type_score]
-    d_score_past.columns = [col[6:] for col in d_score_past.columns]
 
     return d_score_past
 
