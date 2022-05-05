@@ -22,16 +22,16 @@ l_date_ect_cancel = [25]
 #l_date_ect_cancel = []
 
 #f_member = 'member.csv'
-f_member = 'member2.csv'
+f_member = 'member5.csv'
 #f_availability = 'availability.csv'
-f_availability = 'availability2.csv'
+#f_availability = 'availability2.csv'
+f_availability = 'availability3.csv'
 
 # Fixed parameters
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em = 2 # Wednesday
 l_week_em = [1, 3] # 1st and 3rd weeks
 
-l_class_duty = ['ampm','daynight_tot','night_em','night_wd','day_hd','night_hd','oc_tot','oc_hd_day','oc_other','ect']
 l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'ocnight': 6}
 l_title_scoregroup = [['assoc'], ['instr'], ['limterm_instr','assist'], ['limterm_clin'], ['stud']]
@@ -77,7 +77,7 @@ from helper import *
 # Load and prepare data
 ###############################################################################
 # Prepare calendar and all duties of the month
-d_cal, s_cnt_duty, d_date_duty \
+d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty, l_class_duty \
     = prep_calendar(p_root, l_holiday, l_day_ect, l_date_ect_cancel,
                     day_em, l_week_em, year_plan, month_plan)
 
@@ -88,7 +88,7 @@ d_cal, s_cnt_duty, d_date_duty \
 
 # Prepare data of member specs and assignment limits
 #d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
-d_member, d_score_past, d_lim_hard, d_lim_soft\
+d_member, d_score_past, d_lim_hard, d_lim_soft, d_scoregroup\
     = prep_member2(p_root, f_member, s_cnt_duty, d_date_duty,
                    l_class_duty, year_plan, month_plan)
 
@@ -99,13 +99,46 @@ d_availability, l_member = prep_availability(p_src, f_availability, d_date_duty,
 ###############################################################################
 # Initialize assignment count problem and model
 ###############################################################################
-# TODO: Calculate exact assignment counts per class_duty per member
-dv_count = pd.DataFrame(np.array(addvars(len(l_member), len(l_member))),
-                        index = l_member, columns = l_class_duty)
+# TODO: Optimize exact assignment counts per class_duty per member
+prob_cnt = LpProblem()
 
+# Exact assignment counts to be optimized
+l_lim_exact = [str(p[0]) + '_' + p[1] for p in itertools.product(l_member, l_class_duty)]
+dict_v_lim_exact = LpVariable.dicts('count', l_lim_exact, 0, None,  LpInteger)
+lv_lim_exact = list(dict_v_lim_exact.values())
+llv_lim_exact = [lv_lim_exact[i:i+len(l_class_duty)] for i in range(0, len(lv_lim_exact), len(l_class_duty))]
+dv_lim_exact = pd.DataFrame(llv_lim_exact, index = l_member, columns = l_class_duty)
 
+# TODO: innate condition for class_duty
+
+# Condition on sum of class_duty
+for class_duty in l_class_duty:
+    prob_cnt += (lpSum(dv_lim_exact.loc[:,class_duty]) == s_cnt_class_duty[class_duty])
+
+# Condition using hard limits
+for member in l_member:
+    for class_duty in l_class_duty:
+        lim_hard = d_lim_hard.loc[member, class_duty]
+        if ~np.isnan(lim_hard[0]):
+            prob_cnt += (dv_lim_exact.loc[member, class_duty] <= lim_hard[1])
+            prob_cnt += (lim_hard[0] <= dv_lim_exact.loc[member, class_duty])
+
+# Convert variables in dv_lim_exact to dv_score
 dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
                         index = l_member, columns = l_type_score)
+d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
+for type_score in l_type_score:
+    d_score_class_temp = d_score_class.loc[d_score_class['score'] == type_score,:].copy()
+    l_class_duty_tmp = d_score_class_temp['class'].tolist()
+    l_constant_tmp = d_score_class_temp['constant'].tolist()
+    for member in l_member:
+        lv_lim_exact_tmp = dv_lim_exact.loc[member, l_class_duty_tmp].tolist()
+        prob_cnt += (dv_score.loc[member, type_score] == lpDot(lv_lim_exact_tmp, l_constant_tmp))
+
+
+
+
+####
 for type_score in l_type_score:
     a_score = d_date_duty['score_' + type_score].to_numpy()
     for id_member in l_member:

@@ -3,6 +3,7 @@ import numpy as np, pandas as pd
 from math import ceil
 from pulp import *
 
+
 ################################################################################
 # Prepare data of member specs and assignment limits
 ################################################################################
@@ -25,7 +26,11 @@ def prep_member2(p_root, f_member, s_cnt_duty, d_date_duty, l_class_duty, year_p
     # Split assignment limit data into hard and soft
     d_lim_hard, d_lim_soft = split_lim(d_lim, l_class_duty)
 
-    return d_member, d_score_past, d_lim_hard, d_lim_soft
+    # Dataframe of score equilization groups
+    d_scoregroup = d_src[[col for col in d_src.columns if col.startswith('grp_')]].copy()
+    d_scoregroup.index = d_member['id_member'].tolist()
+
+    return d_member, d_score_past, d_lim_hard, d_lim_soft, d_scoregroup
 
 
 ################################################################################
@@ -278,31 +283,15 @@ def prep_calendar(p_root, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_wee
     d_date_duty = pd.concat(ld_date_duty, axis = 0)
     d_date_duty = d_date_duty[['date_duty','date','duty','holiday','em']]
     d_date_duty.index = range(len(d_date_duty))
+
     # Calculate scores
     d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
     d_date_duty = pd.merge(d_date_duty, d_score_duty, on = 'duty', how = 'left')
-    # Specify which class_duty's apply to each date_duty
-    l_date_all = d_cal['date'].tolist()
-    l_date_wd = d_cal.loc[d_cal['holiday'] == False, 'date'].tolist()
-    l_date_hd = d_cal.loc[d_cal['holiday'] == True, 'date'].tolist()
-    l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].tolist()
-    dict_class_duty = {
-        'ampm': [[l_date_wd, 'am'], [l_date_wd, 'pm']],
-        'daynight_tot': [[l_date_hd, 'day'],[l_date_all, 'night'],[l_date_all, 'emnight']], 
-        'night_em': [[l_date_all, 'emnight']],'night_wd': [[l_date_wd, 'night'],[l_date_wd, 'emnight']],
-        'day_hd': [[l_date_hd, 'day']],'night_hd': [[l_date_hd, 'night']],
-        'oc_tot': [[l_date_hd, 'ocday'], [l_date_all, 'ocnight']],'oc_hd_day': [[l_date_hd, 'ocday']],
-        'oc_other': [[l_date_all, 'ocnight']],'ect': [[l_date_ect, 'ect']]}
-    for class_duty in dict_class_duty:
-        d_date_duty['class_' + class_duty] = False
-        ll_date_duty= dict_class_duty[class_duty]
-        for l_date_duty in ll_date_duty:
-            l_date = l_date_duty[0]
-            duty =  l_date_duty[1]
-            idx_temp = d_date_duty.loc[(d_date_duty['date'].isin(l_date)) & (d_date_duty['duty'] == duty), 'date_duty'].tolist()
-            d_date_duty.loc[d_date_duty['date_duty'].isin(idx_temp), 'class_' + class_duty] = True
 
-    return d_cal, s_cnt_duty, d_date_duty
+    # Calculate class of duty
+    d_date_duty, s_cnt_class_duty, l_class_duty = date_duty2class(p_root, d_date_duty)
+
+    return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty, l_class_duty
 
 
 ################################################################################
@@ -374,4 +363,32 @@ def past_score(p_root, d_member, year_plan, month_plan):
 
     return d_score_past
 
+
+################################################################################
+# Convert date_duty to class
+################################################################################
+def date_duty2class(p_root, d_date_duty):
+    # Load class data
+    d_class_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/class_duty.csv'))
+    l_class_duty = sorted(list(set(d_class_duty['class'].tolist())))
+    d_date_duty[['class_' + class_duty for class_duty in  l_class_duty]] = False
+
+    for class_duty in l_class_duty:
+        li_class = []
+        d_class_duty_tmp = d_class_duty[d_class_duty['class'] == class_duty]
+        for _, row in d_class_duty_tmp.iterrows():
+            if row['date'] == 'all':
+                li_temp = d_date_duty.loc[d_date_duty['duty'] == row['duty'],:].index.tolist()
+            elif row['date'] == 'wd':
+                li_temp = d_date_duty.loc[(d_date_duty['holiday'] == False) & (d_date_duty['duty'] == row['duty']),:].index.tolist()
+            elif row['date'] == 'hd':
+                li_temp =  d_date_duty.loc[(d_date_duty['holiday'] == True) & (d_date_duty['duty'] == row['duty']),:].index.tolist()
+            li_class.extend(li_temp)
+        li_class = sorted(list(set(li_class)))
+        d_date_duty.loc[li_class, 'class_' + class_duty] = True
+
+    s_cnt_class_duty = d_date_duty[['class_' + class_duty for class_duty in  l_class_duty]].sum(axis = 0)
+    s_cnt_class_duty.index = [id[6:] for id in s_cnt_class_duty.index.tolist()]
+
+    return d_date_duty, s_cnt_class_duty, l_class_duty
 
