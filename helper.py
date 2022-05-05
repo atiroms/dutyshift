@@ -349,10 +349,9 @@ def past_score(p_root, d_member, year_plan, month_plan):
 
     # Calculate past scores
     d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
-    l_type_score = [col for col in d_score_duty.columns if col.startswith('score')]
+    l_type_score = [col for col in d_score_duty.columns if col.startswith('score_')]
     d_assign_date_duty = pd.merge(d_assign_date_duty, d_score_duty, on = 'duty', how = 'left')
-    d_assign_date_duty.loc[(d_assign_date_duty['duty'] == 'night') & (d_assign_date_duty['em'] == True),
-                           ['score_daynight','score_ampmdaynight']] = 1.5
+
     d_score_past = d_member.copy()
     for id_member in d_score_past['id_member'].tolist():
         d_score_member = d_assign_date_duty.loc[d_assign_date_duty['id_member'] == id_member,
@@ -360,6 +359,10 @@ def past_score(p_root, d_member, year_plan, month_plan):
         s_score_member = d_score_member.sum(axis = 0)
         d_score_past.loc[d_score_past['id_member'] == id_member,
                     l_type_score] = s_score_member.tolist()
+
+    d_score_past.index = d_score_past['id_member'].tolist()
+    d_score_past = d_score_past[['id_member'] + l_type_score]
+    d_score_past.columns = [col[6:] for col in d_score_past.columns]
 
     return d_score_past
 

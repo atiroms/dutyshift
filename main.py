@@ -123,7 +123,7 @@ for member in l_member:
             prob_cnt += (dv_lim_exact.loc[member, class_duty] <= lim_hard[1])
             prob_cnt += (lim_hard[0] <= dv_lim_exact.loc[member, class_duty])
 
-# Convert variables in dv_lim_exact to dv_score
+# Convert variables in dv_lim_exact to dv_score (current + past scores)
 dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
                         index = l_member, columns = l_type_score)
 d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
@@ -133,8 +133,7 @@ for type_score in l_type_score:
     l_constant_tmp = d_score_class_temp['constant'].tolist()
     for member in l_member:
         lv_lim_exact_tmp = dv_lim_exact.loc[member, l_class_duty_tmp].tolist()
-        prob_cnt += (dv_score.loc[member, type_score] == lpDot(lv_lim_exact_tmp, l_constant_tmp))
-
+        prob_cnt += (dv_score.loc[member, type_score] == lpDot(lv_lim_exact_tmp, l_constant_tmp) + d_score_past.loc[d_score_past['id_member'] == member, type_score].values[0])
 
 
 
