@@ -22,7 +22,7 @@ l_date_ect_cancel = [25]
 #l_date_ect_cancel = []
 
 #f_member = 'member.csv'
-f_member = 'member5.csv'
+f_member = 'member6.csv'
 #f_availability = 'availability.csv'
 #f_availability = 'availability2.csv'
 f_availability = 'availability3.csv'
