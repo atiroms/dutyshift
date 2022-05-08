@@ -33,16 +33,13 @@ day_em = 2 # Wednesday
 l_week_em = [1, 3] # 1st and 3rd weeks
 
 l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
-dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'ocnight': 6}
+l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
+dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
 l_title_scoregroup = [['assoc'], ['instr'], ['limterm_instr','assist'], ['limterm_clin'], ['stud']]
 
 c_outlier_soft = 0.0001
-c_scorediff_ampm = 0.001
-c_scorediff_daynight = 0.001
-c_scorediff_ampmdaynight = 0.1
-c_scorediff_oc = 0.0001
-c_scorediff_ect = 0.0001
 c_assign_suboptimal = 0.0001
+dict_c_scorediff = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 'oc': 0.01, 'ect': 0.1}
 
 thr_interval_daynight = 4
 thr_interval_ect = 3
@@ -77,8 +74,8 @@ from helper import *
 # Load and prepare data
 ###############################################################################
 # Prepare calendar and all duties of the month
-d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty, l_class_duty \
-    = prep_calendar(p_root, l_holiday, l_day_ect, l_date_ect_cancel,
+d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty \
+    = prep_calendar(p_root, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel,
                     day_em, l_week_em, year_plan, month_plan)
 
 # Prepare calendar for google forms
@@ -88,9 +85,8 @@ d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty, l_class_duty \
 
 # Prepare data of member specs and assignment limits
 #d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
-d_member, d_score_past, d_lim_hard, d_lim_soft, d_scoregroup\
-    = prep_member2(p_root, f_member, s_cnt_duty, d_date_duty,
-                   l_class_duty, year_plan, month_plan)
+d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
+    = prep_member2(p_root, f_member, l_class_duty, year_plan, month_plan)
 
 # Prepare data of member availability
 d_availability, l_member = prep_availability(p_src, f_availability, d_date_duty, d_member, d_cal)
@@ -99,55 +95,26 @@ d_availability, l_member = prep_availability(p_src, f_availability, d_date_duty,
 ###############################################################################
 # Initialize assignment count problem and model
 ###############################################################################
-# TODO: Optimize exact assignment counts per class_duty per member
-prob_cnt = LpProblem()
-
-# Exact assignment counts to be optimized
-l_lim_exact = [str(p[0]) + '_' + p[1] for p in itertools.product(l_member, l_class_duty)]
-dict_v_lim_exact = LpVariable.dicts('count', l_lim_exact, 0, None,  LpInteger)
-lv_lim_exact = list(dict_v_lim_exact.values())
-llv_lim_exact = [lv_lim_exact[i:i+len(l_class_duty)] for i in range(0, len(lv_lim_exact), len(l_class_duty))]
-dv_lim_exact = pd.DataFrame(llv_lim_exact, index = l_member, columns = l_class_duty)
-
-# TODO: innate condition for class_duty
-
-# Condition on sum of class_duty
-for class_duty in l_class_duty:
-    prob_cnt += (lpSum(dv_lim_exact.loc[:,class_duty]) == s_cnt_class_duty[class_duty])
-
-# Condition using hard limits
-for member in l_member:
-    for class_duty in l_class_duty:
-        lim_hard = d_lim_hard.loc[member, class_duty]
-        if ~np.isnan(lim_hard[0]):
-            prob_cnt += (dv_lim_exact.loc[member, class_duty] <= lim_hard[1])
-            prob_cnt += (lim_hard[0] <= dv_lim_exact.loc[member, class_duty])
-
-# Convert variables in dv_lim_exact to dv_score (current + past scores)
-dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
-                        index = l_member, columns = l_type_score)
 d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
-for type_score in l_type_score:
-    d_score_class_temp = d_score_class.loc[d_score_class['score'] == type_score,:].copy()
-    l_class_duty_tmp = d_score_class_temp['class'].tolist()
-    l_constant_tmp = d_score_class_temp['constant'].tolist()
-    for member in l_member:
-        lv_lim_exact_tmp = dv_lim_exact.loc[member, l_class_duty_tmp].tolist()
-        prob_cnt += (dv_score.loc[member, type_score] == lpDot(lv_lim_exact_tmp, l_constant_tmp) + d_score_past.loc[d_score_past['id_member'] == member, type_score].values[0])
 
+# Optimize assignment counts except OC
+d_lim_exact, d_score, d_scorediff_sum = \
+    optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past,
+                   d_score_class, d_grp_score, dict_c_scorediff,
+                   l_type_score = ['ampm', 'daynight', 'ampmdaynight', 'ect'],
+                   l_class_duty = ['ampm', 'daynight_tot', 'night_em', 'ect'])
 
+# Optimize assignment counts of OC
+ln_daynight = d_lim_exact['daynight_tot'].tolist()
+l_designation = d_member.loc[d_member['id_member'].isin(l_member), 'designation'].tolist()
+n_oc_required = int(sum([x * (y == False) for x, y in zip(ln_daynight, l_designation)]))
+s_cnt_class_duty['oc_tot'] = n_oc_required
 
-####
-for type_score in l_type_score:
-    a_score = d_date_duty['score_' + type_score].to_numpy()
-    for id_member in l_member:
-        # Single-month scores
-        #problem += (dv_score.loc[id_member, type_score] ==\
-        #            lpDot(a_score,dv_assign.loc[:, id_member]))
-        # Past + current month scores
-        score_history = d_score_history.loc[d_score_history['id_member'] == id_member, 'score_' + type_score].to_numpy()[0]
-        prob_assign += (dv_score.loc[id_member, type_score] ==\
-                    lpDot(a_score,dv_assign.loc[:, id_member]) + score_history)        
+d_lim_exact_oc, d_score_oc, d_scorediff_sum_oc = \
+    optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past,
+                   d_score_class, d_grp_score, dict_c_scorediff,
+                   l_type_score = ['oc'],
+                   l_class_duty = ['oc_tot'])
 
 
 ###############################################################################

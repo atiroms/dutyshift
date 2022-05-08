@@ -1,13 +1,104 @@
+
+###############################################################################
+# Libraries
+###############################################################################
 import datetime, calendar, os
 import numpy as np, pandas as pd
 from math import ceil
 from pulp import *
+from ortoolpy import addvars, addbinvars
+
+
+################################################################################
+# Optimize exact count of assignment
+################################################################################
+def optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score_class,
+                   d_grp_score, dict_c_scorediff, l_type_score, l_class_duty):
+    prob_cnt = LpProblem()
+
+    # Dataframe of variables
+    l_lim_exact = [str(p[0]) + '_' + p[1] for p in itertools.product(l_member, l_class_duty)]
+    dict_v_lim_exact = LpVariable.dicts(name = 'cnt', indices = l_lim_exact, lowBound = 0, upBound = None,  cat = 'Integer')
+    lv_lim_exact = list(dict_v_lim_exact.values())
+    llv_lim_exact = [lv_lim_exact[i:i+len(l_class_duty)] for i in range(0, len(lv_lim_exact), len(l_class_duty))]
+    dv_lim_exact = pd.DataFrame(llv_lim_exact, index = l_member, columns = l_class_duty)
+
+    # Condition on sum of class_duty
+    for class_duty in l_class_duty:
+        prob_cnt += (lpSum(dv_lim_exact.loc[:,class_duty]) == s_cnt_class_duty[class_duty])
+
+    # Condition using hard limits
+    for member in l_member:
+        for class_duty in l_class_duty:
+            lim_hard = d_lim_hard.loc[member, class_duty]
+            if ~np.isnan(lim_hard[0]):
+                if lim_hard[0] == lim_hard[1]:
+                    prob_cnt += (dv_lim_exact.loc[member, class_duty] == lim_hard[0])
+                else:
+                    prob_cnt += (dv_lim_exact.loc[member, class_duty] <= lim_hard[1])
+                    prob_cnt += (lim_hard[0] <= dv_lim_exact.loc[member, class_duty])
+
+    # Convert variables in dv_lim_exact to dv_score (current + past scores)
+
+    dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
+                            index = l_member, columns = l_type_score)
+    for type_score in l_type_score:
+        d_score_class_temp = d_score_class.loc[d_score_class['score'] == type_score,:].copy()
+        l_class_duty_tmp = d_score_class_temp['class'].tolist()
+        l_constant_tmp = d_score_class_temp['constant'].tolist()
+        for member in l_member:
+            lv_lim_exact_tmp = dv_lim_exact.loc[member, l_class_duty_tmp].tolist()
+            prob_cnt += (dv_score.loc[member, type_score] == \
+                         lpDot(lv_lim_exact_tmp, l_constant_tmp) + \
+                               d_score_past.loc[d_score_past['id_member'] == member, type_score].values[0])
+
+    # Calculate sum of score differences
+    n_grp_max = d_grp_score.max().max() + 1
+    dv_scorediff_sum = pd.DataFrame(np.array(addvars(n_grp_max, len(l_type_score))),
+                                    index = range(n_grp_max), columns = l_type_score)
+    dict_dv_scorediff = {}
+    for type_score in l_type_score:
+        dict_dv_scorediff[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
+
+    for type_score in l_type_score:
+        l_grp = [x for x in d_grp_score[type_score].unique() if x is not pd.NA]
+        for i_grp in l_grp:
+            l_member_grp = d_grp_score.loc[d_grp_score[type_score] == i_grp, :].index.tolist()
+            for id_member_0 in l_member_grp:
+                for id_member_1 in l_member_grp:
+                    prob_cnt += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >=\
+                                dv_score.loc[id_member_0, type_score] - dv_score.loc[id_member_1, type_score])
+            prob_cnt += (dv_scorediff_sum.loc[i_grp, type_score] ==\
+                        lpSum(dict_dv_scorediff[type_score].loc[l_member_grp, l_member_grp].to_numpy()))
+        l_grp_empty = [x for x in range(n_grp_max) if x not in l_grp]
+        for i_grp in l_grp_empty:
+            prob_cnt += (dv_scorediff_sum.loc[i_grp, type_score] == 0)
+
+    # Objective function
+    lc_scorediff = [dict_c_scorediff[x] for x in l_type_score]
+    l_sum_scorediff = [lpSum(dv_scorediff_sum[x].to_numpy()) for x in l_type_score]
+    prob_cnt += (lpDot(lc_scorediff, l_sum_scorediff))
+
+    # Solve problem
+    prob_cnt.solve()
+    v_objective = value(prob_cnt.objective)
+    print('Solved: ' + str(LpStatus[prob_cnt.status]) + ', ' + str(round(v_objective, 2)))
+
+    # Extract data
+    d_lim_exact = pd.DataFrame(np.vectorize(value)(dv_lim_exact),
+                            columns = dv_lim_exact.columns, index = dv_lim_exact.index)
+    d_score = pd.DataFrame(np.vectorize(value)(dv_score),
+                            columns = dv_score.columns, index = dv_score.index)
+    d_scorediff_sum = pd.DataFrame(np.vectorize(value)(dv_scorediff_sum),
+                            columns = dv_scorediff_sum.columns, index = dv_scorediff_sum.index)
+
+    return d_lim_exact, d_score, d_scorediff_sum
 
 
 ################################################################################
 # Prepare data of member specs and assignment limits
 ################################################################################
-def prep_member2(p_root, f_member, s_cnt_duty, d_date_duty, l_class_duty, year_plan, month_plan):
+def prep_member2(p_root, f_member, l_class_duty, year_plan, month_plan):
     l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn',
                     'designation_jpn','ect_asgn_jpn','name','title_short',
                     'designation', 'team', 'ect_leader', 'ect_subleader']
@@ -27,10 +118,13 @@ def prep_member2(p_root, f_member, s_cnt_duty, d_date_duty, l_class_duty, year_p
     d_lim_hard, d_lim_soft = split_lim(d_lim, l_class_duty)
 
     # Dataframe of score equilization groups
-    d_scoregroup = d_src[[col for col in d_src.columns if col.startswith('grp_')]].copy()
-    d_scoregroup.index = d_member['id_member'].tolist()
+    d_grp_score = d_src[[col for col in d_src.columns if col.startswith('grp_')]].copy()
+    d_grp_score.columns = [x[4:] for x in d_grp_score.columns]
+    d_grp_score.index = d_member['id_member'].tolist()
+    d_grp_score = d_grp_score.replace('-', np.nan)
+    d_grp_score = d_grp_score.astype('Int64')
 
-    return d_member, d_score_past, d_lim_hard, d_lim_soft, d_scoregroup
+    return d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score
 
 
 ################################################################################
@@ -249,7 +343,7 @@ def prep_member(p_src, f_member, l_class_duty):
 ################################################################################
 # Prepare calendar of the month
 ################################################################################
-def prep_calendar(p_root, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
+def prep_calendar(p_root, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
                   year_plan, month_plan):
     dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
 
@@ -290,9 +384,9 @@ def prep_calendar(p_root, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_wee
     d_date_duty = pd.merge(d_date_duty, d_score_duty, on = 'duty', how = 'left')
 
     # Calculate class of duty
-    d_date_duty, s_cnt_class_duty, l_class_duty = date_duty2class(p_root, d_date_duty)
+    d_date_duty, s_cnt_class_duty = date_duty2class(p_root, d_date_duty, l_class_duty)
 
-    return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty, l_class_duty
+    return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty
 
 
 ################################################################################
@@ -304,9 +398,11 @@ def split_lim(d_lim, l_class_duty):
                               index = d_lim.index, columns = d_lim.columns)
     d_lim_soft = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0],
                               index = d_lim.index, columns = d_lim.columns)
+
     for col in l_class_duty:
         d_lim[col] = d_lim[col].astype(str)
         for idx in d_lim.index.tolist():
+
             if '(' in d_lim.loc[idx, col]:
                 # If parenthesis exists, its content is hard limit
                 d_lim_hard.loc[idx, col][0] = str(d_lim.loc[idx, col]).split('(')[1].split(')')[0]
@@ -370,10 +466,10 @@ def past_score(p_root, d_member, year_plan, month_plan):
 ################################################################################
 # Convert date_duty to class
 ################################################################################
-def date_duty2class(p_root, d_date_duty):
+def date_duty2class(p_root, d_date_duty, l_class_duty):
     # Load class data
     d_class_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/class_duty.csv'))
-    l_class_duty = sorted(list(set(d_class_duty['class'].tolist())))
+    #l_class_duty = sorted(list(set(d_class_duty['class'].tolist())))
     d_date_duty[['class_' + class_duty for class_duty in  l_class_duty]] = False
 
     for class_duty in l_class_duty:
@@ -393,5 +489,5 @@ def date_duty2class(p_root, d_date_duty):
     s_cnt_class_duty = d_date_duty[['class_' + class_duty for class_duty in  l_class_duty]].sum(axis = 0)
     s_cnt_class_duty.index = [id[6:] for id in s_cnt_class_duty.index.tolist()]
 
-    return d_date_duty, s_cnt_class_duty, l_class_duty
+    return d_date_duty, s_cnt_class_duty
 
