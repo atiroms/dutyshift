@@ -13,7 +13,7 @@ from ortoolpy import addvars, addbinvars
 # Optimize exact count of assignment
 ################################################################################
 def optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score_class,
-                   d_grp_score, dict_c_scorediff, l_type_score, l_class_duty):
+                   d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total, l_type_score, l_class_duty):
     prob_cnt = LpProblem()
 
     # Dataframe of variables
@@ -38,8 +38,10 @@ def optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
                     prob_cnt += (dv_lim_exact.loc[member, class_duty] <= lim_hard[1])
                     prob_cnt += (lim_hard[0] <= dv_lim_exact.loc[member, class_duty])
 
-    # Convert variables in dv_lim_exact to dv_score (current + past scores)
-    dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
+    # Convert variables in dv_lim_exact to dv_score
+    dv_score_current = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
+                                    index = l_member, columns = l_type_score)
+    dv_score_total = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
                             index = l_member, columns = l_type_score)
     for type_score in l_type_score:
         d_score_class_temp = d_score_class.loc[d_score_class['score'] == type_score,:].copy()
@@ -47,17 +49,27 @@ def optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
         l_constant_tmp = d_score_class_temp['constant'].tolist()
         for member in l_member:
             lv_lim_exact_tmp = dv_lim_exact.loc[member, l_class_duty_tmp].tolist()
-            prob_cnt += (dv_score.loc[member, type_score] == \
-                         lpDot(lv_lim_exact_tmp, l_constant_tmp) + \
+            # Current score
+            prob_cnt += (dv_score_current.loc[member, type_score] == \
+                         lpDot(lv_lim_exact_tmp, l_constant_tmp))
+            # Current + past score
+            prob_cnt += (dv_score_total.loc[member, type_score] == \
+                         dv_score_current.loc[member, type_score] + \
                          d_score_past.loc[d_score_past['id_member'] == member, type_score].values[0])
 
     # Calculate sum of score differences
     n_grp_max = d_grp_score.max().max() + 1
-    dv_scorediff_sum = pd.DataFrame(np.array(addvars(n_grp_max, len(l_type_score))),
-                                    index = range(n_grp_max), columns = l_type_score)
-    dict_dv_scorediff = {}
+    # Sum of inter-member differences of current month scores
+    dv_sigma_diff_score_current = pd.DataFrame(np.array(addvars(n_grp_max, len(l_type_score))),
+                                               index = range(n_grp_max), columns = l_type_score)
+    # Sum of inter-member differences of current + past month score
+    dv_sigma_diff_score_total = pd.DataFrame(np.array(addvars(n_grp_max, len(l_type_score))),
+                                             index = range(n_grp_max), columns = l_type_score)
+    dict_dv_diff_score_current = {}                    
+    dict_dv_diff_score_total = {}
     for type_score in l_type_score:
-        dict_dv_scorediff[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
+        dict_dv_diff_score_current[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
+        dict_dv_diff_score_total[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
 
     for type_score in l_type_score:
         l_grp = [x for x in d_grp_score[type_score].unique() if x is not pd.NA]
@@ -65,18 +77,25 @@ def optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
             l_member_grp = d_grp_score.loc[d_grp_score[type_score] == i_grp, :].index.tolist()
             for id_member_0 in l_member_grp:
                 for id_member_1 in l_member_grp:
-                    prob_cnt += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >=\
-                                dv_score.loc[id_member_0, type_score] - dv_score.loc[id_member_1, type_score])
-            prob_cnt += (dv_scorediff_sum.loc[i_grp, type_score] ==\
-                        lpSum(dict_dv_scorediff[type_score].loc[l_member_grp, l_member_grp].to_numpy()))
+                    prob_cnt += (dict_dv_diff_score_current[type_score].loc[id_member_0, id_member_1] >=\
+                                 dv_score_current.loc[id_member_0, type_score] - dv_score_current.loc[id_member_1, type_score])
+                    prob_cnt += (dict_dv_diff_score_total[type_score].loc[id_member_0, id_member_1] >=\
+                                 dv_score_total.loc[id_member_0, type_score] - dv_score_total.loc[id_member_1, type_score])
+            prob_cnt += (dv_sigma_diff_score_current.loc[i_grp, type_score] ==\
+                         lpSum(dict_dv_diff_score_current[type_score].loc[l_member_grp, l_member_grp].to_numpy()))
+            prob_cnt += (dv_sigma_diff_score_total.loc[i_grp, type_score] ==\
+                         lpSum(dict_dv_diff_score_total[type_score].loc[l_member_grp, l_member_grp].to_numpy()))
         l_grp_empty = [x for x in range(n_grp_max) if x not in l_grp]
         for i_grp in l_grp_empty:
-            prob_cnt += (dv_scorediff_sum.loc[i_grp, type_score] == 0)
+            prob_cnt += (dv_sigma_diff_score_current.loc[i_grp, type_score] == 0)
+            prob_cnt += (dv_sigma_diff_score_total.loc[i_grp, type_score] == 0)
 
     # Objective function
-    lc_scorediff = [dict_c_scorediff[x] for x in l_type_score]
-    l_sum_scorediff = [lpSum(dv_scorediff_sum[x].to_numpy()) for x in l_type_score]
-    prob_cnt += (lpDot(lc_scorediff, l_sum_scorediff))
+    lc_diff_score = [dict_c_diff_score_current[x] for x in l_type_score] \
+                    + [dict_c_diff_score_total[x] for x in l_type_score]
+    l_sum_diff_score = [lpSum(dv_sigma_diff_score_current[x].to_numpy()) for x in l_type_score] \
+                       + [lpSum(dv_sigma_diff_score_total[x].to_numpy()) for x in l_type_score]
+    prob_cnt += (lpDot(lc_diff_score, l_sum_diff_score))
 
     # Solve problem
     prob_cnt.solve()
@@ -85,13 +104,17 @@ def optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
 
     # Extract data
     d_lim_exact = pd.DataFrame(np.vectorize(value)(dv_lim_exact),
-                            columns = dv_lim_exact.columns, index = dv_lim_exact.index)
-    d_score = pd.DataFrame(np.vectorize(value)(dv_score),
-                            columns = dv_score.columns, index = dv_score.index)
-    d_scorediff_sum = pd.DataFrame(np.vectorize(value)(dv_scorediff_sum),
-                            columns = dv_scorediff_sum.columns, index = dv_scorediff_sum.index)
+                              columns = dv_lim_exact.columns, index = dv_lim_exact.index)
+    d_score_current = pd.DataFrame(np.vectorize(value)(dv_score_current),
+                                   columns = dv_score_current.columns, index = dv_score_current.index)
+    d_score_total = pd.DataFrame(np.vectorize(value)(dv_score_total),
+                                 columns = dv_score_total.columns, index = dv_score_total.index)
+    d_sigma_diff_score_current = pd.DataFrame(np.vectorize(value)(dv_sigma_diff_score_current),
+                                              columns = dv_sigma_diff_score_current.columns, index = dv_sigma_diff_score_current.index)
+    d_sigma_diff_score_total = pd.DataFrame(np.vectorize(value)(dv_sigma_diff_score_total),
+                                            columns = dv_sigma_diff_score_total.columns, index = dv_sigma_diff_score_total.index)
 
-    return d_lim_exact, d_score, d_scorediff_sum
+    return d_lim_exact, d_score_current, d_score_total, d_sigma_diff_score_current, d_sigma_diff_score_total
 
 
 ################################################################################
@@ -129,13 +152,13 @@ def prep_member2(p_root, f_member, l_class_duty, year_plan, month_plan):
 ################################################################################
 # Extract optimization parameters
 ################################################################################
-def prep_optim(p_dst, dv_outlier_soft,dv_scorediff_sum, v_assign_suboptimal, c_outlier_soft,
+def prep_optim(p_dst, dv_outlier_soft,dv_score_sigmadiff, v_assign_suboptimal, c_outlier_soft,
                c_scorediff_ampm, c_scorediff_daynight, c_scorediff_ampmdaynight,
                c_scorediff_oc, c_scorediff_ect, c_assign_suboptimal):
     d_outlier_soft = pd.DataFrame(np.vectorize(value)(dv_outlier_soft),
                         columns = dv_outlier_soft.columns, index = dv_outlier_soft.index).astype(float)
-    d_scorediff_sum = pd.DataFrame(np.vectorize(value)(dv_scorediff_sum),
-                        columns = dv_scorediff_sum.columns, index = dv_scorediff_sum.index).astype(float)
+    d_scorediff_sum = pd.DataFrame(np.vectorize(value)(dv_score_sigmadiff),
+                        columns = dv_score_sigmadiff.columns, index = dv_score_sigmadiff.index).astype(float)
     v_assign_suboptimal = value(v_assign_suboptimal)
 
     # Optimization results

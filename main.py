@@ -39,7 +39,8 @@ l_title_scoregroup = [['assoc'], ['instr'], ['limterm_instr','assist'], ['limter
 
 c_outlier_soft = 0.0001
 c_assign_suboptimal = 0.0001
-dict_c_scorediff = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 'oc': 0.01, 'ect': 0.1}
+dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.01, 'oc': 0.001, 'ect': 0.01}
+dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 'oc': 0.01, 'ect': 0.1}
 
 thr_interval_daynight = 4
 thr_interval_ect = 3
@@ -93,14 +94,15 @@ d_availability, l_member = prep_availability(p_src, f_availability, d_date_duty,
 
 
 ###############################################################################
-# Initialize assignment count problem and model
+# Optimize exact assignment count
 ###############################################################################
 d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
 
 # Optimize assignment counts except OC
-d_lim_exact_notoc, d_score, d_scorediff_sum = \
+d_lim_exact_notoc, d_score_current_notoc, d_score_total_notoc,\
+d_sigma_diff_score_current_notoc, d_sigma_diff_score_total_notoc = \
     optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past,
-                   d_score_class, d_grp_score, dict_c_scorediff,
+                   d_score_class, d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total,
                    l_type_score = ['ampm', 'daynight', 'ampmdaynight', 'ect'],
                    l_class_duty = ['ampm', 'daynight_tot', 'night_em', 'ect'])
 
@@ -110,9 +112,10 @@ l_designation = d_member.loc[d_member['id_member'].isin(l_member), 'designation'
 n_oc_required = int(sum([x * (y == False) for x, y in zip(ln_daynight, l_designation)]))
 s_cnt_class_duty['oc_tot'] = n_oc_required
 
-d_lim_exact_oc, d_score_oc, d_scorediff_sum_oc = \
+d_lim_exact_oc, d_score_current_oc, d_score_total_oc,\
+d_sigma_diff_score_current_oc, d_sigma_diff_score_total_oc = \
     optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past,
-                   d_score_class, d_grp_score, dict_c_scorediff,
+                   d_score_class, d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total,
                    l_type_score = ['oc'],
                    l_class_duty = ['oc_tot'])
 
@@ -121,6 +124,9 @@ for col in d_lim_hard.columns:
     if not col in d_lim_exact.columns:
         d_lim_exact[col] = [x[0] for x in d_lim_hard.loc[l_member, col].tolist()]
 d_lim_exact = d_lim_exact[d_lim_hard.columns]
+
+d_score_current = pd.concat([d_score_current_notoc, d_score_current_oc], axis = 1)
+d_score_total = pd.concat([d_score_total_notoc, d_score_total_oc], axis = 1)
 
 
 ###############################################################################
