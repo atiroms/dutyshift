@@ -39,7 +39,6 @@ def optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
                     prob_cnt += (lim_hard[0] <= dv_lim_exact.loc[member, class_duty])
 
     # Convert variables in dv_lim_exact to dv_score (current + past scores)
-
     dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
                             index = l_member, columns = l_type_score)
     for type_score in l_type_score:
@@ -50,7 +49,7 @@ def optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
             lv_lim_exact_tmp = dv_lim_exact.loc[member, l_class_duty_tmp].tolist()
             prob_cnt += (dv_score.loc[member, type_score] == \
                          lpDot(lv_lim_exact_tmp, l_constant_tmp) + \
-                               d_score_past.loc[d_score_past['id_member'] == member, type_score].values[0])
+                         d_score_past.loc[d_score_past['id_member'] == member, type_score].values[0])
 
     # Calculate sum of score differences
     n_grp_max = d_grp_score.max().max() + 1

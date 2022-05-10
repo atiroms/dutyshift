@@ -98,14 +98,14 @@ d_availability, l_member = prep_availability(p_src, f_availability, d_date_duty,
 d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
 
 # Optimize assignment counts except OC
-d_lim_exact, d_score, d_scorediff_sum = \
+d_lim_exact_notoc, d_score, d_scorediff_sum = \
     optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past,
                    d_score_class, d_grp_score, dict_c_scorediff,
                    l_type_score = ['ampm', 'daynight', 'ampmdaynight', 'ect'],
                    l_class_duty = ['ampm', 'daynight_tot', 'night_em', 'ect'])
 
 # Optimize assignment counts of OC
-ln_daynight = d_lim_exact['daynight_tot'].tolist()
+ln_daynight = d_lim_exact_notoc['daynight_tot'].tolist()
 l_designation = d_member.loc[d_member['id_member'].isin(l_member), 'designation'].tolist()
 n_oc_required = int(sum([x * (y == False) for x, y in zip(ln_daynight, l_designation)]))
 s_cnt_class_duty['oc_tot'] = n_oc_required
@@ -115,6 +115,12 @@ d_lim_exact_oc, d_score_oc, d_scorediff_sum_oc = \
                    d_score_class, d_grp_score, dict_c_scorediff,
                    l_type_score = ['oc'],
                    l_class_duty = ['oc_tot'])
+
+d_lim_exact = pd.concat([d_lim_exact_notoc, d_lim_exact_oc], axis = 1)
+for col in d_lim_hard.columns:
+    if not col in d_lim_exact.columns:
+        d_lim_exact[col] = [x[0] for x in d_lim_hard.loc[l_member, col].tolist()]
+d_lim_exact = d_lim_exact[d_lim_hard.columns]
 
 
 ###############################################################################
