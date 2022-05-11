@@ -123,14 +123,13 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
 ################################################################################
 # Prepare data of member specs and assignment limits
 ################################################################################
-def prep_member2(p_root, f_member, l_class_duty, year_plan, month_plan):
+def prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, month_plan):
     l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn',
                     'designation_jpn','ect_asgn_jpn','name','title_short',
                     'designation', 'team', 'ect_leader', 'ect_subleader']
 
     # Load source member and assignment limit of the month
-    d_src = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
-    d_src = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', d_src, f_member))
+    d_src = pd.read_csv(os.path.join(p_month, 'src', f_member))
     l_col_member = [col for col in l_col_member if col in d_src.columns]
     d_member = d_src[l_col_member]
     d_lim = d_src[l_class_duty].copy()
@@ -148,6 +147,14 @@ def prep_member2(p_root, f_member, l_class_duty, year_plan, month_plan):
     d_grp_score.index = d_member['id_member'].tolist()
     d_grp_score = d_grp_score.replace('-', np.nan)
     d_grp_score = d_grp_score.astype('Int64')
+
+    # Save data
+    for p_save in [p_month, p_data]:
+        d_member.to_csv(os.path.join(p_save, 'member.csv'), index = False)
+        d_score_past.to_csv(os.path.join(p_save, 'score_past.csv'), index = False)
+        d_lim_hard.to_csv(os.path.join(p_save, 'lim_hard.csv'), index = False)
+        d_lim_soft.to_csv(os.path.join(p_save, 'lim_soft.csv'), index = False)
+        d_grp_score.to_csv(os.path.join(p_save, 'grp_score.csv'), index = False)
 
     return d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score
 
@@ -368,7 +375,7 @@ def prep_member(p_src, f_member, l_class_duty):
 ################################################################################
 # Prepare calendar of the month
 ################################################################################
-def prep_calendar(p_root, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
+def prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
                   year_plan, month_plan):
     dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
 
@@ -410,6 +417,13 @@ def prep_calendar(p_root, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel,
 
     # Calculate class of duty
     d_date_duty, s_cnt_class_duty = date_duty2class(p_root, d_date_duty, l_class_duty)
+
+    # Save data
+    for p_save in [p_month, p_data]:
+        d_cal.to_csv(os.path.join(p_save, 'calendar.csv'), index = False)
+        d_date_duty.to_csv(os.path.join(p_save, 'date_duty.csv'), index = False)
+        s_cnt_duty.to_csv(os.path.join(p_save, 'cnt_duty.csv'), index = False)
+        s_cnt_class_duty.to_csv(os.path.join(p_save, 'cnt_class_duty.csv'), index = False)
 
     return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty
 

@@ -51,12 +51,14 @@ else:
     p_script=os.path.join(p_root,'GitHub/dutyshift')
     os.chdir(p_script)
     # Set paths and directories
-    d_src = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
-    p_src = os.path.join(p_root, 'Dropbox/dutyshift', d_src)
-    d_dst = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    p_dst = os.path.join(p_src, d_dst)
-    if ~os.path.exists(p_dst):
-        os.makedirs(p_dst)
+    d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
+    p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
+    d_data = datetime.datetime.now().strftime('plan_%Y%m%d_%H%M%S')
+    p_result = os.path.join(p_month, 'result')
+    p_data = os.path.join(p_result, d_data)
+    for p_dir in [p_result, p_data]:
+        if not os.path.exists(p_dir):
+            os.makedirs(p_dir)
 
 from helper import *
 
@@ -66,7 +68,7 @@ from helper import *
 ###############################################################################
 # Prepare calendar and all duties of the month
 d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty \
-    = prep_calendar(p_root, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel,
+    = prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel,
                     day_em, l_week_em, year_plan, month_plan)
 
 # Prepare calendar for google forms
@@ -75,9 +77,8 @@ d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty \
 #d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
 
 # Prepare data of member specs and assignment limits
-#d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
 d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
-    = prep_member2(p_root, f_member, l_class_duty, year_plan, month_plan)
+    = prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, month_plan)
 
 
 ###############################################################################
@@ -116,3 +117,8 @@ d_lim_exact = d_lim_exact[d_lim_hard.columns]
 d_score_current = pd.concat([d_score_current_notoc, d_score_current_oc], axis = 1)
 d_score_total = pd.concat([d_score_total_notoc, d_score_total_oc], axis = 1)
 
+# Save data
+for p_save in [p_month, p_data]:
+    d_lim_exact.to_csv(os.path.join(p_save, 'lim_exact.csv'), index = False)
+    d_score_current.to_csv(os.path.join(p_save, 'score_current.csv'), index = False)
+    d_score_total.to_csv(os.path.join(p_save, 'score_total.csv'), index = False)
