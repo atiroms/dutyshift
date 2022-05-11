@@ -12,16 +12,19 @@ from ortoolpy import addvars, addbinvars
 ################################################################################
 # Optimize exact count of assignment
 ################################################################################
-def optimize_count(l_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score_class,
+def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score_class,
                    d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total, l_type_score, l_class_duty):
-    prob_cnt = LpProblem()
 
     # Dataframe of variables
+    l_member = d_member['id_member'].tolist()
     l_lim_exact = [str(p[0]) + '_' + p[1] for p in itertools.product(l_member, l_class_duty)]
     dict_v_lim_exact = LpVariable.dicts(name = 'cnt', indices = l_lim_exact, lowBound = 0, upBound = None,  cat = 'Integer')
     lv_lim_exact = list(dict_v_lim_exact.values())
     llv_lim_exact = [lv_lim_exact[i:i+len(l_class_duty)] for i in range(0, len(lv_lim_exact), len(l_class_duty))]
     dv_lim_exact = pd.DataFrame(llv_lim_exact, index = l_member, columns = l_class_duty)
+
+    # Initialize count optimization problem
+    prob_cnt = LpProblem()
 
     # Condition on sum of class_duty
     for class_duty in l_class_duty:
