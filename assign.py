@@ -36,7 +36,7 @@ l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
 
-c_assign_suboptimal = 0.0001
+c_assign_suboptimal = 0.1
 thr_interval_daynight = 4
 thr_interval_ect = 3
 thr_interval_ampm = 2
@@ -73,8 +73,9 @@ from helper import *
 ###############################################################################
 # Prepare data of member availability
 d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
+d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
-d_availability, l_member = prep_availability(p_month, p_data, f_availability, d_date_duty, d_member)
+d_availability, l_member = prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal, d_member)
 
 
 ###############################################################################
@@ -196,62 +197,10 @@ for date in l_date_ect:
 
 
 ###############################################################################
-# Equalize scores per member
-###############################################################################
-# TODO: import all-month data
-# preliminary: read April score data
-d_score_history = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/202204', 'score.csv'))
-
-# Calculate scores
-#l_type_score = ['total','dutyoc','duty','oc','ect']
-l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
-dv_score = pd.DataFrame(np.array(addvars(len(l_member), len(l_type_score))),
-                        index = l_member, columns = l_type_score)
-for type_score in l_type_score:
-    a_score = d_date_duty['score_' + type_score].to_numpy()
-    for id_member in l_member:
-        # Single-month scores
-        #problem += (dv_score.loc[id_member, type_score] ==\
-        #            lpDot(a_score,dv_assign.loc[:, id_member]))
-        # Past + current month scores
-        score_history = d_score_history.loc[d_score_history['id_member'] == id_member, 'score_' + type_score].to_numpy()[0]
-        prob_assign += (dv_score.loc[id_member, type_score] ==\
-                    lpDot(a_score,dv_assign.loc[:, id_member]) + score_history)        
-
-# Calculate score differences
-dv_scorediff_sum = pd.DataFrame(np.array(addvars(len(l_title_scoregroup), len(l_type_score))),
-                                index = range(len(l_title_scoregroup)), columns = l_type_score)
-dict_dv_scorediff = {}
-for type_score in l_type_score:
-    dict_dv_scorediff[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
-
-for id_scoregroup, title_scoregroup in enumerate(l_title_scoregroup):
-    l_member_scoregroup = d_member.loc[d_member['title_short'].isin(title_scoregroup), 'id_member'].to_list()
-    l_member_scoregroup = [id_member for id_member in l_member_scoregroup if id_member in l_member]
-    for type_score in l_type_score:
-        for id_member_0 in l_member_scoregroup:
-            for id_member_1 in l_member_scoregroup:
-                prob_assign += (dict_dv_scorediff[type_score].loc[id_member_0, id_member_1] >=\
-                            dv_score.loc[id_member_0, type_score] - dv_score.loc[id_member_1, type_score])
-        prob_assign += (dv_scorediff_sum.loc[id_scoregroup, type_score] ==\
-                    lpSum(dict_dv_scorediff[type_score].loc[l_member_scoregroup, l_member_scoregroup].to_numpy()))
-
-
-###############################################################################
 # Define objective function to be minimized
 ###############################################################################
-prob_assign += (c_outlier_soft * lpSum(dv_outlier_soft.to_numpy()) \
-          + c_scorediff_ampmdaynight * lpSum(dv_scorediff_sum['ampmdaynight'].to_numpy()) \
-          + c_scorediff_oc * lpSum(dv_scorediff_sum['oc'].to_numpy()) \
-          + c_scorediff_ect * lpSum(dv_scorediff_sum['ect'].to_numpy()) \
-          + c_assign_suboptimal * v_assign_suboptimal)
+prob_assign += (c_assign_suboptimal * v_assign_suboptimal)
 
-          #+ c_scorediff_ampm * lpSum(dv_scorediff_sum['ampm'].to_numpy()) \
-          #+ c_scorediff_ampmdaynight * lpSum(dv_scorediff_sum['ampmdaynight'].to_numpy()) \
-          #+ c_scorediff_daynight * lpSum(dv_scorediff_sum['daynight'].to_numpy()) \
-          #+ c_outlier_hard * lpSum(dv_outlier_hard.to_numpy()) \
-          #+ c_scorediff_total * lpSum(dv_scorediff_sum['total'].to_numpy()) \
-          #+ c_scorediff_dutyoc * lpSum(dv_scorediff_sum['dutyoc'].to_numpy()) \
           
 ###############################################################################
 # Solve problem
@@ -268,10 +217,6 @@ print('Solved: ' + str(LpStatus[prob_assign.status]) + ', ' + str(round(v_object
 ###############################################################################
 # Extract data
 ###############################################################################
-d_assign_date_duty, d_assign_date_print, d_assign_member, d_score=\
-    prep_assign(p_dst, dv_assign, dv_score, d_score_history,
-                d_availability, d_member, l_member, d_date_duty, d_cal)
+d_assign_date_duty, d_assign_date_print, d_assign_member =\
+    prep_assign2(p_data, dv_assign, d_availability, d_member, l_member, d_date_duty, d_cal)
 
-d_optimization = prep_optim(p_dst, dv_outlier_soft,dv_scorediff_sum, v_assign_suboptimal, c_outlier_soft,
-                            c_scorediff_ampm, c_scorediff_daynight, c_scorediff_ampmdaynight,
-                            c_scorediff_oc, c_scorediff_ect, c_assign_suboptimal)

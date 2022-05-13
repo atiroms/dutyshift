@@ -194,6 +194,60 @@ def prep_optim(p_dst, dv_outlier_soft,dv_score_sigmadiff, v_assign_suboptimal, c
 ################################################################################
 # Extract data from optimized variables
 ################################################################################
+def prep_assign2(p_data, dv_assign, d_availability, d_member, l_member, d_date_duty, d_cal):
+    d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
+                            index = dv_assign.index, columns = dv_assign.columns).astype(bool)
+
+    # Assignments with date_duty as row
+    # TODO: em column in assign_date_duty.csv file
+    d_assign_date_duty = pd.concat([pd.Series(d_assign.index, index = d_assign.index, name = 'date_duty'),
+                               pd.Series(d_assign.sum(axis = 1), name = 'cnt'),
+                               pd.Series(d_assign.apply(lambda row: row[row].index.to_list(), axis = 1), name = 'id_member')],
+                               axis = 1)
+    d_assign_date_duty.index = range(len(d_assign_date_duty))
+    d_assign_date_duty['id_member'] = d_assign_date_duty['id_member'].apply(lambda x: x[0] if len(x) > 0 else np.nan)
+    d_assign_date_duty = pd.merge(d_assign_date_duty, d_member.loc[:,['id_member','name_jpn','name']], on = 'id_member', how = 'left')
+    d_assign_date_duty = pd.merge(d_assign_date_duty, d_date_duty, on = 'date_duty', how = 'left')
+    d_assign_date_duty = d_assign_date_duty.loc[:,['date_duty', 'date','duty', 'id_member','name','name_jpn','cnt']]
+    d_assign_date_duty.to_csv(os.path.join(p_data, 'assign_date_duty.csv'), index = False)
+
+    # Assignments with date as row for printing
+    d_assign_date_print = d_cal.loc[:,['title_date','date', 'em']].copy()
+    d_assign_date_print[['am','pm','night','ocday','ocnight','ect']] = ''
+    for _, row in d_assign_date_duty.loc[d_assign_date_duty['cnt'] > 0].iterrows():
+        date = row['date']
+        duty = row['duty']
+        name_jpn = row['name_jpn']
+        if duty == 'day':
+            d_assign_date_print.loc[d_assign_date_print['date'] == date, 'am'] = name_jpn
+            d_assign_date_print.loc[d_assign_date_print['date'] == date, 'pm'] = name_jpn
+        elif duty == 'emnight':
+            d_assign_date_print.loc[d_assign_date_print['date'] == date, 'night'] = name_jpn
+        else:
+            d_assign_date_print.loc[d_assign_date_print['date'] == date, duty] = name_jpn
+    for date in d_assign_date_print.loc[d_assign_date_print['em'] == True, 'date'].tolist():
+        d_assign_date_print.loc[d_assign_date_print['date'] == date, 'night'] += '(救急)'
+    d_assign_date_print = d_assign_date_print.loc[:,['title_date','am','pm','night','ocday','ocnight','ect']]
+    d_assign_date_print.columns = ['日付', '午前日直', '午後日直', '当直', '日直OC', '当直OC', 'ECT']
+    d_assign_date_print.to_csv(os.path.join(p_data, 'assign_date.csv'), index = False)
+
+    # Assignments with member as row
+    d_assign_optimal = pd.DataFrame((d_availability == 2) & d_assign, columns = l_member, index = d_assign.index)                         
+    d_assign_suboptimal = pd.DataFrame((d_availability == 1) & d_assign, columns = l_member, index = d_assign.index)
+    #d_assign_error = pd.DataFrame((d_availability == 0) & d_assign, columns = l_member, index = d_assign.index)
+    d_assign_member = pd.DataFrame({'id_member': l_member,
+                                    'name_jpn': d_member.loc[d_member['id_member'].isin(l_member),'name_jpn'].tolist(),
+                                    'duty_all': d_assign.apply(lambda col: col[col].index.to_list(), axis = 0),
+                                    'duty_opt': d_assign_optimal.apply(lambda col: col[col].index.to_list(), axis = 0),
+                                    'duty_sub': d_assign_suboptimal.apply(lambda col: col[col].index.to_list(), axis = 0),
+                                    'cnt_all': d_assign.sum(axis = 0),
+                                    'cnt_opt': d_assign_optimal.sum(axis = 0),
+                                    'cnt_sub': d_assign_suboptimal.sum(axis = 0)},
+                                    index = l_member)
+    d_assign_member.to_csv(os.path.join(p_data, 'assign_member.csv'), index = False)
+
+    return d_assign_date_duty, d_assign_date_print, d_assign_member
+
 def prep_assign(p_dst, dv_assign, dv_score, d_score_history,
                 d_availability, d_member, l_member, d_date_duty, d_cal):
     d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
@@ -313,9 +367,8 @@ def prep_forms(p_dst, d_cal, month_plan, dict_duty):
 ################################################################################
 # Prepare data of member availability
 ################################################################################
-def prep_availability(p_month, p_data, f_availability, d_date_duty, d_member):
+def prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal, d_member):
     d_availability = pd.read_csv(os.path.join(p_month, 'src', f_availability))
-    d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
     
     d_availability = pd.merge(d_member[['id_member', 'name_jpn']], d_availability, on='name_jpn')
     d_availability.set_index('id_member', inplace=True)
@@ -398,6 +451,11 @@ def prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l
     d_cal.loc[d_cal['holiday'] == True, ['day', 'night', 'ocday', 'ocnight']] = True
     d_cal.loc[(d_cal['wday'].isin(l_day_ect)) & (d_cal['holiday'] == False), 'ect'] = True
     d_cal.loc[d_cal['date'].isin(l_date_ect_cancel), 'ect'] = False
+
+    d_cal['holiday_wday'] = ''
+    d_cal.loc[(d_cal['holiday'] == True) & (d_cal['wday'].isin([0,1,2,3,4])), 'holiday_wday'] = '・祝'
+    d_cal['title_date'] = [str(month_plan) + '/' + str(date) + '(' + wday_jpn + holiday_wday + ')' for [date, wday_jpn, holiday_wday] in zip(d_cal['date'], d_cal['wday_jpn'], d_cal['holiday_wday'])]
+    d_cal = d_cal.drop('holiday_wday', axis = 1)
 
     # Prepare s_cnt_duty (necessary assignment counts of each duty)
     s_cnt_duty = d_cal[['am', 'pm', 'day', 'night', 'emnight', 'ocday', 'ocnight', 'ect']].sum(axis=0)
