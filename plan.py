@@ -72,9 +72,7 @@ d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty \
                     day_em, l_week_em, year_plan, month_plan)
 
 # Prepare calendar for google forms
-# TODO: output in one file
-# TODO: split assistant professor into team leader and subleader
-#d_cal_duty = prep_forms(p_dst, d_cal, month_plan, dict_duty)
+d_cal_duty = prep_forms(p_data, d_cal, month_plan, dict_duty)
 
 # Prepare data of member specs and assignment limits
 d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \

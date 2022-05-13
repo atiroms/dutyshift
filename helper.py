@@ -315,16 +315,13 @@ def prep_assign(p_dst, dv_assign, dv_score, d_score_history,
 ################################################################################
 # Prepare calendar for google forms
 ################################################################################
-def prep_forms(p_dst, d_cal, month_plan, dict_duty):
+def prep_forms(p_data, d_cal, month_plan, dict_duty):
     #l_duty = ['am', 'pm', 'day', 'ocday', 'night', 'ocnight']
-    dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'ocnight': '当直OC'}
-    d_cal['holiday_wday'] = ''
-    d_cal.loc[(d_cal['holiday'] == True) & (d_cal['wday'].isin([0,1,2,3,4])), 'holiday_wday'] = '・祝'
-    d_cal['title_date'] = [str(month_plan) + '/' + str(date) + '(' + wday_jpn + holiday_wday + ')' for [date, wday_jpn, holiday_wday] in zip(d_cal['date'], d_cal['wday_jpn'], d_cal['holiday_wday'])]
-
+    dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'emnight': '救急当直', 'ocnight': '当直OC'}
+    
     l_cal_duty = []
     for duty in dict_duty_jpn.keys():
-        d_cal_duty = d_cal.loc[d_cal[duty] == True, ['date', 'title_date', 'em', 'holiday']].copy()
+        d_cal_duty = d_cal.loc[d_cal[duty] == True, ['date', 'title_date']].copy()
         d_cal_duty['duty'] = duty
         l_cal_duty.append(d_cal_duty)
     d_cal_duty = pd.concat(l_cal_duty, axis = 0)
@@ -332,15 +329,15 @@ def prep_forms(p_dst, d_cal, month_plan, dict_duty):
     d_cal_duty = d_cal_duty.sort_values(by = ['date', 'duty_sort'])
     d_cal_duty.index = range(len(d_cal_duty))
 
-    d_cal_duty['title_em'] = ''
-    d_cal_duty.loc[(d_cal_duty['em'] == True) & (d_cal_duty['duty'].isin(['night', 'ocnight'])), 'title_em'] = '救急'
     d_cal_duty['duty_jpn'] = d_cal_duty['duty'].map(dict_duty_jpn)
-    d_cal_duty['title_dateduty'] = d_cal_duty['title_date'] + d_cal_duty['title_em'] + d_cal_duty['duty_jpn']
+    d_cal_duty['title_dateduty'] = d_cal_duty['title_date'] + d_cal_duty['duty_jpn']
 
-    d_cal_duty = d_cal_duty[['date','holiday','duty','em','title_dateduty']]
+    d_cal_duty = d_cal_duty[['date','duty','title_dateduty']]
 
+    # TODO: output in one file
+    # TODO: split assistant professor into team leader and subleader
     # All duties
-    d_cal_duty.to_csv(os.path.join(p_dst, 'cal_duty_all.csv'), index = False)
+    d_cal_duty.to_csv(os.path.join(p_data, 'cal_duty_all.csv'), index = False)
     # Associate professor
     d_cal_duty_assoc = d_cal_duty[d_cal_duty['duty'].isin(['ocday','ocnight'])]
     d_cal_duty_assoc.to_csv(os.path.join(p_dst, 'cal_duty_assoc.csv'), index = False, columns = ['title_dateduty'])  
