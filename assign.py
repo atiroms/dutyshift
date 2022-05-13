@@ -35,11 +35,8 @@ l_week_em = [1, 3] # 1st and 3rd weeks
 l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
-l_title_scoregroup = [['assoc'], ['instr'], ['limterm_instr','assist'], ['limterm_clin'], ['stud']]
 
-c_outlier_soft = 0.0001
 c_assign_suboptimal = 0.0001
-
 thr_interval_daynight = 4
 thr_interval_ect = 3
 thr_interval_ampm = 2
@@ -59,12 +56,14 @@ else:
     p_script=os.path.join(p_root,'GitHub/dutyshift')
     os.chdir(p_script)
     # Set paths and directories
-    d_src = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
-    p_src = os.path.join(p_root, 'Dropbox/dutyshift', d_src)
-    d_dst = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-    p_dst = os.path.join(p_src, d_dst)
-    if ~os.path.exists(p_dst):
-        os.makedirs(p_dst)
+    d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
+    p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
+    d_data = datetime.datetime.now().strftime('assign_%Y%m%d_%H%M%S')
+    p_result = os.path.join(p_month, 'result')
+    p_data = os.path.join(p_result, d_data)
+    for p_dir in [p_result, p_data]:
+        if not os.path.exists(p_dir):
+            os.makedirs(p_dir)
 
 from helper import *
 
@@ -73,7 +72,9 @@ from helper import *
 # Load and prepare data
 ###############################################################################
 # Prepare data of member availability
-d_availability, l_member = prep_availability(p_src, f_availability, d_date_duty, d_member, d_cal)
+d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
+d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
+d_availability, l_member = prep_availability(p_month, p_data, f_availability, d_date_duty, d_member)
 
 
 ###############################################################################
@@ -100,8 +101,8 @@ v_assign_suboptimal = lpDot((d_availability == 1).to_numpy(), dv_assign.to_numpy
 ###############################################################################
 # Assignment per date_duty
 ###############################################################################
-# Assign one member per date_duty for ['am', 'pm', 'day', 'night', 'ect']
-for duty in ['am', 'pm', 'day', 'night', 'ect']:
+# Assign one member per date_duty for ['am', 'pm', 'day', 'night', 'emnight', 'ect']
+for duty in ['am', 'pm', 'day', 'night', 'emnight', 'ect']:
     for date_duty in d_date_duty[d_date_duty['duty'] == duty]['date_duty'].to_list():
         prob_assign += (lpSum(dv_assign.loc[date_duty]) == 1)
 
@@ -121,23 +122,13 @@ for duty in ['day', 'night']:
 ###############################################################################
 # Penalize limit outliers per member per class_duty
 ###############################################################################
-# Penalize excess from max or shortage from min in the shape of '\__/'
-dv_outlier_soft = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
-                               index = l_member, columns = l_class_duty)
+d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
 for member in l_member:
     for class_duty in l_class_duty:
-        lim_hard = d_lim_hard.loc[member, class_duty]
-        if ~np.isnan(lim_hard[0]):
-            prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) <= lim_hard[1])
-            prob_assign += (lim_hard[0] <= lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
-
-        lim_soft = d_lim_soft.loc[member, class_duty]
-        if ~np.isnan(lim_soft[0]):
-            prob_assign += (dv_outlier_soft.loc[member, class_duty] >= \
-                        lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]) - lim_soft[1])
-            prob_assign += (dv_outlier_soft.loc[member, class_duty] >= \
-                        lim_soft[0] - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, class_duty]))
-
+        cnt_assign = d_lim_exact.loc[member, class_duty]
+        if ~np.isnan(cnt_assign):
+            prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_assign)
+            
 
 ###############################################################################
 # Avoid overlapping / adjacent / close assignments

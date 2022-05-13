@@ -313,8 +313,10 @@ def prep_forms(p_dst, d_cal, month_plan, dict_duty):
 ################################################################################
 # Prepare data of member availability
 ################################################################################
-def prep_availability(p_src, f_availability, d_date_duty, d_member, d_cal):
-    d_availability = pd.read_csv(os.path.join(p_src, f_availability))
+def prep_availability(p_month, p_data, f_availability, d_date_duty, d_member):
+    d_availability = pd.read_csv(os.path.join(p_month, 'src', f_availability))
+    d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
+    
     d_availability = pd.merge(d_member[['id_member', 'name_jpn']], d_availability, on='name_jpn')
     d_availability.set_index('id_member', inplace=True)
     d_availability.drop(['name_jpn'], axis = 1, inplace = True)
@@ -324,6 +326,7 @@ def prep_availability(p_src, f_availability, d_date_duty, d_member, d_cal):
     d_availability_ect.index = ([str(date_ect) + '_ect' for date_ect in l_date_ect])
     d_availability = pd.concat([d_availability, d_availability_ect], axis = 0)
     d_availability = d_availability.loc[d_date_duty['date_duty'],:]
+    d_availability.to_csv(os.path.join(p_data, 'availability.csv'))
     l_member = d_availability.columns.to_list()
     
     return d_availability, l_member
