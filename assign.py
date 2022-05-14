@@ -14,29 +14,15 @@ from ortoolpy import addbinvars
 # Unfixed parameters
 year_plan = 2022
 month_plan = 6
-l_holiday = []
-l_date_ect_cancel = [6]
 #month_plan = 5
-#l_holiday = [3, 4, 5]
-#l_date_ect_cancel = [25]
 #month_plan = 4
-#l_holiday = [29]
-#l_date_ect_cancel = []
 
-#f_member = 'member.csv'
-f_member = 'member6.csv'
 #f_availability = 'availability.csv'
 #f_availability = 'availability2.csv'
 f_availability = 'availability3.csv'
 
 # Fixed parameters
-l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
-day_em = 2 # Wednesday
-l_week_em = [1, 3] # 1st and 3rd weeks
-
-l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
-dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
 
 c_assign_suboptimal = 0.1
 thr_interval_daynight = 4
