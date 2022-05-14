@@ -4,8 +4,6 @@
 ###############################################################################
 import pandas as pd
 import os, datetime
-from pulp import *
-from ortoolpy import addvars, addbinvars
 
 
 ###############################################################################
@@ -72,7 +70,7 @@ d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty \
                     day_em, l_week_em, year_plan, month_plan)
 
 # Prepare calendar for google forms
-d_cal_duty = prep_forms(p_data, d_cal, month_plan, dict_duty)
+d_cal_duty, d_form = prep_forms(p_month, p_data, d_cal, dict_duty)
 
 # Prepare data of member specs and assignment limits
 d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \

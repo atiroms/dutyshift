@@ -5,20 +5,22 @@
 import numpy as np, pandas as pd
 import os, datetime
 from pulp import *
-from ortoolpy import addvars, addbinvars
+from ortoolpy import addbinvars
 
 
 ###############################################################################
 # Parameters
 ###############################################################################
 # Unfixed parameters
-#year_plan = 2022
+year_plan = 2022
+month_plan = 6
+l_holiday = []
+l_date_ect_cancel = [6]
+#month_plan = 5
+#l_holiday = [3, 4, 5]
+#l_date_ect_cancel = [25]
 #month_plan = 4
 #l_holiday = [29]
-year_plan = 2022
-month_plan = 5
-l_holiday = [3, 4, 5]
-l_date_ect_cancel = [25]
 #l_date_ect_cancel = []
 
 #f_member = 'member.csv'

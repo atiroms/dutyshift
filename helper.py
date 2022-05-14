@@ -315,7 +315,7 @@ def prep_assign(p_dst, dv_assign, dv_score, d_score_history,
 ################################################################################
 # Prepare calendar for google forms
 ################################################################################
-def prep_forms(p_data, d_cal, month_plan, dict_duty):
+def prep_forms(p_month, p_data, d_cal, dict_duty):
     #l_duty = ['am', 'pm', 'day', 'ocday', 'night', 'ocnight']
     dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'emnight': '救急当直', 'ocnight': '当直OC'}
     
@@ -334,31 +334,33 @@ def prep_forms(p_data, d_cal, month_plan, dict_duty):
 
     d_cal_duty = d_cal_duty[['date','duty','title_dateduty']]
 
-    # TODO: output in one file
-    # TODO: split assistant professor into team leader and subleader
-    # All duties
-    d_cal_duty.to_csv(os.path.join(p_data, 'cal_duty_all.csv'), index = False)
-    # Associate professor
-    d_cal_duty_assoc = d_cal_duty[d_cal_duty['duty'].isin(['ocday','ocnight'])]
-    d_cal_duty_assoc.to_csv(os.path.join(p_dst, 'cal_duty_assoc.csv'), index = False, columns = ['title_dateduty'])  
-    # Instructor
-    d_cal_duty_instr = d_cal_duty[d_cal_duty['duty'].isin(['am','pm','ocday','ocnight'])]
-    d_cal_duty_instr.to_csv(os.path.join(p_dst, 'cal_duty_instr.csv'), index = False, columns = ['title_dateduty'])  
-    # Limited-term instructor and assistant professor
-    d_cal_duty_assist = d_cal_duty[d_cal_duty['duty'].isin(['am','pm','day','night','ocday','ocnight'])]
-    d_cal_duty_assist.to_csv(os.path.join(p_dst, 'cal_duty_assist.csv'), index = False, columns = ['title_dateduty'])  
-    # Limited-term clinician
-    d_cal_duty_limtermclin = d_cal_duty[d_cal_duty['duty'].isin(['am','pm','day','night']) & (d_cal_duty['em'] == False)]
-    d_cal_duty_limtermclin.to_csv(os.path.join(p_dst, 'cal_duty_limtermclin.csv'), index = False, columns = ['title_dateduty'])  
-    # Graduate student
-    d_cal_duty_stud = d_cal_duty[d_cal_duty['duty'].isin(['day','night']) & (d_cal_duty['em'] == False)]
-    d_cal_duty_stud.to_csv(os.path.join(p_dst, 'cal_duty_stud.csv'), index = False, columns = ['title_dateduty'])  
-    # Manual assignment
-    d_cal_duty_manual = d_cal_duty.copy()
-    d_cal_duty['assign'] = ''
-    d_cal_duty.to_csv(os.path.join(p_dst, 'cal_duty_manual.csv'), index = False, columns = ['title_dateduty','assign'])
+    # Dictionary of title and duty
+    dict_title_duty = {'assoc': ['ocday', 'ocnight'],
+                       'instr': ['am','pm','ocday','ocnight'],
+                       'assist_leader': ['am','pm','day','night','emnight','ocday','ocnight'],
+                       'assist_subleader': ['am','pm','day','night','emnight'],
+                       'limtermclin': ['am','pm','day','night'],
+                       'stud': ['day','night']}
 
-    return d_cal_duty
+    dict_l_form = {}
+    for title in dict_title_duty.keys():
+        l_duty_title = dict_title_duty[title]
+        l_duty_title_ampm = [duty for duty in l_duty_title if duty in ['am','pm']]
+        l_duty_title_daynight = [duty for duty in l_duty_title if duty not in ['am','pm']]
+        if len(l_duty_title_ampm) > 0:
+            col = title + '_ampm'
+            dict_l_form[col] = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title_ampm), 'title_dateduty'].tolist()
+        if len(l_duty_title_daynight) > 0:
+            col = title + '_daynight'
+            dict_l_form[col] = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title_daynight), 'title_dateduty'].tolist()
+    d_form = pd.DataFrame(dict([(key, pd.Series(l_form)) for key, l_form in dict_l_form.items() ]))
+
+    # Save data
+    for p_save in [p_month, p_data]:
+        d_cal_duty.to_csv(os.path.join(p_save, 'duty.csv'), index = False)
+        d_form.to_csv(os.path.join(p_save, 'form.csv'), index = False)
+
+    return d_cal_duty, d_form
 
 
 ################################################################################
