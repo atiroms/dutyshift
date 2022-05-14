@@ -21,8 +21,8 @@ l_date_ect_cancel = [16]
 #l_holiday = [29]
 #l_date_ect_cancel = []
 
-#f_member = 'member.csv'
-f_member = 'member6.csv'
+f_member = 'member.csv'
+#f_member = 'member6.csv'
 
 # Fixed parameters
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
