@@ -17,9 +17,9 @@ month_plan = 6
 #month_plan = 5
 #month_plan = 4
 
-#f_availability = 'availability.csv'
+f_availability = 'availability.csv'
 #f_availability = 'availability2.csv'
-f_availability = 'availability3.csv'
+#f_availability = 'availability3.csv'
 
 # Fixed parameters
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
@@ -63,7 +63,7 @@ from helper import *
 d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
 d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
-d_availability, l_member = prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal, d_member)
+d_availability, l_member = prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal)
 
 
 ###############################################################################
@@ -206,5 +206,5 @@ print('Solved: ' + str(LpStatus[prob_assign.status]) + ', ' + str(round(v_object
 # Extract data
 ###############################################################################
 d_assign_date_duty, d_assign_date_print, d_assign_member =\
-    prep_assign2(p_data, dv_assign, d_availability, d_member, l_member, d_date_duty, d_cal)
+    prep_assign2(p_month, p_data, dv_assign, d_availability, d_member, l_member, d_date_duty, d_cal)
 

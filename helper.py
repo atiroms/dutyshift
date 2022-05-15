@@ -194,7 +194,7 @@ def prep_optim(p_dst, dv_outlier_soft,dv_score_sigmadiff, v_assign_suboptimal, c
 ################################################################################
 # Extract data from optimized variables
 ################################################################################
-def prep_assign2(p_data, dv_assign, d_availability, d_member, l_member, d_date_duty, d_cal):
+def prep_assign2(p_month, p_data, dv_assign, d_availability, d_member, l_member, d_date_duty, d_cal):
     d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
                             index = dv_assign.index, columns = dv_assign.columns).astype(bool)
 
@@ -209,7 +209,7 @@ def prep_assign2(p_data, dv_assign, d_availability, d_member, l_member, d_date_d
     d_assign_date_duty = pd.merge(d_assign_date_duty, d_member.loc[:,['id_member','name_jpn','name']], on = 'id_member', how = 'left')
     d_assign_date_duty = pd.merge(d_assign_date_duty, d_date_duty, on = 'date_duty', how = 'left')
     d_assign_date_duty = d_assign_date_duty.loc[:,['date_duty', 'date','duty', 'id_member','name','name_jpn','cnt']]
-    d_assign_date_duty.to_csv(os.path.join(p_data, 'assign_date_duty.csv'), index = False)
+
 
     # Assignments with date as row for printing
     d_assign_date_print = d_cal.loc[:,['title_date','date', 'em']].copy()
@@ -229,7 +229,6 @@ def prep_assign2(p_data, dv_assign, d_availability, d_member, l_member, d_date_d
         d_assign_date_print.loc[d_assign_date_print['date'] == date, 'night'] += '(救急)'
     d_assign_date_print = d_assign_date_print.loc[:,['title_date','am','pm','night','ocday','ocnight','ect']]
     d_assign_date_print.columns = ['日付', '午前日直', '午後日直', '当直', '日直OC', '当直OC', 'ECT']
-    d_assign_date_print.to_csv(os.path.join(p_data, 'assign_date.csv'), index = False)
 
     # Assignments with member as row
     d_assign_optimal = pd.DataFrame((d_availability == 2) & d_assign, columns = l_member, index = d_assign.index)                         
@@ -244,8 +243,12 @@ def prep_assign2(p_data, dv_assign, d_availability, d_member, l_member, d_date_d
                                     'cnt_opt': d_assign_optimal.sum(axis = 0),
                                     'cnt_sub': d_assign_suboptimal.sum(axis = 0)},
                                     index = l_member)
-    d_assign_member.to_csv(os.path.join(p_data, 'assign_member.csv'), index = False)
 
+    for p_save in [p_month, p_data]:
+        d_assign_date_duty.to_csv(os.path.join(p_save, 'assign_date_duty.csv'), index = False)
+        d_assign_date_print.to_csv(os.path.join(p_save, 'assign_date.csv'), index = False)
+        d_assign_member.to_csv(os.path.join(p_save, 'assign_member.csv'), index = False)
+    
     return d_assign_date_duty, d_assign_date_print, d_assign_member
 
 def prep_assign(p_dst, dv_assign, dv_score, d_score_history,
@@ -366,12 +369,10 @@ def prep_forms(p_month, p_data, d_cal, dict_duty):
 ################################################################################
 # Prepare data of member availability
 ################################################################################
-def prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal, d_member):
+def prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal):
     d_availability = pd.read_csv(os.path.join(p_month, 'src', f_availability))
-    
-    d_availability = pd.merge(d_member[['id_member', 'name_jpn']], d_availability, on='name_jpn')
     d_availability.set_index('id_member', inplace=True)
-    d_availability.drop(['name_jpn'], axis = 1, inplace = True)
+    d_availability.drop(['name_jpn_full'], axis = 1, inplace = True)
     d_availability = d_availability.T
     l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].tolist()
     d_availability_ect = d_availability.loc[[str(date_ect) + '_am' for date_ect in l_date_ect], :]
