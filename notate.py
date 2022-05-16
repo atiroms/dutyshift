@@ -20,9 +20,9 @@ from googleapiclient.errors import HttpError
 year = 2022
 month = 5
 
-#f_member = 'member.csv'
-f_member = 'member4.csv'
-l_class_duty = ['ampm','daynight_tot','night_em','night_wd','day_hd','night_hd','oc_tot','oc_hd_day','oc_other','ect']
+f_member = 'member.csv'
+#f_member = 'member4.csv'
+l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
 
 # If modifying these scopes, delete the file token.json.
 l_scope = ['https://www.googleapis.com/auth/calendar']
@@ -31,6 +31,7 @@ d_type_duty = pd.DataFrame([['am', '午前日直', '08:30', '12:30'],
                             ['pm', '午後日直', '12:30', '17:15'],
                             ['day', '日直', '08:30', '17:15'],
                             ['night', '当直', '17:15', '32:30'],
+                            ['emnight', '救急当直', '17:15', '32:30'],
                             ['ocday', '日直OC', '08:30', '17:15'],
                             ['ocnight', '当直OC', '17:15', '32:30'],
                             ['ect', 'ECT当番', '07:30', '11:00']],

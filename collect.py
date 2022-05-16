@@ -100,6 +100,42 @@ d_availability = pd.concat([pd.DataFrame({'id_member':[d_member.loc[d_member['na
                            d_availability], axis = 1)
 d_availability.sort_values(by = ['id_member'], inplace = True)
 d_availability.index = d_availability['id_member'].tolist()
+d_availability = d_availability.fillna(0)
+
+# Designation
+l_designation = [np.nan] * d_availability_src.shape[0]
+for col in [col for col in l_col if '指定医' in col]:
+    l_designation_src = d_availability_src[col].tolist()
+    for idx, designation_src in enumerate(l_designation_src):
+        if designation_src == '指定医':
+            l_designation[idx] = True
+        elif designation_src == '非指定医':
+            l_designation[idx] = False
+
+# Two assignments per month
+l_assign_twice = [np.nan] * d_availability_src.shape[0]
+col = [col for col in l_col if '月2回' in col][0]
+l_assign_twice_src = d_availability_src[col].tolist()
+for idx, assign_twice_src in enumerate(l_assign_twice_src):
+    if assign_twice_src == '可':
+        l_assign_twice[idx] = True
+    elif assign_twice_src == '不可':
+        l_assign_twice[idx] = False
+
+# Request
+col = [col for col in l_col if 'ご要望' in col][0]
+l_request = d_availability_src[col].tolist()
+
+# Information output dataframe
+d_info = pd.DataFrame({'designation':l_designation,
+                       'assign_twice':l_assign_twice,
+                       'request':l_request})
+d_info = pd.concat([pd.DataFrame({'id_member':[d_member.loc[d_member['name_jpn_full'] == n, 'id_member'].values[0] for n in l_member_ans],
+                                  'name_jpn_full':l_member_ans}),
+                    d_info], axis = 1)
+d_info.sort_values(by = ['id_member'], inplace = True)
+d_info.index = d_info['id_member'].tolist()
 
 for p_save in [p_month, p_data]:
     d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = False)
+    d_info.to_csv(os.path.join(p_save, 'info.csv'), index = False)
