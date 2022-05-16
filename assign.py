@@ -63,7 +63,9 @@ from helper import *
 d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
 d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
+d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
 d_availability, l_member = prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal)
+d_assign_date_duty_previous = prep_assign_previous(p_root, year_plan, month_plan)
 
 
 ###############################################################################
@@ -111,7 +113,6 @@ for duty in ['day', 'night']:
 ###############################################################################
 # Penalize limit outliers per member per class_duty
 ###############################################################################
-d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
 for member in l_member:
     for class_duty in l_class_duty:
         cnt_assign = d_lim_exact.loc[member, class_duty]

@@ -10,6 +10,23 @@ from ortoolpy import addvars, addbinvars
 
 
 ################################################################################
+# Load previous month assignment
+################################################################################
+def prep_assign_previous(p_root, year_plan, month_plan):
+    if month_plan == 1:
+        year_previous = year_plan - 1
+        month_previous = 12
+    else:
+        year_previous = year_plan
+        month_previous = month_plan - 1
+        
+    d_month = '{year:0>4d}{month:0>2d}'.format(year = year_previous, month = month_previous)
+    d_assign_date_duty_previous = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', d_month))
+
+    return d_assign_date_duty_previous
+
+
+################################################################################
 # Optimize exact count of assignment
 ################################################################################
 def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score_class,
