@@ -13,13 +13,13 @@ from ortoolpy import addbinvars
 ###############################################################################
 # Unfixed parameters
 year_plan = 2022
-month_plan = 6
-#month_plan = 5
+#month_plan = 6
+month_plan = 5
 #month_plan = 4
 
-f_availability = 'availability.csv'
+#f_availability = 'availability.csv'
 #f_availability = 'availability2.csv'
-#f_availability = 'availability3.csv'
+f_availability = 'availability5.csv'
 
 # Fixed parameters
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
@@ -126,7 +126,10 @@ for member in l_member:
 # Penalize ['day', 'ocday', 'night', 'emnight', 'ocnight'] in N(thr_interval_daynight) continuous days
 # Penalize 'ect' in N(thr_interval_ect) continuous days
 # Penalize ['am','pm'] in N(thr_interval_ampm) continuous days
-# TODO: consider previous month assignment
+
+l_member_missing = [m for m in l_member if m not in d_assign_previous.columns]
+d_assign_previous[l_member_missing] = 0
+
 l_closeduty = [[thr_interval_daynight, ['day', 'ocday', 'night', 'emnight', 'ocnight']],
                [thr_interval_ect, ['ect']],
                [thr_interval_ampm, ['am', 'pm']]]
@@ -136,20 +139,23 @@ for closeduty in l_closeduty:
     l_duty = closeduty[1]
     for date_start in [d for d in range(-thr_interval + 2, 1)] + d_cal['date'].tolist():
         # Create list of continuous date_duty's
-        l_date_duty_temp = []
+        l_date_duty_exist = []
+        l_date_duty_exist_previous = []
         for date in range(date_start, date_start + thr_interval):
             for duty in l_duty:
-                date_duty_temp = str(date) + '_' + duty
-                if date_duty_temp in dv_assign.index:
-                    l_date_duty_temp.append(date_duty_temp)
-        if len(l_date_duty_temp) >= 2:
+                date_duty = str(date) + '_' + duty
+                if date_duty in dv_assign.index:
+                    l_date_duty_exist.append(date_duty)
+                if date_duty in d_assign_previous.index:
+                    l_date_duty_exist_previous.append(date_duty)
+        
+        if (len(l_date_duty_exist) + len(l_date_duty_exist_previous)) >= 2:
             for member in l_member:
-                prob_assign += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
+                prob_assign += (lpSum(dv_assign.loc[l_date_duty_exist, member]) +\
+                                sum(d_assign_previous.loc[l_date_duty_exist_previous, member]) <= 1)
 
 # Avoid [same-date 'pm', 'night', 'emnight' and 'ocnight'],
 #   and ['night', 'emnight', 'ocnight' and following-date 'ect','am']
-# TODO: consider previous month assignment
-# TODO: consider team leader ECT assignment (defined elsewhere)
 for date in [0] + d_cal['date'].tolist():
     date_duty_am = str(date) + '_am'
     date_duty_pm = str(date) + '_pm'
@@ -163,13 +169,23 @@ for date in [0] + d_cal['date'].tolist():
                 [date_duty_night, date_duty_emnight, date_duty_ocnight, date_duty_ect_next, date_duty_am_next]]
     for l_avoid in ll_avoid:
         # Check if date_duty exists
-        l_date_duty_temp = []
+        l_date_duty_exist = []
+        l_date_duty_exist_previous = []
         for date_duty in l_avoid:
             if date_duty in dv_assign.index:
-                l_date_duty_temp.append(date_duty)
-        if len(l_date_duty_temp) >= 2:
+                l_date_duty_exist.append(date_duty)
+            if date_duty in d_assign_previous.index:
+                l_date_duty_exist_previous.append(date_duty)
+
+        if (len(l_date_duty_exist) + len(l_date_duty_exist_previous)) >= 2:
             for member in l_member:
-                prob_assign += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
+                prob_assign += (lpSum(dv_assign.loc[l_date_duty_exist, member]) +\
+                                sum(d_assign_previous.loc[l_date_duty_exist_previous, member]) <= 1)
+
+
+###############################################################################
+# TODO: Team leader ECT assignment (defined elsewhere) 
+###############################################################################
 
 
 ###############################################################################
