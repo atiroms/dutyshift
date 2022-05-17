@@ -65,7 +65,7 @@ d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
 d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
 d_availability, l_member = prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal)
-d_assign_date_duty_previous = prep_assign_previous(p_root, year_plan, month_plan)
+d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
 
 
 ###############################################################################
@@ -97,8 +97,8 @@ for duty in ['am', 'pm', 'day', 'night', 'emnight', 'ect']:
     for date_duty in d_date_duty[d_date_duty['duty'] == duty]['date_duty'].to_list():
         prob_assign += (lpSum(dv_assign.loc[date_duty]) == 1)
 
-# Assign one member per date_duty for ['oc_day', 'oc_night'],
-# if non-designated member is assigned to ['day', 'night'] for the same date/time
+# If non-designated member is assigned to ['day', 'night'] for the same date/time,
+# assign one member per date_duty for ['oc_day', 'oc_night']
 for duty in ['day', 'night']:
     for date in d_date_duty[d_date_duty['duty'] == duty]['date'].to_list():
         date_duty = str(date) + '_' + duty
@@ -123,11 +123,11 @@ for member in l_member:
 ###############################################################################
 # Avoid overlapping / adjacent / close assignments
 ###############################################################################
-# Penalize ['day', 'ocday', 'night', 'ocnight'] in N(thr_interval_daynight) continuous days
+# Penalize ['day', 'ocday', 'night', 'emnight', 'ocnight'] in N(thr_interval_daynight) continuous days
 # Penalize 'ect' in N(thr_interval_ect) continuous days
 # Penalize ['am','pm'] in N(thr_interval_ampm) continuous days
 # TODO: consider previous month assignment
-l_closeduty = [[thr_interval_daynight, ['day', 'ocday', 'night', 'ocnight']],
+l_closeduty = [[thr_interval_daynight, ['day', 'ocday', 'night', 'emnight', 'ocnight']],
                [thr_interval_ect, ['ect']],
                [thr_interval_ampm, ['am', 'pm']]]
 
@@ -146,20 +146,21 @@ for closeduty in l_closeduty:
             for member in l_member:
                 prob_assign += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
 
-# Avoid [same-date 'pm', 'night' and 'ocnight'],
-#   and ['night', 'ocnight' and following-date 'ect','am']
+# Avoid [same-date 'pm', 'night', 'emnight' and 'ocnight'],
+#   and ['night', 'emnight', 'ocnight' and following-date 'ect','am']
 # TODO: consider previous month assignment
 # TODO: consider team leader ECT assignment (defined elsewhere)
 for date in [0] + d_cal['date'].tolist():
     date_duty_am = str(date) + '_am'
     date_duty_pm = str(date) + '_pm'
     date_duty_night = str(date) + '_night'
+    date_duty_emnight = str(date) + '_emnight'
     date_duty_ocnight = str(date) + '_ocnight'
-    date_duty_ect_next = str(date+1) + '_ect'
-    date_duty_am_next = str(date+1) + '_am'
+    date_duty_ect_next = str(date + 1) + '_ect'
+    date_duty_am_next = str(date + 1) + '_am'
     # List of lists of date_duty groups to avoid
-    ll_avoid = [[date_duty_pm, date_duty_night, date_duty_ocnight],
-                [date_duty_night, date_duty_ocnight, date_duty_ect_next, date_duty_am_next]]
+    ll_avoid = [[date_duty_pm, date_duty_night, date_duty_emnight, date_duty_ocnight],
+                [date_duty_night, date_duty_emnight, date_duty_ocnight, date_duty_ect_next, date_duty_am_next]]
     for l_avoid in ll_avoid:
         # Check if date_duty exists
         l_date_duty_temp = []

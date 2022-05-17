@@ -21,9 +21,26 @@ def prep_assign_previous(p_root, year_plan, month_plan):
         month_previous = month_plan - 1
         
     d_month = '{year:0>4d}{month:0>2d}'.format(year = year_previous, month = month_previous)
-    d_assign_date_duty_previous = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', d_month))
+    d_assign_date_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', d_month, 'assign_date_duty.csv'))
 
-    return d_assign_date_duty_previous
+    d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] ==1]
+    n_date_duty = d_assign_date_duty.shape[0]
+    max_date = d_assign_date_duty['date'].max()
+    d_assign_date_duty['date_minus'] = d_assign_date_duty['date'] - max_date
+    d_assign_date_duty['date_duty_minus'] = [str(date) + '_' + duty for date, duty in zip(d_assign_date_duty['date_minus'].tolist(), d_assign_date_duty['duty'].tolist())]
+
+    l_member = sorted(list(set(d_assign_date_duty['id_member'].tolist())))
+    l_member = [int(x) for x in l_member]
+
+    d_assign = pd.DataFrame(np.zeros([n_date_duty, len(l_member)]),
+                            index = d_assign_date_duty['date_duty_minus'].tolist(), columns = l_member)
+
+    for _, row  in d_assign_date_duty.iterrows():
+        date_duty = row['date_duty_minus']
+        id_member = row['id_member']
+        d_assign.loc[date_duty, id_member] = 1
+        
+    return d_assign
 
 
 ################################################################################
