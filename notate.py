@@ -17,25 +17,14 @@ from googleapiclient.errors import HttpError
 ###############################################################################
 # Parameters
 ###############################################################################
-year = 2022
-month = 5
+year_plan = 2022
+month_plan = 6
+#month = 5
 
 f_member = 'member.csv'
 #f_member = 'member4.csv'
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
-
-# If modifying these scopes, delete the file token.json.
 l_scope = ['https://www.googleapis.com/auth/calendar']
-
-d_type_duty = pd.DataFrame([['am', '午前日直', '08:30', '12:30'],
-                            ['pm', '午後日直', '12:30', '17:15'],
-                            ['day', '日直', '08:30', '17:15'],
-                            ['night', '当直', '17:15', '32:30'],
-                            ['emnight', '救急当直', '17:15', '32:30'],
-                            ['ocday', '日直OC', '08:30', '17:15'],
-                            ['ocnight', '当直OC', '17:15', '32:30'],
-                            ['ect', 'ECT当番', '07:30', '11:00']],
-                           columns = ['duty','duty_jpn','start','end'])
 
 
 ###############################################################################
@@ -45,21 +34,24 @@ p_root = None
 for p_test in ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']:
     if os.path.isdir(p_test):
         p_root = p_test
-        #p_src = os.path.join(p_test, 'Dropbox/dutyshift', d_src)
-        #p_dst = os.path.join(p_test, 'Dropbox/dutyshift', d_dst)
+
 if p_root is None:
     print('No root directory.')
 else:
     p_script=os.path.join(p_root,'GitHub/dutyshift')
     os.chdir(p_script)
+    # Set paths and directories
+    d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
+    p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
+    d_data = datetime.datetime.now().strftime('notate_%Y%m%d_%H%M%S')
+    p_result = os.path.join(p_month, 'result')
+    p_data = os.path.join(p_result, d_data)
+    for p_dir in [p_result, p_data]:
+        if not os.path.exists(p_dir):
+            os.makedirs(p_dir)
 
 from helper import *
 
-# Set paths and directories
-d_src = '{year:0>4d}{month:0>2d}'.format(year = year, month = month)
-p_src = os.path.join(p_root, 'Dropbox/dutyshift', d_src)
-
-d_member, d_lim_hard, d_lim_soft = prep_member(p_src, f_member, l_class_duty)
 
 ###############################################################################
 # Handle Credentials and token
@@ -79,8 +71,7 @@ if not creds or not creds.valid:
         creds.refresh(Request())
         print('token.json required refreshment.')
     else:
-        flow = InstalledAppFlow.from_client_secrets_file(
-               p_cred, l_scope)
+        flow = InstalledAppFlow.from_client_secrets_file(p_cred, l_scope)
         creds = flow.run_local_server(port=0)
         print('credentials.json used.')
     # Save the credentials for the next run
@@ -99,21 +90,21 @@ if os.path.exists(p_id_calendar):
 
 
 ###############################################################################
-# Handle Credentials and token
+# Create and share events
 ###############################################################################
-d_src = '{year:0>4d}{month:0>2d}'.format(year = year, month = month)
-d_date_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', d_src, 'assign_date_duty_edited.csv'))
+d_time_duty = pd.DataFrame(os.path.join(p_root, 'Dropbox/dutyshift/config/time_duty.csv'))
+d_member = pd.DataFrame(os.path.join(p_month, 'member.csv'))
+d_date_duty = pd.read_csv(os.path.join(p_month, 'assign_date_duty.csv'))
 d_date_duty = d_date_duty.loc[d_date_duty['cnt'] > 0, :]
 ####
 #d_date_duty = d_date_duty.loc[d_date_duty['id_member'] == 11,:]
 ####
 d_date_duty = pd.merge(d_date_duty, d_member[['id_member','name_jpn_full','email']], on = 'id_member', how = 'left')
-d_date_duty = pd.merge(d_date_duty, d_type_duty, on = 'duty', how = 'left')
+d_date_duty = pd.merge(d_date_duty, d_time_duty, on = 'duty', how = 'left')
 
-service = build('calendar', 'v3', credentials=creds)
+service = build('calendar', 'v3', credentials = creds)
 
 l_result_event = []
-
 # TODO: member-wise event creation with temporal interval to avoid quota limit
 
 for id, row in d_date_duty.iterrows():
@@ -125,20 +116,20 @@ for id, row in d_date_duty.iterrows():
     email = row['email']
     str_start = row['start']
     str_end = row['end']
-    t_start = (datetime.datetime(year = year, month = month, day = date) +\
+    t_start = (datetime.datetime(year = year_plan, month = month_plan, day = date) +\
                datetime.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
-    t_end = (datetime.datetime(year = year, month = month, day = date) +\
+    t_end = (datetime.datetime(year = year_plan, month = month_plan, day = date) +\
              datetime.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
 
     body_event = {'summary': title_duty,
-                'location': '東大病院',
-                'start': {'dateTime': t_start, 'timeZone': 'Asia/Tokyo'},
-                'end': {'dateTime': t_end, 'timeZone': 'Asia/Tokyo'},
-                'attendees': [{'email': email}],
-                #'attendees': [{'email': email, 'displayName':name_member}],
-                #'attendees': [{'email': email, 'responseStatus':'accepted'}],
-                'description': 'https://github.com/atiroms/dutyshift で自動生成'
-                }
+                  'location': '東大病院',
+                  'start': {'dateTime': t_start, 'timeZone': 'Asia/Tokyo'},
+                  'end': {'dateTime': t_end, 'timeZone': 'Asia/Tokyo'},
+                  'attendees': [{'email': email}],
+                  #'attendees': [{'email': email, 'displayName':name_member}],
+                  #'attendees': [{'email': email, 'responseStatus':'accepted'}],
+                  'description': 'https://github.com/atiroms/dutyshift で自動生成'
+                  }
     result_event = service.events().insert(calendarId=id_calendar_duty,body=body_event).execute()
     l_result_event.append(result_event)
 
