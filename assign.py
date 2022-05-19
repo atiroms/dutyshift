@@ -17,9 +17,9 @@ month_plan = 6
 #month_plan = 5
 #month_plan = 4
 
-#f_availability = 'availability.csv'
+f_availability = 'availability.csv'
 #f_availability = 'availability2.csv'
-f_availability = 'availability5.csv'
+#f_availability = 'availability5.csv'
 
 # Fixed parameters
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
