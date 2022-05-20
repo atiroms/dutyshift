@@ -53,7 +53,7 @@ d_member['name_jpn_full'] = d_member['name_jpn_full'].str.replace('　',' ')
 ###############################################################################
 # Check missing members
 ###############################################################################
-l_member_ans = d_availability_src['お名前（敬称略）'].tolist()
+l_member_ans = list(set(d_availability_src['お名前（敬称略）'].tolist()))
 l_member_all = d_member['name_jpn_full'].tolist()
 #l_member_all = [m.replace('\u3000',' ') for m in l_member_all]
 l_member_missing = [m for m in l_member_all if m not in l_member_ans]
@@ -73,7 +73,6 @@ d_cal_duty = pd.read_csv(os.path.join(p_month, 'duty.csv'))
 l_col = d_availability_src.columns.tolist()
 
 dict_l_availability = {}
-
 for idx, row in d_cal_duty.iterrows():
     title_dateduty = row['title_dateduty']
     dateduty = str(row['date']) + '_' + row['duty']
@@ -91,9 +90,20 @@ for idx, row in d_cal_duty.iterrows():
     dict_l_availability[dateduty] = l_availability
 
 d_availability = pd.DataFrame(dict_l_availability)
-d_availability = pd.concat([pd.DataFrame({'id_member':[d_member.loc[d_member['name_jpn_full'] == n, 'id_member'].values[0] for n in l_member_ans],
-                                         'name_jpn_full':l_member_ans}),
-                           d_availability], axis = 1)
+
+d_availability_head = d_availability_src[['お名前（敬称略）', 'タイムスタンプ']]
+d_availability_head.columns = ['name_jpn_full', 'timestamp']
+d_availability_head = pd.merge(d_availability_head, d_member[['name_jpn_full', 'id_member']], on = 'name_jpn_full')
+d_availability = pd.concat([d_availability_head, d_availability], axis = 1)
+
+d_availability['year'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[0].split('/')[0])).astype(int)
+d_availability['month'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[0].split('/')[1])).astype(int)
+d_availability['date'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[0].split('/')[2])).astype(int)
+d_availability['hour'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[1].split(':')[0])).astype(int)
+d_availability['minute'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[1].split(':')[1])).astype(int)
+d_availability['second'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[1].split(':')[2])).astype(int)
+
+
 d_availability.sort_values(by = ['id_member'], inplace = True)
 d_availability.index = d_availability['id_member'].tolist()
 d_availability = d_availability.fillna(0)
