@@ -404,7 +404,7 @@ def prep_forms(p_month, p_data, d_cal, dict_duty):
 # Prepare data of member availability
 ################################################################################
 def prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal):
-    d_availability = pd.read_csv(os.path.join(p_month, 'src', f_availability))
+    d_availability = pd.read_csv(os.path.join(p_month, f_availability))
     d_availability.set_index('id_member', inplace=True)
     d_availability.drop(['name_jpn_full'], axis = 1, inplace = True)
     d_availability = d_availability.T

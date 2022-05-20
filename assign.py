@@ -25,9 +25,13 @@ f_availability = 'availability.csv'
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
 
 c_assign_suboptimal = 0.1
-thr_interval_daynight = 4
-thr_interval_ect = 3
-thr_interval_ampm = 2
+#thr_interval_daynight = 4
+#thr_interval_ect = 3
+#thr_interval_ampm = 2
+
+thr_interval_daynight = 1
+thr_interval_ect = 1
+thr_interval_ampm = 1
 
 
 ###############################################################################

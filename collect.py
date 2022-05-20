@@ -90,23 +90,12 @@ for idx, row in d_cal_duty.iterrows():
     dict_l_availability[dateduty] = l_availability
 
 d_availability = pd.DataFrame(dict_l_availability)
-
-d_availability_head = d_availability_src[['お名前（敬称略）', 'タイムスタンプ']]
-d_availability_head.columns = ['name_jpn_full', 'timestamp']
-d_availability_head = pd.merge(d_availability_head, d_member[['name_jpn_full', 'id_member']], on = 'name_jpn_full')
-d_availability = pd.concat([d_availability_head, d_availability], axis = 1)
-
-d_availability['year'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[0].split('/')[0])).astype(int)
-d_availability['month'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[0].split('/')[1])).astype(int)
-d_availability['date'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[0].split('/')[2])).astype(int)
-d_availability['hour'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[1].split(':')[0])).astype(int)
-d_availability['minute'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[1].split(':')[1])).astype(int)
-d_availability['second'] = d_availability['timestamp'].apply(lambda x: int(x.split(' ')[1].split(':')[2])).astype(int)
-
-
-d_availability.sort_values(by = ['id_member'], inplace = True)
-d_availability.index = d_availability['id_member'].tolist()
 d_availability = d_availability.fillna(0)
+
+d_availability_head = d_availability_src[['お名前（敬称略）', 'タイムスタンプ']].copy()
+d_availability_head.columns = ['name_jpn_full', 'timestamp']
+#d_availability_head = pd.merge(d_availability_head, d_member[['name_jpn_full', 'id_member']], on = 'name_jpn_full')
+d_availability_head['unixtime'] = d_availability_head['timestamp'].apply(lambda x: datetime.datetime.strptime(x, '%Y/%m/%d %H:%M:%S').timestamp())
 
 # Designation
 l_designation = [np.nan] * d_availability_src.shape[0]
@@ -117,6 +106,7 @@ for col in [col for col in l_col if '指定医' in col]:
             l_designation[idx] = True
         elif designation_src == '非指定医':
             l_designation[idx] = False
+d_availability_head['designation'] = l_designation
 
 # Two assignments per month
 l_assign_twice = [np.nan] * d_availability_src.shape[0]
@@ -127,20 +117,31 @@ for idx, assign_twice_src in enumerate(l_assign_twice_src):
         l_assign_twice[idx] = True
     elif assign_twice_src == '不可':
         l_assign_twice[idx] = False
+d_availability_head['assign_twice'] = l_assign_twice
 
 # Request
 col = [col for col in l_col if 'ご要望' in col][0]
 l_request = d_availability_src[col].tolist()
+d_availability_head['request'] = l_request
 
-# Information output dataframe
-d_info = pd.DataFrame({'designation':l_designation,
-                       'assign_twice':l_assign_twice,
-                       'request':l_request})
-d_info = pd.concat([pd.DataFrame({'id_member':[d_member.loc[d_member['name_jpn_full'] == n, 'id_member'].values[0] for n in l_member_ans],
-                                  'name_jpn_full':l_member_ans}),
-                    d_info], axis = 1)
-d_info.sort_values(by = ['id_member'], inplace = True)
-d_info.index = d_info['id_member'].tolist()
+# Concatenate
+d_availability = pd.concat([d_availability_head, d_availability], axis = 1)
+d_availability = pd.merge(d_availability, d_member[['name_jpn_full', 'id_member']], on = 'name_jpn_full')
+
+# Pick up newest of each member
+l_id_member = sorted(list(set(d_availability['id_member'].tolist())))
+l_d_availability = []
+for id_member in l_id_member:
+    d_availability_member = d_availability[d_availability['id_member'] == id_member]
+    d_availability_member = d_availability_member.sort_values(by = ['unixtime'], ascending = False)
+    d_availability_member = d_availability_member.iloc[0]
+    l_d_availability.append(d_availability_member)
+d_availability = pd.DataFrame(l_d_availability)
+
+# Index
+d_availability.index = d_availability['id_member'].tolist()
+d_info = d_availability[['id_member','name_jpn_full','designation','assign_twice','request']].copy()
+d_availability = d_availability[['id_member','name_jpn_full'] + list(dict_l_availability.keys())]
 
 for p_save in [p_month, p_data]:
     d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = False)
