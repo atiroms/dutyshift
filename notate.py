@@ -127,7 +127,11 @@ for id_member in l_member:
                 datetime.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
         l_member_proxy = d_availability.loc[d_availability[date_duty] > 0,'name_jpn_full'].tolist()
         l_member_proxy = [m for m in l_member_proxy if m != name_member]
-        description = name_member + '先生ご担当\n代理候補(敬称略):' + ','.join(l_member_proxy) +\
+        if len(l_member_proxy) > 0:
+            str_member_proxy = ','.join(l_member_proxy)
+        else:
+            str_member_proxy = 'なし'
+        description = name_member + '先生ご担当\n代理候補(敬称略):' + str_member_proxy +\
                       '\nhttps://github.com/atiroms/dutyshift で自動生成'
 
         body_event = {'summary': title_duty,
