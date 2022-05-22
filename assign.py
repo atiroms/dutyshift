@@ -68,6 +68,7 @@ d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
 d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
 d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
+d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'))
 d_availability, l_member = prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal)
 d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
 
@@ -117,12 +118,26 @@ for duty in ['day', 'night']:
 ###############################################################################
 # Penalize limit outliers per member per class_duty
 ###############################################################################
+#for member in l_member:
+#    for class_duty in l_class_duty:
+#        cnt_target = d_lim_exact.loc[member, class_duty]
+#        if ~np.isnan(cnt_target):
+#            prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_target)
+
 for member in l_member:
     for class_duty in l_class_duty:
-        cnt_assign = d_lim_exact.loc[member, class_duty]
-        if ~np.isnan(cnt_assign):
-            prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_assign)
-            
+        lim_hard = d_lim_hard.loc[member, class_duty]
+        cnt_min = lim_hard[0]
+        cnt_max = lim_hard[1]
+        cnt_target = d_lim_exact.loc[member, class_duty]
+        if ~np.isnan(cnt_min):
+            if cnt_min == cnt_max:
+                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_min)
+            else:
+                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= cnt_min)
+                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) <= cnt_max)
+
+
 
 ###############################################################################
 # Avoid overlapping / adjacent / close assignments
