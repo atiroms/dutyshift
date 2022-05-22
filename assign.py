@@ -68,7 +68,7 @@ d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
 d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
 d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
-d_availability, l_member = prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal)
+d_availability, l_member, d_availability_ratio = prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal)
 d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
 
 

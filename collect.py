@@ -90,7 +90,7 @@ for idx, row in d_cal_duty.iterrows():
     dict_l_availability[dateduty] = l_availability
 
 d_availability = pd.DataFrame(dict_l_availability)
-d_availability = d_availability.fillna(0)
+#d_availability = d_availability.fillna(0)
 
 d_availability_head = d_availability_src[['お名前（敬称略）', 'タイムスタンプ']].copy()
 d_availability_head.columns = ['name_jpn_full', 'timestamp']

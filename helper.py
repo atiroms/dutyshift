@@ -408,6 +408,13 @@ def prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal):
     d_availability.set_index('id_member', inplace=True)
     d_availability.drop(['name_jpn_full'], axis = 1, inplace = True)
     d_availability = d_availability.T
+    
+    d_availability_ratio = pd.DataFrame(index = d_availability.index, columns = ['total','available','ratio'])
+    d_availability_ratio['total'] = d_availability.count(axis = 1)
+    d_availability_ratio['available'] = d_availability.replace(2,1).sum(axis = 1)
+    d_availability_ratio['ratio'] = d_availability_ratio['available'] / d_availability_ratio['total']
+    
+    d_availability.fillna(0, inplace = True)
     l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].tolist()
     d_availability_ect = d_availability.loc[[str(date_ect) + '_am' for date_ect in l_date_ect], :]
     d_availability_ect.index = ([str(date_ect) + '_ect' for date_ect in l_date_ect])
@@ -416,7 +423,7 @@ def prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal):
     d_availability.to_csv(os.path.join(p_data, 'availability.csv'))
     l_member = d_availability.columns.to_list()
     
-    return d_availability, l_member
+    return d_availability, l_member, d_availability_ratio
 
 
 ################################################################################
