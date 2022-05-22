@@ -83,7 +83,7 @@ prob_assign = LpProblem()
 
 # Binary assignment variables to be optimized
 dv_assign = pd.DataFrame(np.array(addbinvars(len(d_date_duty), len(l_member))),
-                         columns = l_member, index = d_date_duty['date_duty'].to_list())
+                         index = d_date_duty['date_duty'].to_list(), columns = l_member)
 
 
 ###############################################################################
@@ -136,17 +136,16 @@ for member in l_member:
         cnt_max = float(lim_hard[1:-1].split(', ')[1])
         cnt_target = d_lim_exact.loc[member, class_duty]
         if ~np.isnan(cnt_min):
-            #if cnt_min == cnt_max:
-            #    prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_min)
-            #    prob_assign += (dv_deviation.loc[member, class_duty] == 0)
-            #else:
-            #    prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= cnt_min)
-            #    prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) <= cnt_max)
-            #    prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= dv_deviation.loc[member, class_duty] - cnt_target)
-            #    prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= cnt_target - dv_deviation.loc[member, class_duty])
-            prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= dv_deviation.loc[member, class_duty] - cnt_target)
-            prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= cnt_target - dv_deviation.loc[member, class_duty])
-
+            if cnt_min == cnt_max:
+                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_min)
+                prob_assign += (dv_deviation.loc[member, class_duty] == 0)
+            else:
+                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= cnt_min)
+                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) <= cnt_max)
+                prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
+                prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
+            #prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
+            #prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
 
 v_cnt_deviation = lpSum(dv_deviation.to_numpy())
 

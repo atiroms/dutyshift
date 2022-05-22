@@ -233,7 +233,6 @@ def prep_assign2(p_month, p_data, dv_assign, d_availability, d_member, l_member,
                             index = dv_assign.index, columns = dv_assign.columns).astype(bool)
 
     # Assignments with date_duty as row
-    # TODO: em column in assign_date_duty.csv file
     d_assign_date_duty = pd.concat([pd.Series(d_assign.index, index = d_assign.index, name = 'date_duty'),
                                pd.Series(d_assign.sum(axis = 1), name = 'cnt'),
                                pd.Series(d_assign.apply(lambda row: row[row].index.to_list(), axis = 1), name = 'id_member')],
