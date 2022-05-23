@@ -144,5 +144,5 @@ d_info = d_availability[['id_member','name_jpn_full','designation','assign_twice
 d_availability = d_availability[['id_member','name_jpn_full'] + list(dict_l_availability.keys())]
 
 for p_save in [p_month, p_data]:
-    d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = False)
+    d_availability.to_csv(os.path.join(p_save, 'availability_src.csv'), index = False)
     d_info.to_csv(os.path.join(p_save, 'info.csv'), index = False)
