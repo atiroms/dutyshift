@@ -2,10 +2,9 @@
 ###############################################################################
 # Libraries
 ###############################################################################
-import numpy as np, pandas as pd
-#from datetime import datetime as datetime
-#from datetime import timedelta
-import os, datetime, time
+import pandas as pd, datetime as dt
+import os
+from time import sleep
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -45,7 +44,7 @@ else:
     # Set paths and directories
     d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
     p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
-    d_data = datetime.datetime.now().strftime('notate_%Y%m%d_%H%M%S')
+    d_data = dt.datetime.now().strftime('notate_%Y%m%d_%H%M%S')
     p_result = os.path.join(p_month, 'result')
     p_data = os.path.join(p_result, d_data)
     for p_dir in [p_result, p_data]:
@@ -100,8 +99,9 @@ d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'))
 d_date_duty = pd.read_csv(os.path.join(p_month, 'assign_date_duty.csv'))
 d_date_duty = d_date_duty.loc[d_date_duty['cnt'] > 0, :]
 ####
+# Used for testing
 #d_date_duty = d_date_duty.loc[d_date_duty['id_member'] == 11,:]
-#d_date_duty = d_date_duty.iloc[0:1,:]
+#d_date_duty = d_date_duty.iloc[0:2,:]
 ####
 d_date_duty = pd.merge(d_date_duty, d_member[['id_member','name_jpn_full','email']], on = 'id_member', how = 'left')
 d_date_duty = pd.merge(d_date_duty, d_time_duty, on = 'duty', how = 'left')
@@ -112,27 +112,27 @@ l_result_event = []
 l_member = sorted(list(set(d_date_duty['id_member'])))
 
 for id_member in l_member:
-    d_date_duty_member = d_date_duty[d_date_duty['member'] == id_member]
+    d_date_duty_member = d_date_duty[d_date_duty['id_member'] == id_member]
 
     for _, row in d_date_duty_member.iterrows():
         date_duty = row['date_duty']
         title_duty = row['duty_jpn']
         date = int(row['date'])
-        name_member = row['name_jpn_full']
+        name_member = row['name_jpn_full'].replace('　',' ')
         email = row['email']
         str_start = row['start']
         str_end = row['end']
-        t_start = (datetime.datetime(year = year_plan, month = month_plan, day = date) +\
-                datetime.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
-        t_end = (datetime.datetime(year = year_plan, month = month_plan, day = date) +\
-                datetime.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
+        t_start = (dt.datetime(year = year_plan, month = month_plan, day = date) +\
+                   dt.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
+        t_end = (dt.datetime(year = year_plan, month = month_plan, day = date) +\
+                 dt.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
         l_member_proxy = d_availability.loc[d_availability[date_duty] > 0,'name_jpn_full'].tolist()
         l_member_proxy = [m for m in l_member_proxy if m != name_member]
         if len(l_member_proxy) > 0:
-            str_member_proxy = ','.join(l_member_proxy)
+            str_member_proxy = ', '.join(l_member_proxy)
         else:
             str_member_proxy = 'なし'
-        description = name_member + '先生ご担当\n代理候補(敬称略):' + str_member_proxy +\
+        description = name_member + '先生ご担当\n代理候補(敬称略): ' + str_member_proxy +\
                       '\nhttps://github.com/atiroms/dutyshift で自動生成'
 
         body_event = {'summary': title_duty,
@@ -147,7 +147,7 @@ for id_member in l_member:
         result_event = service.events().insert(calendarId=id_calendar_duty,body=body_event).execute()
         l_result_event.append(result_event)
 
-    time.sleep(t_sleep)
+    sleep(t_sleep)
 
 
 #print("created event")
