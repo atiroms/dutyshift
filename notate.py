@@ -101,6 +101,7 @@ d_date_duty = pd.read_csv(os.path.join(p_month, 'assign_date_duty.csv'))
 d_date_duty = d_date_duty.loc[d_date_duty['cnt'] > 0, :]
 ####
 #d_date_duty = d_date_duty.loc[d_date_duty['id_member'] == 11,:]
+#d_date_duty = d_date_duty.iloc[0:1,:]
 ####
 d_date_duty = pd.merge(d_date_duty, d_member[['id_member','name_jpn_full','email']], on = 'id_member', how = 'left')
 d_date_duty = pd.merge(d_date_duty, d_time_duty, on = 'duty', how = 'left')

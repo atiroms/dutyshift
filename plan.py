@@ -82,6 +82,7 @@ d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
 ###############################################################################
 # Optimize exact assignment count
 ###############################################################################
+# TODO: equilize 3 continous holidays assignment count
 d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
 
 # Optimize assignment counts except OC
@@ -118,5 +119,5 @@ d_score_total = pd.concat([d_score_total_notoc, d_score_total_oc], axis = 1)
 # Save data
 for p_save in [p_month, p_data]:
     d_lim_exact.to_csv(os.path.join(p_save, 'lim_exact.csv'), index = False)
-    d_score_current.to_csv(os.path.join(p_save, 'score_current.csv'), index = False)
-    d_score_total.to_csv(os.path.join(p_save, 'score_total.csv'), index = False)
+    d_score_current.to_csv(os.path.join(p_save, 'score_current_plan.csv'), index = False)
+    d_score_total.to_csv(os.path.join(p_save, 'score_total_plan.csv'), index = False)

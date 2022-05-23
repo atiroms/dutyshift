@@ -27,13 +27,13 @@ l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_to
 c_assign_suboptimal = 0.01
 c_cnt_deviation = 0.1
 
-#thr_interval_daynight = 4
-#thr_interval_ect = 3
-#thr_interval_ampm = 2
+thr_interval_daynight = 4
+thr_interval_ect = 3
+thr_interval_ampm = 2
 
-thr_interval_daynight = 1
-thr_interval_ect = 1
-thr_interval_ampm = 1
+#thr_interval_daynight = 1
+#thr_interval_ect = 1
+#thr_interval_ampm = 1
 
 
 ###############################################################################
@@ -254,6 +254,7 @@ print('Solved: ' + str(LpStatus[prob_assign.status]) + ', ' + str(round(v_object
 ###############################################################################
 # Extract data
 ###############################################################################
-d_assign_date_duty, d_assign_date_print, d_assign_member =\
-    prep_assign2(p_month, p_data, dv_assign, d_availability, d_member, l_member, d_date_duty, d_cal)
-
+d_assign_date_duty, d_assign_date_print, d_assign_member,\
+d_deviation, d_score_current, d_score_total, d_score_print =\
+    prep_assign2(p_root, p_month, p_data, dv_assign, dv_deviation,
+                 d_availability, d_member, l_member, d_date_duty, d_cal)
