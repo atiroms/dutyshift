@@ -17,17 +17,23 @@ month_plan = 6
 #month_plan = 5
 #month_plan = 4
 
-#f_availability = 'availability.csv'
+f_availability = 'availability.csv'
 #f_availability = 'availability2.csv'
-f_availability = 'availability3.csv'
+#f_availability = 'availability5.csv'
 
 # Fixed parameters
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
 
-c_assign_suboptimal = 0.1
+c_assign_suboptimal = 0.01
+c_cnt_deviation = 0.1
+
 thr_interval_daynight = 4
 thr_interval_ect = 3
 thr_interval_ampm = 2
+
+#thr_interval_daynight = 1
+#thr_interval_ect = 1
+#thr_interval_ampm = 1
 
 
 ###############################################################################
@@ -63,7 +69,10 @@ from helper import *
 d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
 d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
-d_availability, l_member = prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal, d_member)
+d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
+d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'))
+d_availability, l_member, d_availability_ratio = prep_availability(p_month, p_data, f_availability, d_date_duty, d_cal)
+d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
 
 
 ###############################################################################
@@ -74,7 +83,7 @@ prob_assign = LpProblem()
 
 # Binary assignment variables to be optimized
 dv_assign = pd.DataFrame(np.array(addbinvars(len(d_date_duty), len(l_member))),
-                         columns = l_member, index = d_date_duty['date_duty'].to_list())
+                         index = d_date_duty['date_duty'].to_list(), columns = l_member)
 
 
 ###############################################################################
@@ -95,8 +104,8 @@ for duty in ['am', 'pm', 'day', 'night', 'emnight', 'ect']:
     for date_duty in d_date_duty[d_date_duty['duty'] == duty]['date_duty'].to_list():
         prob_assign += (lpSum(dv_assign.loc[date_duty]) == 1)
 
-# Assign one member per date_duty for ['oc_day', 'oc_night'],
-# if non-designated member is assigned to ['day', 'night'] for the same date/time
+# If non-designated member is assigned to ['day', 'night'] for the same date/time,
+# assign one member per date_duty for ['oc_day', 'oc_night']
 for duty in ['day', 'night']:
     for date in d_date_duty[d_date_duty['duty'] == duty]['date'].to_list():
         date_duty = str(date) + '_' + duty
@@ -111,22 +120,47 @@ for duty in ['day', 'night']:
 ###############################################################################
 # Penalize limit outliers per member per class_duty
 ###############################################################################
-d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
+#for member in l_member:
+#    for class_duty in l_class_duty:
+#        cnt_target = d_lim_exact.loc[member, class_duty]
+#        if ~np.isnan(cnt_target):
+#            prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_target)
+
+dv_deviation = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
+                            index = l_member, columns = l_class_duty)
+
 for member in l_member:
     for class_duty in l_class_duty:
-        cnt_assign = d_lim_exact.loc[member, class_duty]
-        if ~np.isnan(cnt_assign):
-            prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_assign)
-            
+        lim_hard = d_lim_hard.loc[member, class_duty]
+        cnt_min = float(lim_hard[1:-1].split(', ')[0])
+        cnt_max = float(lim_hard[1:-1].split(', ')[1])
+        cnt_target = d_lim_exact.loc[member, class_duty]
+        if ~np.isnan(cnt_min):
+            if cnt_min == cnt_max:
+                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_min)
+                prob_assign += (dv_deviation.loc[member, class_duty] == 0)
+            else:
+                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= cnt_min)
+                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) <= cnt_max)
+                prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
+                prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
+            #prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
+            #prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
+
+v_cnt_deviation = lpSum(dv_deviation.to_numpy())
+
 
 ###############################################################################
 # Avoid overlapping / adjacent / close assignments
 ###############################################################################
-# Penalize ['day', 'ocday', 'night', 'ocnight'] in N(thr_interval_daynight) continuous days
+# Penalize ['day', 'ocday', 'night', 'emnight', 'ocnight'] in N(thr_interval_daynight) continuous days
 # Penalize 'ect' in N(thr_interval_ect) continuous days
 # Penalize ['am','pm'] in N(thr_interval_ampm) continuous days
-# TODO: consider previous month assignment
-l_closeduty = [[thr_interval_daynight, ['day', 'ocday', 'night', 'ocnight']],
+
+l_member_missing = [m for m in l_member if m not in d_assign_previous.columns]
+d_assign_previous[l_member_missing] = 0
+
+l_closeduty = [[thr_interval_daynight, ['day', 'ocday', 'night', 'emnight', 'ocnight']],
                [thr_interval_ect, ['ect']],
                [thr_interval_ampm, ['am', 'pm']]]
 
@@ -135,39 +169,53 @@ for closeduty in l_closeduty:
     l_duty = closeduty[1]
     for date_start in [d for d in range(-thr_interval + 2, 1)] + d_cal['date'].tolist():
         # Create list of continuous date_duty's
-        l_date_duty_temp = []
+        l_date_duty_exist = []
+        l_date_duty_exist_previous = []
         for date in range(date_start, date_start + thr_interval):
             for duty in l_duty:
-                date_duty_temp = str(date) + '_' + duty
-                if date_duty_temp in dv_assign.index:
-                    l_date_duty_temp.append(date_duty_temp)
-        if len(l_date_duty_temp) >= 2:
+                date_duty = str(date) + '_' + duty
+                if date_duty in dv_assign.index:
+                    l_date_duty_exist.append(date_duty)
+                if date_duty in d_assign_previous.index:
+                    l_date_duty_exist_previous.append(date_duty)
+        
+        if (len(l_date_duty_exist) + len(l_date_duty_exist_previous)) >= 2:
             for member in l_member:
-                prob_assign += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
+                prob_assign += (lpSum(dv_assign.loc[l_date_duty_exist, member]) +\
+                                sum(d_assign_previous.loc[l_date_duty_exist_previous, member]) <= 1)
 
-# Avoid [same-date 'pm', 'night' and 'ocnight'],
-#   and ['night', 'ocnight' and following-date 'ect','am']
-# TODO: consider previous month assignment
-# TODO: consider team leader ECT assignment (defined elsewhere)
+# Avoid [same-date 'pm', 'night', 'emnight' and 'ocnight'],
+#   and ['night', 'emnight', 'ocnight' and following-date 'ect','am']
 for date in [0] + d_cal['date'].tolist():
     date_duty_am = str(date) + '_am'
     date_duty_pm = str(date) + '_pm'
     date_duty_night = str(date) + '_night'
+    date_duty_emnight = str(date) + '_emnight'
     date_duty_ocnight = str(date) + '_ocnight'
-    date_duty_ect_next = str(date+1) + '_ect'
-    date_duty_am_next = str(date+1) + '_am'
+    date_duty_ect_next = str(date + 1) + '_ect'
+    date_duty_am_next = str(date + 1) + '_am'
     # List of lists of date_duty groups to avoid
-    ll_avoid = [[date_duty_pm, date_duty_night, date_duty_ocnight],
-                [date_duty_night, date_duty_ocnight, date_duty_ect_next, date_duty_am_next]]
+    ll_avoid = [[date_duty_pm, date_duty_night, date_duty_emnight, date_duty_ocnight],
+                [date_duty_night, date_duty_emnight, date_duty_ocnight, date_duty_ect_next, date_duty_am_next]]
     for l_avoid in ll_avoid:
         # Check if date_duty exists
-        l_date_duty_temp = []
+        l_date_duty_exist = []
+        l_date_duty_exist_previous = []
         for date_duty in l_avoid:
             if date_duty in dv_assign.index:
-                l_date_duty_temp.append(date_duty)
-        if len(l_date_duty_temp) >= 2:
+                l_date_duty_exist.append(date_duty)
+            if date_duty in d_assign_previous.index:
+                l_date_duty_exist_previous.append(date_duty)
+
+        if (len(l_date_duty_exist) + len(l_date_duty_exist_previous)) >= 2:
             for member in l_member:
-                prob_assign += (lpSum(dv_assign.loc[l_date_duty_temp, member]) <= 1)
+                prob_assign += (lpSum(dv_assign.loc[l_date_duty_exist, member]) +\
+                                sum(d_assign_previous.loc[l_date_duty_exist_previous, member]) <= 1)
+
+
+###############################################################################
+# TODO: Team leader ECT assignment (defined elsewhere) 
+###############################################################################
 
 
 ###############################################################################
@@ -187,7 +235,8 @@ for date in l_date_ect:
 ###############################################################################
 # Define objective function to be minimized
 ###############################################################################
-prob_assign += (c_assign_suboptimal * v_assign_suboptimal)
+prob_assign += (c_assign_suboptimal * v_assign_suboptimal
+                + c_cnt_deviation * v_cnt_deviation)
 
           
 ###############################################################################
@@ -205,6 +254,7 @@ print('Solved: ' + str(LpStatus[prob_assign.status]) + ', ' + str(round(v_object
 ###############################################################################
 # Extract data
 ###############################################################################
-d_assign_date_duty, d_assign_date_print, d_assign_member =\
-    prep_assign2(p_data, dv_assign, d_availability, d_member, l_member, d_date_duty, d_cal)
-
+d_assign_date_duty, d_assign_date_print, d_assign_member,\
+d_deviation, d_score_current, d_score_total, d_score_print =\
+    prep_assign2(p_root, p_month, p_data, dv_assign, dv_deviation,
+                 d_availability, d_member, l_member, d_date_duty, d_cal)
