@@ -22,8 +22,6 @@ month_plan = 6
 
 t_sleep = 600
 
-f_member = 'member.csv'
-#f_member = 'member4.csv'
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
 l_scope = ['https://www.googleapis.com/auth/calendar']
 
@@ -126,8 +124,12 @@ for id_member in l_member:
                    dt.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
         t_end = (dt.datetime(year = year_plan, month = month_plan, day = date) +\
                  dt.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
-        l_member_proxy = d_availability.loc[d_availability[date_duty] > 0,'name_jpn_full'].tolist()
-        l_member_proxy = [m for m in l_member_proxy if m != name_member]
+        s_id_member_proxy = d_availability.loc[d_availability['date_duty'] == date_duty,:].reset_index(drop=True).squeeze().iloc[1:]
+        l_id_member_proxy = [int(id) for id in s_id_member_proxy.loc[s_id_member_proxy > 0].index.tolist()]
+        l_member_proxy = d_member.loc[d_member['id_member'].isin(l_id_member_proxy),'name_jpn_full'].tolist()
+        l_member_proxy = [name.replace('　',' ') for name in l_member_proxy]
+        #l_member_proxy = d_availability.loc[d_availability[date_duty] > 0,'name_jpn_full'].tolist()
+        l_member_proxy = [m for m in l_member_proxy]
         if len(l_member_proxy) > 0:
             str_member_proxy = ', '.join(l_member_proxy)
         else:

@@ -43,7 +43,7 @@ from helper import *
 # Read data
 ###############################################################################
 f_answer = os.listdir(os.path.join(p_month, 'src'))
-f_answer = [f for f in f_answer if '（回答）' in f][0]
+f_answer = [f for f in f_answer if 'dutyshift' in f][0]
 d_availability_src = pd.read_csv(os.path.join(p_month, 'src',f_answer))
 
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
