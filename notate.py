@@ -129,7 +129,7 @@ for id_member in l_member:
         l_member_proxy = d_member.loc[d_member['id_member'].isin(l_id_member_proxy),'name_jpn_full'].tolist()
         l_member_proxy = [name.replace('　',' ') for name in l_member_proxy]
         #l_member_proxy = d_availability.loc[d_availability[date_duty] > 0,'name_jpn_full'].tolist()
-        l_member_proxy = [m for m in l_member_proxy]
+        l_member_proxy = [m for m in l_member_proxy if m != name_member]
         if len(l_member_proxy) > 0:
             str_member_proxy = ', '.join(l_member_proxy)
         else:
