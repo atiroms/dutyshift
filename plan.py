@@ -94,6 +94,7 @@ d_sigma_diff_score_current_notoc, d_sigma_diff_score_total_notoc = \
                    l_class_duty = ['ampm', 'daynight_tot', 'night_em', 'ect'])
 
 # Optimize assignment counts of OC
+# TODO: consider past OC assignments for assistant professors
 ln_daynight = d_lim_exact_notoc['daynight_tot'].tolist()
 #l_designation = d_member.loc[d_member['id_member'].isin(l_member), 'designation'].tolist()
 l_designation = d_member['designation'].tolist()
