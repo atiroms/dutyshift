@@ -124,6 +124,7 @@ for id_member in l_member:
                    dt.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
         t_end = (dt.datetime(year = year_plan, month = month_plan, day = date) +\
                  dt.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
+        # TODO: consider designation status for day and night
         s_id_member_proxy = d_availability.loc[d_availability['date_duty'] == date_duty,:].reset_index(drop=True).squeeze().iloc[1:]
         l_id_member_proxy = [int(id) for id in s_id_member_proxy.loc[s_id_member_proxy > 0].index.tolist()]
         l_member_proxy = d_member.loc[d_member['id_member'].isin(l_id_member_proxy),'name_jpn_full'].tolist()

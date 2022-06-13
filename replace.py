@@ -40,7 +40,7 @@ from helper import *
 
 
 ###############################################################################
-# Read data
+# Read and clean data
 ###############################################################################
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
 d_member['name_jpn_full'] = d_member['name_jpn_full'].str.replace('　',' ')
@@ -71,6 +71,7 @@ d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 ###############################################################################
 # Replace data
 ###############################################################################
+# TODO: consider desiganation status difference
 for id, row in d_replace.iterrows():
     d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member','name','name_jpn']] = row[['id_member','name','name_jpn']].tolist()
 
