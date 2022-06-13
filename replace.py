@@ -98,3 +98,9 @@ d_assign_date_print.columns = ['日付', '午前日直', '午後日直', '当直
 for p_save in [p_month, p_data]:
     d_assign_date_duty.to_csv(os.path.join(p_save, 'assign_date_duty.csv'), index = False)
     d_assign_date_print.to_csv(os.path.join(p_save, 'assign_date.csv'), index = False)
+
+
+###############################################################################
+# Replace GCalencar
+###############################################################################
+# TODO: repalce Google Calendar
