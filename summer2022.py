@@ -124,8 +124,11 @@ for week in l_week:
 # Define objective function to be minimized
 ###############################################################################
 d_optimality = d_availability.replace(np.nan, 0)
-# Convert [1,2,3,4] to [1,3,6,10]
-d_optimality = d_optimality.replace(4,10).replace(3,6).replace(2,3)
+# Convert [1,2,3,4] to [1,2,4,7]
+d_optimality.iloc[:,1:] = d_optimality.iloc[:,1:].replace(4,7).replace(3,4)
+l_rank = [[x / d_optimality.shape[0]] * (d_optimality.shape[1] - 1) for x in range(d_optimality.shape[0])]
+d_rank = pd.DataFrame(l_rank, index = d_optimality.index, columns = d_optimality.columns[1:])
+d_optimality.iloc[:,1:] = d_optimality.iloc[:,1:] - d_rank
 prob_assign += (lpDot(dv_assign.to_numpy(), d_optimality.iloc[:,1:].to_numpy()))
 
 
@@ -163,12 +166,26 @@ d_assign_week = pd.DataFrame({'week': l_week, 'id_member': d_assign.apply(lambda
 d_assign_week.index = range(len(d_assign_week))
 for id, row in d_assign_week.iterrows():
     l_id_member = row['id_member']
+    week = row['week']
+    s_id_member_absence = d_absence[week]
+    l_id_member_absence = s_id_member_absence[s_id_member_absence].index
     if len(l_id_member) == 0:
         str_member = 'なし'
     else:
-        str_member = d_member.loc[d_member['id_member'].isin(l_id_member), 'name_jpn_full'].tolist()
-        str_member = ', '.join(str_member)
+        l_str_member = d_member.loc[d_member['id_member'].isin(l_id_member), 'name_jpn_full'].tolist()
+        str_member = ', '.join(l_str_member)
     d_assign_week.loc[id, 'member'] = str_member
+    if len(l_id_member_absence) == 0:
+        str_member_absence = 'なし'
+    else:
+        l_str_member_absence = d_member.loc[d_member['id_member'].isin(l_id_member_absence), 'name_jpn_full'].tolist()
+        str_member_absence = ', '.join(l_str_member_absence)
+    d_assign_week.loc[id, 'member_absence'] = str_member_absence
+
+for p_save in [p_month, p_data]:
+    d_assign.to_csv(os.path.join(p_save, 'assign.csv'), index = False)
+    d_assign_member.to_csv(os.path.join(p_save, 'assign_member.csv'), index = False)
+    d_assign_week.to_csv(os.path.join(p_save, 'assign_week.csv'), index = False)
 
 
 ###############################################################################
