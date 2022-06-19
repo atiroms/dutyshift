@@ -192,27 +192,8 @@ for p_save in [p_month, p_data]:
 # Handle Credentials and token
 ###############################################################################
 creds = None
-# The file token.json stores the user's access and refresh tokens, and is
-# created automatically when the authorization flow completes for the first
-# time.
 p_token = os.path.join(p_root, 'Dropbox/dutyshift/config/credentials/token.json')
 p_cred = os.path.join(p_root, 'Dropbox/dutyshift/config/credentials/credentials.json')
-
-#if os.path.exists(p_token):
-#    creds = Credentials.from_authorized_user_file(p_token, l_scope)
-#    print('token.json found.')
-## If there are no (valid) credentials available, let the user log in.
-#if not creds or not creds.valid:
-#    if creds and creds.expired and creds.refresh_token:
-#        creds.refresh(Request())
-#        print('token.json required refreshment.')
-#    else:
-#        flow = InstalledAppFlow.from_client_secrets_file(p_cred, l_scope)
-#        creds = flow.run_local_server(port=0)
-#        print('credentials.json used.')
-#    # Save the credentials for the next run
-#    with open(p_token, 'w') as token:
-#        token.write(creds.to_json())
 
 flow = InstalledAppFlow.from_client_secrets_file(p_cred, l_scope)
 creds = flow.run_local_server(port=0)
