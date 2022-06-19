@@ -237,7 +237,7 @@ if os.path.exists(p_id_calendar):
 ###############################################################################
 ####
 # Used for testing
-d_assign_member = d_assign_member.loc[d_assign_member['id_member'] == 11]
+#d_assign_member = d_assign_member.loc[d_assign_member['id_member'] == 11]
 ####
 service = build('calendar', 'v3', credentials = creds)
 l_result_event = []
@@ -249,7 +249,7 @@ for _, row in d_assign_member.iterrows():
     t_end = dt.datetime(year = year, month = row['m_end'], day = row['d_end'], hour = 23, minute = 59).isoformat()
     description = name_member + '先生東大病院夏季休暇' +\
                 '\nhttps://github.com/atiroms/dutyshift で自動生成'
-    body_event = {'summary': '夏季休暇',
+    body_event = {'summary': '東大病院夏季休暇',
                   'start': {'dateTime': t_start, 'timeZone': 'Asia/Tokyo'},
                   'end': {'dateTime': t_end, 'timeZone': 'Asia/Tokyo'},
                   'attendees': [{'email': email}],
