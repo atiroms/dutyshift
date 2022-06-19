@@ -40,7 +40,7 @@ from helper import *
 
 
 ###############################################################################
-# Read data
+# Read and clean data
 ###############################################################################
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
 d_member['name_jpn_full'] = d_member['name_jpn_full'].str.replace('　',' ')
@@ -57,6 +57,7 @@ d_replace = d_replace[(d_replace['year'] == year_plan) & (d_replace['month'] == 
 d_replace = pd.merge(d_replace, d_member[['name_jpn_full','id_member','name','name_jpn']], on='name_jpn_full', how='left')
 
 #d_time_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/time_duty.csv'))
+# TODO: replace 当直 as emnight
 dict_replace = {'午前日直':'am', '午後日直':'pm', '休日日直':'day', '当直':'night', '日直オンコール':'ocday','当直オンコール':'ocnight'}
 d_replace['duty'] = [dict_replace[duty] for duty in d_replace['duty']]
 
@@ -70,6 +71,7 @@ d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 ###############################################################################
 # Replace data
 ###############################################################################
+# TODO: consider desiganation status difference
 for id, row in d_replace.iterrows():
     d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member','name','name_jpn']] = row[['id_member','name','name_jpn']].tolist()
 
@@ -92,6 +94,13 @@ for date in d_assign_date_print.loc[d_assign_date_print['em'] == True, 'date'].t
 d_assign_date_print = d_assign_date_print.loc[:,['title_date','am','pm','night','ocday','ocnight','ect']]
 d_assign_date_print.columns = ['日付', '午前日直', '午後日直', '当直', '日直OC', '当直OC', 'ECT']
 
+# TODO: replace other csv files
 for p_save in [p_month, p_data]:
     d_assign_date_duty.to_csv(os.path.join(p_save, 'assign_date_duty.csv'), index = False)
     d_assign_date_print.to_csv(os.path.join(p_save, 'assign_date.csv'), index = False)
+
+
+###############################################################################
+# Replace GCalencar
+###############################################################################
+# TODO: repalce Google Calendar

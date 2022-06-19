@@ -606,6 +606,7 @@ def past_score(p_root, d_member, year_plan, month_plan):
     # Load Past assignments
     l_dir_pastdata = os.listdir(os.path.join(p_root, 'Dropbox/dutyshift'))
     l_dir_pastdata = [dir for dir in l_dir_pastdata if dir.startswith('20')]
+    l_dir_pastdata = [dir for dir in l_dir_pastdata if len(dir) == 6]
     ld_assign_date_duty = []
     for dir in l_dir_pastdata:
         year_dir = int(dir[:4])
@@ -622,6 +623,7 @@ def past_score(p_root, d_member, year_plan, month_plan):
     # Calculate past scores
     d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
     l_type_score = [col for col in d_score_duty.columns if col != 'duty']
+    d_assign_date_duty.drop(l_type_score, axis = 1, inplace = True)
     d_assign_date_duty = pd.merge(d_assign_date_duty, d_score_duty, on = 'duty', how = 'left')
 
     d_score_past = d_member.copy()
