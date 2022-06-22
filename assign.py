@@ -13,7 +13,8 @@ from ortoolpy import addbinvars
 ###############################################################################
 # Unfixed parameters
 year_plan = 2022
-month_plan = 6
+month_plan = 7
+#month_plan = 6
 #month_plan = 5
 #month_plan = 4
 
