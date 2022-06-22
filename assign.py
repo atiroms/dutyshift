@@ -117,12 +117,6 @@ for duty in ['day', 'night']:
 ###############################################################################
 # Penalize limit outliers per member per class_duty
 ###############################################################################
-#for member in l_member:
-#    for class_duty in l_class_duty:
-#        cnt_target = d_lim_exact.loc[member, class_duty]
-#        if ~np.isnan(cnt_target):
-#            prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_target)
-
 dv_deviation = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
                             index = l_member, columns = l_class_duty)
 
@@ -141,8 +135,6 @@ for member in l_member:
                 prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) <= cnt_max)
                 prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
                 prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
-            #prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
-            #prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
 
 v_cnt_deviation = lpSum(dv_deviation.to_numpy())
 

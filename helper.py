@@ -194,38 +194,6 @@ def prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, mon
 
 
 ################################################################################
-# Extract optimization parameters
-################################################################################
-def prep_optim(p_dst, dv_outlier_soft,dv_score_sigmadiff, v_assign_suboptimal, c_outlier_soft,
-               c_scorediff_ampm, c_scorediff_daynight, c_scorediff_ampmdaynight,
-               c_scorediff_oc, c_scorediff_ect, c_assign_suboptimal):
-    d_outlier_soft = pd.DataFrame(np.vectorize(value)(dv_outlier_soft),
-                        columns = dv_outlier_soft.columns, index = dv_outlier_soft.index).astype(float)
-    d_scorediff_sum = pd.DataFrame(np.vectorize(value)(dv_score_sigmadiff),
-                        columns = dv_score_sigmadiff.columns, index = dv_score_sigmadiff.index).astype(float)
-    v_assign_suboptimal = value(v_assign_suboptimal)
-
-    # Optimization results
-    d_optimization = pd.DataFrame([['outlier_soft', c_outlier_soft, d_outlier_soft.sum().sum()],
-                                   #['scorediff_ampm',c_scorediff_ampm, d_scorediff_sum['ampm'].sum()],
-                                   #['scorediff_daynight',c_scorediff_daynight, d_scorediff_sum['daynight'].sum()],
-                                   ['scorediff_ampmdaynight',c_scorediff_ampmdaynight, d_scorediff_sum['ampmdaynight'].sum()],
-                                   ['scorediff_oc',c_scorediff_oc, d_scorediff_sum['oc'].sum()],
-                                   ['scorediff_ect',c_scorediff_ect, d_scorediff_sum['ect'].sum()],
-                                   ['assign_suboptimal', c_assign_suboptimal, v_assign_suboptimal]],
-                                   columns = ['term','constant','value'])
-    d_optimization['product'] = d_optimization['constant'] * d_optimization['value']
-    d_optimization = pd.concat([d_optimization,
-                                pd.DataFrame([['total', None, None, d_optimization['product'].sum()]],
-                                             columns = d_optimization.columns)],
-                                axis = 0)
-    
-    d_optimization.to_csv(os.path.join(p_dst,'optimizaion.csv'), index = False)
-
-    return d_optimization
-
-
-################################################################################
 # Extract data from optimized variables
 ################################################################################
 def prep_assign2(p_root, p_month, p_data, dv_assign, dv_deviation, d_availability, d_member, l_member, d_date_duty, d_cal):
@@ -313,69 +281,6 @@ def prep_assign2(p_root, p_month, p_data, dv_assign, dv_deviation, d_availabilit
 
     return d_assign_date_duty, d_assign_date_print, d_assign_member, d_deviation, d_score_current, d_score_total, d_score_print
 
-def prep_assign(p_dst, dv_assign, dv_score, d_score_history,
-                d_availability, d_member, l_member, d_date_duty, d_cal):
-    d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
-                            index = dv_assign.index, columns = dv_assign.columns).astype(bool)
-    d_score_sigma = pd.DataFrame(np.vectorize(value)(dv_score),
-                                 index = dv_score.index, columns = dv_score.columns).astype(float)
-
-    # Assignments with date_duty as row
-    # TODO: em column in assign_date_duty.csv file
-    d_assign_date_duty = pd.concat([pd.Series(d_assign.index, index = d_assign.index, name = 'date_duty'),
-                               pd.Series(d_assign.sum(axis = 1), name = 'cnt'),
-                               pd.Series(d_assign.apply(lambda row: row[row].index.to_list(), axis = 1), name = 'id_member')],
-                               axis = 1)
-    d_assign_date_duty.index = range(len(d_assign_date_duty))
-    d_assign_date_duty['id_member'] = d_assign_date_duty['id_member'].apply(lambda x: x[0] if len(x) > 0 else np.nan)
-    d_assign_date_duty = pd.merge(d_assign_date_duty, d_member.loc[:,['id_member','name_jpn','name']], on = 'id_member', how = 'left')
-    d_assign_date_duty = pd.merge(d_assign_date_duty, d_date_duty, on = 'date_duty', how = 'left')
-    d_assign_date_duty = d_assign_date_duty.loc[:,['date_duty', 'date','duty', 'id_member','name','name_jpn','cnt']]
-    d_assign_date_duty.to_csv(os.path.join(p_dst, 'assign_date_duty.csv'), index = False)
-
-    # Assignments with date as row for printing
-    d_assign_date_print = d_cal.loc[:,['title_date','date','em']].copy()
-    d_assign_date_print[['am','pm','night','ocday','ocnight','ect']] = ''
-    for _, row in d_assign_date_duty.loc[d_assign_date_duty['cnt'] > 0].iterrows():
-        date = row['date']
-        duty = row['duty']
-        name_jpn = row['name_jpn']
-        if duty == 'day':
-            d_assign_date_print.loc[d_assign_date_print['date'] == date, 'am'] = name_jpn
-            d_assign_date_print.loc[d_assign_date_print['date'] == date, 'pm'] = name_jpn
-        else:
-            d_assign_date_print.loc[d_assign_date_print['date'] == date, duty] = name_jpn
-    for date in d_assign_date_print.loc[d_assign_date_print['em'] == True, 'date'].tolist():
-        d_assign_date_print.loc[d_assign_date_print['date'] == date, 'night'] += '(救急)'
-    d_assign_date_print = d_assign_date_print.loc[:,['title_date','am','pm','night','ocday','ocnight','ect']]
-    d_assign_date_print.columns = ['日付', '午前日直', '午後日直', '当直', '日直OC', '当直OC', 'ECT']
-    d_assign_date_print.to_csv(os.path.join(p_dst, 'assign_date.csv'), index = False)
-
-    # Assignments with member as row
-    d_assign_optimal = pd.DataFrame((d_availability == 2) & d_assign, columns = l_member, index = d_assign.index)                         
-    d_assign_suboptimal = pd.DataFrame((d_availability == 1) & d_assign, columns = l_member, index = d_assign.index)
-    #d_assign_error = pd.DataFrame((d_availability == 0) & d_assign, columns = l_member, index = d_assign.index)
-    d_assign_member = pd.DataFrame({'id_member': l_member,
-                                    'name_jpn': d_member.loc[d_member['id_member'].isin(l_member),'name_jpn'].tolist(),
-                                    'duty_all': d_assign.apply(lambda col: col[col].index.to_list(), axis = 0),
-                                    'duty_opt': d_assign_optimal.apply(lambda col: col[col].index.to_list(), axis = 0),
-                                    'duty_sub': d_assign_suboptimal.apply(lambda col: col[col].index.to_list(), axis = 0),
-                                    'cnt_all': d_assign.sum(axis = 0),
-                                    'cnt_opt': d_assign_optimal.sum(axis = 0),
-                                    'cnt_sub': d_assign_suboptimal.sum(axis = 0)},
-                                    index = l_member)
-    d_assign_member.to_csv(os.path.join(p_dst, 'assign_member.csv'), index = False)
-
-    d_score_history.index = d_score_history['id_member']
-    d_score_history = d_score_history.loc[d_assign_member['id_member'],['score_ampm','score_daynight','score_ampmdaynight','score_oc','score_ect']]
-    d_score_sigma.columns = ['score_' + col for col in d_score_sigma.columns]
-    d_score_current = d_score_sigma - d_score_history
-    d_score_sigma.columns = ['sigma_' + col for col in d_score_sigma.columns]
-    d_score = pd.concat([d_assign_member[['id_member', 'name_jpn']], d_score_current, d_score_sigma], axis = 1)
-    d_score.to_csv(os.path.join(p_dst, 'score.csv'), index = False)
-
-    return d_assign_date_duty, d_assign_date_print, d_assign_member, d_score
-
 
 ################################################################################
 # Prepare calendar for google forms
@@ -456,49 +361,6 @@ def prep_availability(p_month, p_data, d_date_duty, d_cal):
     l_member = d_availability.columns.to_list()
     
     return d_availability, l_member, d_availability_ratio
-
-
-################################################################################
-# Prepare data of member specs and assignment limits
-################################################################################
-def prep_member(p_src, f_member, l_class_duty):
-    l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn','designation_jpn','ect_asgn_jpn','name','title_short','designation', 'team', 'ect_leader', 'ect_subleader']
-
-    d_src = pd.read_csv(os.path.join(p_src, f_member))
-    l_col_member = [col for col in l_col_member if col in d_src.columns]
-    d_member = d_src[l_col_member]
-    d_lim = d_src[l_class_duty].copy()
-    d_lim.index = d_member['id_member'].tolist()
-
-    # Split assignment limit data into hard and soft
-    d_lim_hard = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0],
-                              index = d_member['id_member'].tolist(), columns = d_lim.columns)
-    d_lim_soft = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0],
-                              index = d_member['id_member'].tolist(), columns = d_lim.columns)
-    for col in l_class_duty:
-        d_lim[col] = d_lim[col].astype(str)
-        for idx in d_member['id_member'].tolist():
-            if '(' in d_lim.loc[idx, col]:
-                # If parenthesis exists, its content is hard limit
-                d_lim_hard.loc[idx, col][0] = str(d_lim.loc[idx, col]).split('(')[1].split(')')[0]
-                d_lim_soft.loc[idx, col][0] = str(d_lim.loc[idx, col]).split('(')[0]
-            else:
-                # If parenthesis does not exist it's hard limit
-                d_lim_hard.loc[idx, col][0] = d_lim.loc[idx, col]
-                d_lim_soft.loc[idx, col][0] = '-'
-
-            for d_temp in [d_lim_hard, d_lim_soft]:
-                if d_temp.loc[idx, col][0] == '-':
-                    # Convert '-' to [np.nan, np.nan]
-                    d_temp.loc[idx, col] = [np.nan]*2
-                elif '-' in str(d_temp.loc[idx, col][0]):
-                    # Convert string 'a-b' to list [a, b]
-                    d_temp.loc[idx, col] = [int(x) for x in str(d_temp.loc[idx, col][0]).split('--')]
-                else:
-                    # Convert string 'a' to list [a, a]
-                    d_temp.loc[idx, col] = [int(d_temp.loc[idx, col][0])]*2
-    
-    return d_member, d_lim_hard, d_lim_soft
 
 
 ################################################################################
@@ -667,4 +529,3 @@ def date_duty2class(p_root, d_date_duty, l_class_duty):
     s_cnt_class_duty.index = [id[6:] for id in s_cnt_class_duty.index.tolist()]
 
     return d_date_duty, s_cnt_class_duty
-
