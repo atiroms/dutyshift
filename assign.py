@@ -24,13 +24,13 @@ l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_to
 c_assign_suboptimal = 0.01
 c_cnt_deviation = 0.1
 
-thr_interval_daynight = 4
-thr_interval_ect = 3
-thr_interval_ampm = 2
+#thr_interval_daynight = 4
+#thr_interval_ect = 3
+#thr_interval_ampm = 2
 
-#thr_interval_daynight = 1
-#thr_interval_ect = 1
-#thr_interval_ampm = 1
+thr_interval_daynight = 1
+thr_interval_ect = 1
+thr_interval_ampm = 1
 
 
 ###############################################################################
