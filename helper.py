@@ -359,7 +359,8 @@ def prep_availability(p_month, p_data, d_date_duty, d_cal):
         d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = False)
 
     l_member = [col for col in d_availability.columns.to_list() if col != 'date_duty']
-    
+    d_availability = d_availability[l_member]
+
     return d_availability, l_member, d_availability_ratio
 
 

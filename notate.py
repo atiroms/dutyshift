@@ -17,8 +17,7 @@ from googleapiclient.errors import HttpError
 # Parameters
 ###############################################################################
 year_plan = 2022
-month_plan = 6
-#month = 5
+month_plan = 7
 
 t_sleep = 600
 
