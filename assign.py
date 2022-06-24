@@ -32,6 +32,8 @@ thr_interval_daynight = 1
 thr_interval_ect = 1
 thr_interval_ampm = 1
 
+ignore_limit = True
+
 
 ###############################################################################
 # Script path
@@ -126,15 +128,20 @@ for member in l_member:
         cnt_min = float(lim_hard[1:-1].split(', ')[0])
         cnt_max = float(lim_hard[1:-1].split(', ')[1])
         cnt_target = d_lim_exact.loc[member, class_duty]
-        if ~np.isnan(cnt_min):
-            if cnt_min == cnt_max:
-                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_min)
-                prob_assign += (dv_deviation.loc[member, class_duty] == 0)
-            else:
-                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= cnt_min)
-                prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) <= cnt_max)
+        if ignore_limit:
+            if ~np.isnan(cnt_min):
                 prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
                 prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
+        else:
+            if ~np.isnan(cnt_min):
+                if cnt_min == cnt_max:
+                    prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_min)
+                    prob_assign += (dv_deviation.loc[member, class_duty] == 0)
+                else:
+                    prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= cnt_min)
+                    prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) <= cnt_max)
+                    prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
+                    prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
 
 v_cnt_deviation = lpSum(dv_deviation.to_numpy())
 
