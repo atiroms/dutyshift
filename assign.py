@@ -149,9 +149,10 @@ v_cnt_deviation = lpSum(dv_deviation.to_numpy())
 ###############################################################################
 # Avoid overlapping / adjacent / close assignments
 ###############################################################################
-# Penalize ['day', 'ocday', 'night', 'emnight', 'ocnight'] in N(thr_interval_daynight) continuous days
-# Penalize 'ect' in N(thr_interval_ect) continuous days
-# Penalize ['am','pm'] in N(thr_interval_ampm) continuous days
+# Avoid ['day', 'ocday', 'night', 'emnight', 'ocnight'] in N(thr_interval_daynight) continuous days
+# TODO: Besides avoiding, penalize close assignment
+# Avoid 'ect' in N(thr_interval_ect) continuous days
+# Avoid ['am','pm'] in N(thr_interval_ampm) continuous days
 
 l_member_missing = [m for m in l_member if m not in d_assign_previous.columns]
 d_assign_previous[l_member_missing] = 0
