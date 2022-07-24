@@ -58,7 +58,7 @@ d_replace = pd.merge(d_replace, d_member[['name_jpn_full','id_member','name','na
 
 #d_time_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/time_duty.csv'))
 # TODO: replace 当直 as emnight
-dict_replace = {'午前日直':'am', '午後日直':'pm', '休日日直':'day', '当直':'night', '日直オンコール':'ocday','当直オンコール':'ocnight'}
+dict_replace = {'午前日直':'am', '午後日直':'pm', '休日日直':'day', '当直':'night', '日直オンコール':'ocday','当直オンコール':'ocnight','ECT当番':'ect'}
 d_replace['duty'] = [dict_replace[duty] for duty in d_replace['duty']]
 
 #d_replace['duty'] = [d_time_duty[d_time_duty['duty_jpn'] == duty]['duty'].values[0] for duty in d_replace['duty'].tolist()]
