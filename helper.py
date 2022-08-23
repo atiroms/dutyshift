@@ -357,6 +357,7 @@ def prep_availability(p_month, p_data, d_date_duty, d_cal):
     d_availability = pd.concat([pd.DataFrame({'date_duty': d_availability.index}, index = d_availability.index), d_availability], axis = 1)
     for p_save in [p_month, p_data]:
         d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = False)
+        d_availability_ratio.to_csv(os.path.join(p_save, 'availability_ratio.csv'), index = False)
 
     l_member = [col for col in d_availability.columns.to_list() if col != 'date_duty']
     d_availability = d_availability[l_member]
