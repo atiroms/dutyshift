@@ -25,9 +25,9 @@ c_cnt_deviation = 0.1
 #thr_interval_ect = 3
 #thr_interval_ampm = 2
 
-thr_interval_daynight = 1
+thr_interval_daynight = 5
 thr_interval_ect = 1
-thr_interval_ampm = 1
+thr_interval_ampm = 2
 
 ignore_limit = False
 
@@ -69,6 +69,7 @@ d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
 d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'))
 d_availability, l_member, d_availability_ratio = prep_availability(p_month, p_data, d_date_duty, d_cal)
 d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
+d_date_duty, d_availability, l_date_duty_unavailable = skip_unavailable(d_date_duty, d_availability, d_availability_ratio)
 
 
 ###############################################################################

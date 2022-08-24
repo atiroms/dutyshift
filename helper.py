@@ -10,6 +10,16 @@ from ortoolpy import addvars, addbinvars
 
 
 ################################################################################
+# Delete date_duty for which no one is available
+################################################################################
+def skip_unavailable(d_date_duty, d_availability, d_availability_ratio):
+    l_date_duty_unavailable = d_availability_ratio.loc[d_availability_ratio['available']==0,:].index.tolist()
+    print('No member available for:',l_date_duty_unavailable, '--> skipped from assignment.' )
+    d_date_duty = d_date_duty.loc[~d_date_duty['date_duty'].isin(l_date_duty_unavailable),:]
+    d_availability = d_availability.loc[~d_availability.index.isin(l_date_duty_unavailable),:]
+    return d_date_duty, d_availability, l_date_duty_unavailable
+
+################################################################################
 # Load previous month assignment
 ################################################################################
 def prep_assign_previous(p_root, year_plan, month_plan):
@@ -347,7 +357,8 @@ def prep_availability(p_month, p_data, d_date_duty, d_cal):
     d_availability_ratio['total'] = d_availability.count(axis = 1)
     d_availability_ratio['available'] = d_availability.replace(2,1).sum(axis = 1)
     d_availability_ratio['ratio'] = d_availability_ratio['available'] / d_availability_ratio['total']
-    
+    d_availability_ratio
+
     d_availability.fillna(0, inplace = True)
     l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].tolist()
     d_availability_ect = d_availability.loc[[str(date_ect) + '_am' for date_ect in l_date_ect], :]
