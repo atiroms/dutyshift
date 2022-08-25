@@ -17,7 +17,7 @@ from googleapiclient.errors import HttpError
 # Parameters
 ###############################################################################
 year_plan = 2022
-month_plan = 8
+month_plan = 9
 
 t_sleep = 600
 
@@ -86,7 +86,7 @@ d_date_duty = pd.read_csv(os.path.join(p_month, 'assign_date_duty.csv'))
 d_date_duty = d_date_duty.loc[d_date_duty['cnt'] > 0, :]
 ####
 # Used for testing
-#d_date_duty = d_date_duty.loc[d_date_duty['id_member'] == 11,:]
+d_date_duty = d_date_duty.loc[d_date_duty['id_member'] == 11,:]
 #d_date_duty = d_date_duty.iloc[0:2,:]
 ####
 d_date_duty = pd.merge(d_date_duty, d_member[['id_member','name_jpn_full','email']], on = 'id_member', how = 'left')
@@ -104,6 +104,8 @@ for id_member in l_member:
         date_duty = row['date_duty']
         title_duty = row['duty_jpn']
         date = int(row['date'])
+        duty = row['duty']
+        id_member = int(row['id_member'])
         name_member = row['name_jpn_full'].replace('　',' ')
         email = row['email']
         str_start = row['start']
@@ -112,17 +114,30 @@ for id_member in l_member:
                    dt.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
         t_end = (dt.datetime(year = year_plan, month = month_plan, day = date) +\
                  dt.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
-        # TODO: consider designation status for day and night
         s_id_member_proxy = d_availability.loc[d_availability['date_duty'] == date_duty,:].reset_index(drop=True).squeeze().iloc[1:]
         l_id_member_proxy = [int(id) for id in s_id_member_proxy.loc[s_id_member_proxy > 0].index.tolist()]
-        l_member_proxy = d_member.loc[d_member['id_member'].isin(l_id_member_proxy),'name_jpn_full'].tolist()
-        l_member_proxy = [name.replace('　',' ') for name in l_member_proxy]
-        #l_member_proxy = d_availability.loc[d_availability[date_duty] > 0,'name_jpn_full'].tolist()
-        l_member_proxy = [m for m in l_member_proxy if m != name_member]
-        if len(l_member_proxy) > 0:
-            str_member_proxy = ', '.join(l_member_proxy)
+        d_member_proxy = d_member.loc[d_member['id_member'].isin(l_id_member_proxy),['id_member', 'name_jpn_full', 'designation']]
+        # Consider designation status for day and night
+        if duty in ['day','night']:
+            designation_member = d_member_proxy.loc[d_member_proxy['id_member'] == id_member, 'designation'].tolist()[0]
+            l_id_member_proxy = d_member_proxy.loc[d_member_proxy['designation'] == designation_member, 'id_member'].tolist()
+            l_id_member_proxy_sub = d_member_proxy.loc[d_member_proxy['designation'] != designation_member, 'id_member'].tolist()
         else:
-            str_member_proxy = 'なし'
+            l_id_member_proxy_sub = []
+        l_id_member_proxy = [id for id in l_id_member_proxy if id != id_member]
+        if len(l_id_member_proxy) > 0:
+            l_member_proxy = d_member_proxy.loc[d_member_proxy['id_member'].isin(l_id_member_proxy),'name_jpn_full'].tolist()
+            l_member_proxy = [name.replace('　',' ') for name in l_member_proxy]
+            str_member_proxy = ','.join(l_member_proxy)
+        else:
+            str_member_proxy = ''
+        if len(l_id_member_proxy_sub) > 0:
+            l_member_proxy_sub = d_member_proxy.loc[d_member_proxy['id_member'].isin(l_id_member_proxy_sub),'name_jpn_full'].tolist()
+            l_member_proxy_sub = [name.replace('　',' ') for name in l_member_proxy_sub]
+            str_member_proxy = str_member_proxy + '(,' + ','.join(l_member_proxy_sub) + ')'
+        if str_member_proxy == '':
+            str_member_proxy == 'なし'
+
         description = name_member + '先生ご担当\n代理候補(敬称略): ' + str_member_proxy +\
                       '\nhttps://github.com/atiroms/dutyshift で自動生成'
 
