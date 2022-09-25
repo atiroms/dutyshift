@@ -21,13 +21,13 @@ l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_to
 c_assign_suboptimal = 0.01
 c_cnt_deviation = 0.1
 
-#thr_interval_daynight = 4
-#thr_interval_ect = 3
-#thr_interval_ampm = 2
+thr_interval_daynight = 4
+thr_interval_ect = 3
+thr_interval_ampm = 2
 
-thr_interval_daynight = 1
-thr_interval_ect = 1
-thr_interval_ampm = 1
+#thr_interval_daynight = 1
+#thr_interval_ect = 1
+#thr_interval_ampm = 1
 
 ignore_limit = False
 
@@ -143,7 +143,7 @@ for member in l_member:
 
 v_cnt_deviation = lpSum(dv_deviation.to_numpy())
 
-
+'''
 ###############################################################################
 # Avoid overlapping / adjacent / close assignments
 ###############################################################################
@@ -225,7 +225,7 @@ for date in l_date_ect:
         l_id_member_team = d_member.loc[d_member['team'] == team_leader, 'id_member'].to_list()
         for id_member in l_id_member_team:
             prob_assign += (dv_assign.loc[str(date) + '_ect', id_member] == 0)
-
+'''
 
 ###############################################################################
 # Define objective function to be minimized
