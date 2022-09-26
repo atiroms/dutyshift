@@ -113,7 +113,18 @@ for duty in ['day', 'night']:
             # Sum of dot product of (normal and oc assignments) and (designation)
             # Returns number of 'designated' member assigned in the same date/time, which should be 1
             prob_assign += (lpSum(lpDot(dv_assign.loc[[date_duty, date_duty_oc]].to_numpy(),
-                                    np.array([d_member.loc[d_member['id_member'].isin(l_member), 'designation']]*2))) == 1)
+                                        np.array([d_member.loc[d_member['id_member'].isin(l_member), 'designation']]*2))) == 1)
+
+
+###############################################################################
+# Force full-time doctor assignment
+###############################################################################
+l_fulltime = d_member.loc[d_member['id_member'].isin(l_member), 'title_short']
+l_fulltime = [(title in ['limterm_instr', 'assist', 'limterm_clin']) for title in l_fulltime]
+#l_fulltime = [(title in ['limterm_instr', 'assist']) for title in l_fulltime]
+for date_duty_fulltime in l_date_duty_fulltime:
+    prob_assign += (lpSum(lpDot(dv_assign.loc[date_duty_fulltime].to_numpy(),
+                                np.array(l_fulltime))) == 1)
 
 
 ###############################################################################
