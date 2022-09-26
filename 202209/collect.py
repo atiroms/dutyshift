@@ -10,7 +10,7 @@ import os, datetime
 # Parameters
 ###############################################################################
 year_plan = 2022
-month_plan = 10
+month_plan = 9
 
 
 ###############################################################################
@@ -46,7 +46,7 @@ f_answer = os.listdir(os.path.join(p_month, 'src'))
 f_answer = [f for f in f_answer if 'dutyshift' in f][0]
 d_availability_src = pd.read_csv(os.path.join(p_month, 'src',f_answer))
 
-d_member = pd.read_csv(os.path.join(p_month,'src', 'member.csv'))
+d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
 d_member['name_jpn_full'] = d_member['name_jpn_full'].str.replace('　',' ')
 
 
@@ -54,10 +54,9 @@ d_member['name_jpn_full'] = d_member['name_jpn_full'].str.replace('　',' ')
 # Check missing members
 ###############################################################################
 l_member_ans = list(set(d_availability_src['お名前（敬称略）'].tolist()))
-#l_member_all = d_member['name_jpn_full'].tolist()
+l_member_all = d_member['name_jpn_full'].tolist()
 #l_member_all = [m.replace('\u3000',' ') for m in l_member_all]
-l_member_enlisted = d_member.loc[d_member['enlisted'] == True, 'name_jpn_full'].tolist()
-l_member_missing = [m for m in l_member_enlisted if m not in l_member_ans]
+l_member_missing = [m for m in l_member_all if m not in l_member_ans]
 str_member_missing = ', '.join(l_member_missing)
 l_mail_missing = d_member[d_member['name_jpn_full'].isin(l_member_missing)]['email'].tolist()
 str_mail_missing = ', '.join(l_mail_missing)
