@@ -11,17 +11,16 @@ import os, datetime
 ###############################################################################
 # Unfixed parameters
 year_plan = 2022
-month_plan = 10
-l_holiday = [10]
+month_plan = 11
+l_holiday = [3, 23]
 l_date_ect_cancel = []
-#l_date_ect_cancel = []
 
 f_member = 'member.csv'
 
 # Fixed parameters
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em = 2 # Wednesday
-l_week_em = [1, 3] # 1st and 3rd weeks
+l_week_em = [] # 1st and 3rd weeks
 
 l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']

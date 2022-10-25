@@ -21,19 +21,17 @@ l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_to
 c_assign_suboptimal = 0.01
 c_cnt_deviation = 0.1
 
-thr_interval_daynight = 4
-thr_interval_ect = 3
+thr_interval_daynight = 5
+thr_interval_ect = 2
 thr_interval_ampm = 2
 
-l_date_duty_fulltime = ['1_day', '2_night', '16_night']
+l_date_duty_fulltime = []
 
 #thr_interval_daynight = 1
 #thr_interval_ect = 1
 #thr_interval_ampm = 1
 
 ignore_limit = False
-
-f_member = 'member.csv'
 
 
 ###############################################################################
@@ -68,14 +66,12 @@ from helper import *
 # Prepare data of member availability
 d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
 d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
-#d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
-#d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
-#d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'))
+d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
+d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
+d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'))
 d_availability, l_member, d_availability_ratio = prep_availability(p_month, p_data, d_date_duty, d_cal)
 d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
 d_date_duty, d_availability, l_date_duty_unavailable = skip_unavailable(d_date_duty, d_availability, d_availability_ratio)
-d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
-    = prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, month_plan)
 
 
 ###############################################################################
