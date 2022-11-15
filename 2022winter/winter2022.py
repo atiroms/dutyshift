@@ -154,7 +154,9 @@ d_assign_member = pd.DataFrame({'id_member': l_member, 'md_start': l_assign})
 d_assign_member = pd.merge(d_assign_member, d_member, on = 'id_member')
 d_assign_member['m_start'] = d_assign_member['md_start'].apply(lambda x: int(x.split('/')[0]))
 d_assign_member['d_start'] = d_assign_member['md_start'].apply(lambda x: int(x.split('/')[1]))
-d_assign_member['unix_start'] = [dt.datetime(year = year, month = month, day = date).timestamp() for month, date in zip(d_assign_member['m_start'].tolist(), d_assign_member['d_start'].tolist()) ]
+d_assign_member['y_start'] = business_year
+d_assign_member.loc[d_assign_member['m_start'] < 4, 'y_start'] = business_year + 1
+d_assign_member['unix_start'] = [dt.datetime(year = year, month = month, day = date).timestamp() for year, month, date in zip(d_assign_member['y_start'].tolist(),d_assign_member['m_start'].tolist(), d_assign_member['d_start'].tolist()) ]
 d_assign_member['unix_end'] = d_assign_member['unix_start'] + dt.timedelta(days = 5).total_seconds() - 60
 d_assign_member['m_end'] = d_assign_member['unix_end'].apply(lambda x: dt.datetime.fromtimestamp(x).month)
 d_assign_member['d_end'] = d_assign_member['unix_end'].apply(lambda x: dt.datetime.fromtimestamp(x).day)
