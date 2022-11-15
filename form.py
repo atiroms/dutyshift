@@ -11,11 +11,11 @@ import os, datetime
 ###############################################################################
 # Unfixed parameters
 year_plan = 2022
-month_plan = 11
-l_holiday = [3, 23]
+month_plan = 12
+l_holiday = [29, 30, 31]
 l_date_ect_cancel = []
 
-f_member = 'member.csv'
+
 
 # Fixed parameters
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
