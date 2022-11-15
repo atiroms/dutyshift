@@ -1,7 +1,7 @@
 ###############################################################################
 # Parameers
 ###############################################################################
-year = 2022
+business_year = 2022
 l_scope = ['https://www.googleapis.com/auth/calendar']
 
 ###############################################################################
@@ -32,7 +32,7 @@ else:
     p_script=os.path.join(p_root,'GitHub/dutyshift')
     os.chdir(p_script)
     # Set paths and directories
-    d_month = '{year:0>4d}'.format(year = year) + 'summer'
+    d_month = '{year:0>4d}'.format(year = business_year) + 'winter'
     p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
     d_data = datetime.datetime.now().strftime('assign_%Y%m%d_%H%M%S')
     p_result = os.path.join(p_month, 'result')
@@ -47,7 +47,7 @@ from helper import *
 ###############################################################################
 # Load and modify data
 ###############################################################################
-d_availability = pd.read_csv(os.path.join(p_month, '2022年度夏季休暇希望調査（回答） - フォームの回答 1.csv'))
+d_availability = pd.read_csv(os.path.join(p_month, '2022年度冬季休暇希望調査（回答） - フォームの回答 1.csv'))
 d_availability = d_availability.iloc[:,2:]
 
 l_week = d_availability.columns[1:]
