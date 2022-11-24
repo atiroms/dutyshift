@@ -487,7 +487,7 @@ def past_score(p_root, d_member, year_plan, month_plan):
         year_dir = int(dir[:4])
         month_dir = int(dir[4:6])
         if year_dir < year_plan or (year_dir == year_plan and month_dir < month_plan):
-            d_assign_date_duty_append = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', dir, 'assign_date_duty.csv'), delimiter='\t')
+            d_assign_date_duty_append = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', dir, 'assign_date_duty.csv'))
             d_assign_date_duty_append['year'] = year_dir
             d_assign_date_duty_append['month'] = month_dir
             ld_assign_date_duty.append(d_assign_date_duty_append)
