@@ -16,7 +16,6 @@ l_holiday = [29, 30, 31]
 l_date_ect_cancel = []
 
 
-
 # Fixed parameters
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em = 2 # Wednesday

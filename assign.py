@@ -36,13 +36,13 @@ c_cnt_deviation = 0.1
 thr_interval_daynight = 5
 thr_interval_ect = 2
 thr_interval_ampm = 2
-l_date_duty_fulltime = []
 
 #thr_interval_daynight = 1
 #thr_interval_ect = 1
 #thr_interval_ampm = 1
 
-ignore_limit = False
+l_date_duty_fulltime = []
+ignore_limit = True
 
 
 ###############################################################################
