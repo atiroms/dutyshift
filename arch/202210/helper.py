@@ -39,7 +39,7 @@ def prep_assign_previous(p_root, year_plan, month_plan):
     d_assign_date_duty['date_minus'] = d_assign_date_duty['date'] - max_date
     d_assign_date_duty['date_duty_minus'] = [str(date) + '_' + duty for date, duty in zip(d_assign_date_duty['date_minus'].tolist(), d_assign_date_duty['duty'].tolist())]
 
-    l_member = sorted(list(set(d_assign_date_duty['id_member'].dropna().tolist())))
+    l_member = sorted(list(set(d_assign_date_duty['id_member'].tolist())))
     l_member = [int(x) for x in l_member]
 
     d_assign = pd.DataFrame(np.zeros([n_date_duty, len(l_member)]),
@@ -432,7 +432,7 @@ def prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l
         d_cal.to_csv(os.path.join(p_save, 'calendar.csv'), index = False)
         d_date_duty.to_csv(os.path.join(p_save, 'date_duty.csv'), index = False)
         s_cnt_duty.to_csv(os.path.join(p_save, 'cnt_duty.csv'), index = False)
-        s_cnt_class_duty.to_csv(os.path.join(p_save, 'cnt_class_duty.csv'), index = True)
+        s_cnt_class_duty.to_csv(os.path.join(p_save, 'cnt_class_duty.csv'), index = False)
 
     return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty
 

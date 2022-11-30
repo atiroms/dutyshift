@@ -13,36 +13,25 @@ from ortoolpy import addbinvars
 ###############################################################################
 # Unfixed parameters
 year_plan = 2022
-month_plan = 12
-l_holiday = [29, 30, 31]
-l_date_ect_cancel = []
-f_member = 'member.csv'
+month_plan = 10
 
-# Fixed parameters for optimizing assignment count
-l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
-day_em = 2 # Wednesday
-l_week_em = [] # 1st and 3rd weeks
-
-l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
+# Fixed parameters
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
-dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
 
-dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.01, 'oc': 0.001, 'ect': 0.01}
-dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 'oc': 0.01, 'ect': 0.1}
-
-# Fixed parameters for optimizing assignment
 c_assign_suboptimal = 0.01
 c_cnt_deviation = 0.1
-thr_interval_daynight = 5
-thr_interval_ect = 2
+
+thr_interval_daynight = 4
+thr_interval_ect = 3
 thr_interval_ampm = 2
+
+l_date_duty_fulltime = ['1_day', '2_night', '16_night']
 
 #thr_interval_daynight = 1
 #thr_interval_ect = 1
 #thr_interval_ampm = 1
 
-l_date_duty_fulltime = []
-ignore_limit = True
+ignore_limit = False
 
 
 ###############################################################################
@@ -69,60 +58,6 @@ else:
             os.makedirs(p_dir)
 
 from helper import *
-
-
-###############################################################################
-# Optimize exact assignment count
-###############################################################################
-
-s_cnt_class_duty = pd.read_csv(os.path.join(p_month, 'cnt_class_duty.csv'), index_col=0).squeeze(1)
-
-# Prepare data of member specs and assignment limits
-d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
-    = prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, month_plan)
-
-
-# TODO: equilize 3 continous holidays assignment count
-d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
-
-# Optimize assignment counts except OC
-d_lim_exact_notoc, d_score_current_notoc, d_score_total_notoc,\
-d_sigma_diff_score_current_notoc, d_sigma_diff_score_total_notoc = \
-    optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past,
-                   d_score_class, d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total,
-                   l_type_score = ['ampm', 'daynight', 'ampmdaynight', 'ect'],
-                   l_class_duty = ['ampm', 'daynight_tot', 'night_em', 'ect'])
-
-# Optimize assignment counts of OC
-# TODO: consider past OC assignments for assistant professors
-ln_daynight = d_lim_exact_notoc['daynight_tot'].tolist()
-#l_designation = d_member.loc[d_member['id_member'].isin(l_member), 'designation'].tolist()
-l_designation = d_member['designation'].tolist()
-n_oc_required = int(sum([x * (y == False) for x, y in zip(ln_daynight, l_designation)]))
-s_cnt_class_duty['oc_tot'] = n_oc_required
-
-d_lim_exact_oc, d_score_current_oc, d_score_total_oc,\
-d_sigma_diff_score_current_oc, d_sigma_diff_score_total_oc = \
-    optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past,
-                   d_score_class, d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total,
-                   l_type_score = ['oc'],
-                   l_class_duty = ['oc_tot'])
-
-d_lim_exact = pd.concat([d_lim_exact_notoc, d_lim_exact_oc], axis = 1)
-for col in d_lim_hard.columns:
-    if not col in d_lim_exact.columns:
-        d_lim_exact[col] = [x[0] for x in d_lim_hard[col].tolist()]
-d_lim_exact = d_lim_exact[d_lim_hard.columns]
-
-d_score_current = pd.concat([d_score_current_notoc, d_score_current_oc], axis = 1)
-d_score_total = pd.concat([d_score_total_notoc, d_score_total_oc], axis = 1)
-
-# Save data
-for p_save in [p_month, p_data]:
-    d_lim_exact.to_csv(os.path.join(p_save, 'lim_exact.csv'), index = False)
-    d_score_current.to_csv(os.path.join(p_save, 'score_current_plan.csv'), index = False)
-    d_score_total.to_csv(os.path.join(p_save, 'score_total_plan.csv'), index = False)
-
 
 
 ###############################################################################
@@ -331,4 +266,3 @@ d_assign_date_duty, d_assign_date_print, d_assign_member,\
 d_deviation, d_score_current, d_score_total, d_score_print =\
     prep_assign2(p_root, p_month, p_data, dv_assign, dv_deviation,
                  d_availability, d_member, l_member, d_date_duty, d_cal)
-                 
