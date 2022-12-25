@@ -482,6 +482,7 @@ def past_score(p_root, d_member, year_plan, month_plan):
     l_dir_pastdata = os.listdir(os.path.join(p_root, 'Dropbox/dutyshift'))
     l_dir_pastdata = [dir for dir in l_dir_pastdata if dir.startswith('20')]
     l_dir_pastdata = [dir for dir in l_dir_pastdata if len(dir) == 6]
+    l_dir_pastdata = sorted(l_dir_pastdata)
     ld_assign_date_duty = []
     for dir in l_dir_pastdata:
         year_dir = int(dir[:4])

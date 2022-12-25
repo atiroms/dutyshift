@@ -12,9 +12,9 @@ from ortoolpy import addbinvars
 # Parameters
 ###############################################################################
 # Unfixed parameters
-year_plan = 2022
-month_plan = 12
-l_holiday = [29, 30, 31]
+year_plan = 2023
+month_plan = 1
+l_holiday = [1, 2, 3, 9]
 l_date_ect_cancel = []
 f_member = 'member.csv'
 
@@ -31,7 +31,7 @@ dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0
 dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 'oc': 0.01, 'ect': 0.1}
 
 # Fixed parameters for optimizing assignment
-c_assign_suboptimal = 0.01
+c_assign_suboptimal = 0.001
 c_cnt_deviation = 0.1
 thr_interval_daynight = 5
 thr_interval_ect = 2
@@ -124,9 +124,8 @@ for p_save in [p_month, p_data]:
     d_score_total.to_csv(os.path.join(p_save, 'score_total_plan.csv'), index = False)
 
 
-
 ###############################################################################
-# Load and prepare data
+# Load and prepare data for duty assignment
 ###############################################################################
 # Prepare data of member availability
 d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
