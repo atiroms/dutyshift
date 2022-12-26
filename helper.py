@@ -496,12 +496,15 @@ def past_score(p_root, d_member, year_plan, month_plan):
 
     d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] == 1]
 
-    # Calculate past scores
+    # Re-calculate scores for each past assignment
     d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
     l_type_score = [col for col in d_score_duty.columns if col != 'duty']
-    d_assign_date_duty.drop(l_type_score, axis = 1, inplace = True)
-    d_assign_date_duty = pd.merge(d_assign_date_duty, d_score_duty, on = 'duty', how = 'left')
+    #d_assign_date_duty.drop(l_type_score, axis = 1, inplace = True)
+    #d_assign_date_duty = pd.merge(d_assign_date_duty, d_score_duty, on = 'duty', how = 'left')
 
+    # Include manually-defined scores of special assignment (end and beginning of a year)
+
+    # Calculate past scores of each member
     d_score_past = d_member.copy()
     for id_member in d_score_past['id_member'].tolist():
         d_score_member = d_assign_date_duty.loc[d_assign_date_duty['id_member'] == id_member,
