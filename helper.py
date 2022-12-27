@@ -23,12 +23,14 @@ def skip_unavailable(d_date_duty, d_availability, d_availability_ratio):
 # Load previous month assignment
 ################################################################################
 def prep_assign_previous(p_root, year_plan, month_plan):
-    if month_plan == 1:
-        year_previous = year_plan - 1
-        month_previous = 12
-    else:
-        year_previous = year_plan
-        month_previous = month_plan - 1
+    l_dir_pastdata = os.listdir(os.path.join(p_root, 'Dropbox/dutyshift'))
+    l_dir_pastdata = [dir for dir in l_dir_pastdata if dir.startswith('20')]
+    l_dir_pastdata = [dir for dir in l_dir_pastdata if len(dir) == 6]
+    l_dir_pastdata = sorted(l_dir_pastdata)
+    dir_current = str(year_plan) + str(month_plan).zfill(2)
+    dir_previous = l_dir_pastdata(l_dir_pastdata.index(dir_current) - 1)
+    year_previous = int(dir_previous[:4])
+    month_previous = int(dir_previous[4:6])
         
     d_month = '{year:0>4d}{month:0>2d}'.format(year = year_previous, month = month_previous)
     d_assign_date_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', d_month, 'assign_date_duty.csv'))
@@ -206,7 +208,7 @@ def prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, mon
 ################################################################################
 # Extract data from optimized variables
 ################################################################################
-def prep_assign2(p_root, p_month, p_data, dv_assign, dv_deviation, d_availability, d_member, l_member, d_date_duty, d_cal):
+def prep_assign2(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation, d_availability, d_member, l_member, d_date_duty, d_cal):
     # Convert variables to fixed values
     d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
                             index = dv_assign.index, columns = dv_assign.columns).astype(bool)
@@ -261,6 +263,9 @@ def prep_assign2(p_root, p_month, p_data, dv_assign, dv_deviation, d_availabilit
     d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
     l_type_score = [col for col in d_score_duty.columns if col != 'duty']
     d_assign_date_duty = pd.merge(d_assign_date_duty, d_score_duty, on = 'duty', how = 'left')
+    d_assign_date_duty['year'] = year_plan
+    d_assign_date_duty['month'] = month_plan
+    
     d_score_current = d_member.copy()
     for id_member in d_score_current['id_member'].tolist():
         d_score_member = d_assign_date_duty.loc[d_assign_date_duty['id_member'] == id_member,

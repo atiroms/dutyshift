@@ -328,6 +328,6 @@ print('Solved: ' + str(LpStatus[prob_assign.status]) + ', ' + str(round(v_object
 ###############################################################################
 d_assign_date_duty, d_assign_date_print, d_assign_member,\
 d_deviation, d_score_current, d_score_total, d_score_print =\
-    prep_assign2(p_root, p_month, p_data, dv_assign, dv_deviation,
+    prep_assign2(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation,
                  d_availability, d_member, l_member, d_date_duty, d_cal)
                  
