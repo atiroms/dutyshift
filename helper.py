@@ -28,7 +28,7 @@ def prep_assign_previous(p_root, year_plan, month_plan):
     l_dir_pastdata = [dir for dir in l_dir_pastdata if len(dir) == 6]
     l_dir_pastdata = sorted(l_dir_pastdata)
     dir_current = str(year_plan) + str(month_plan).zfill(2)
-    dir_previous = l_dir_pastdata(l_dir_pastdata.index(dir_current) - 1)
+    dir_previous = l_dir_pastdata[l_dir_pastdata.index(dir_current) - 1]
     year_previous = int(dir_previous[:4])
     month_previous = int(dir_previous[4:6])
         
