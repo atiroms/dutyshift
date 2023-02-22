@@ -13,8 +13,8 @@ from ortoolpy import addbinvars
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 2
-l_holiday = [23]
+month_plan = 3
+l_holiday = [21]
 l_date_ect_cancel = []
 f_member = 'member.csv'
 
@@ -37,13 +37,13 @@ c_cnt_deviation = 0.1
 #thr_interval_ect = 2
 #thr_interval_ampm = 2
 
-thr_interval_daynight = 4
-thr_interval_ect = 2
-thr_interval_ampm = 2
+#thr_interval_daynight = 4
+#thr_interval_ect = 2
+#thr_interval_ampm = 2
 
-#thr_interval_daynight = 1
-#thr_interval_ect = 1
-#thr_interval_ampm = 1
+thr_interval_daynight = 1
+thr_interval_ect = 1
+thr_interval_ampm = 1
 
 l_date_duty_fulltime = []
 ignore_limit = False
