@@ -33,20 +33,20 @@ dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 
 # Fixed parameters for optimizing assignment
 c_assign_suboptimal = 0.001
 c_cnt_deviation = 0.1
+thr_interval_daynight = 4
+thr_interval_ect = 2
+thr_interval_ampm = 2
+
 #thr_interval_daynight = 5
-#thr_interval_ect = 2
-#thr_interval_ampm = 2
+#thr_interval_ect = 1
+#thr_interval_ampm = 1
 
-#thr_interval_daynight = 4
-#thr_interval_ect = 2
-#thr_interval_ampm = 2
-
-thr_interval_daynight = 1
-thr_interval_ect = 1
-thr_interval_ampm = 1
+#thr_interval_daynight = 1
+#thr_interval_ect = 1
+#thr_interval_ampm = 1
 
 l_date_duty_fulltime = []
-ignore_limit = False
+ignore_limit = True
 
 
 ###############################################################################
