@@ -169,7 +169,7 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
 ################################################################################
 # Prepare data of member specs and assignment limits
 ################################################################################
-def prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, month_plan):
+def prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, month_plan, year_start, month_start):
     l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn',
                     'designation_jpn','ect_asgn_jpn','name','title_short',
                     'designation', 'team', 'ect_leader', 'ect_subleader']
@@ -182,7 +182,7 @@ def prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, mon
     d_lim.index = d_member['id_member'].tolist()
 
     # Calculate past scores
-    d_score_past = past_score(p_root, d_member, year_plan, month_plan)
+    d_score_past = past_score(p_root, d_member, year_plan, month_plan, year_start, month_start)
 
     # Split assignment limit data into hard and soft
     d_lim_hard, d_lim_soft = split_lim(d_lim, l_class_duty)
@@ -196,11 +196,11 @@ def prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, mon
 
     # Save data
     for p_save in [p_month, p_data]:
-        d_member.to_csv(os.path.join(p_save, 'member.csv'), index = False)
-        d_score_past.to_csv(os.path.join(p_save, 'score_past.csv'), index = False)
-        d_lim_hard.to_csv(os.path.join(p_save, 'lim_hard.csv'), index = False)
-        d_lim_soft.to_csv(os.path.join(p_save, 'lim_soft.csv'), index = False)
-        d_grp_score.to_csv(os.path.join(p_save, 'grp_score.csv'), index = False)
+        d_member.to_csv(os.path.join(p_save, 'member.csv'), index = True)
+        d_score_past.to_csv(os.path.join(p_save, 'score_past.csv'), index = True)
+        d_lim_hard.to_csv(os.path.join(p_save, 'lim_hard.csv'), index = True)
+        d_lim_soft.to_csv(os.path.join(p_save, 'lim_soft.csv'), index = True)
+        d_grp_score.to_csv(os.path.join(p_save, 'grp_score.csv'), index = True)
 
     return d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score
 
@@ -276,10 +276,12 @@ def prep_assign2(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_d
     d_score_current.index = d_score_current['id_member'].tolist()
     d_score_current = d_score_current[['id_member'] + l_type_score]
 
-    d_score_past = pd.read_csv(os.path.join(p_month, 'score_past.csv'))
+    d_score_past = pd.read_csv(os.path.join(p_month, 'score_past.csv'), index_col = 0)
+    d_score_past.index = d_score_past['id_member'].tolist()
     d_score_total = d_score_past[l_type_score] + d_score_current[l_type_score]
-    d_score_total = pd.concat([pd.DataFrame({'id_member': d_score_current['id_member'].tolist()}),
-                              d_score_total], axis = 1)
+    d_score_total = pd.concat([pd.DataFrame({'id_member': d_score_current['id_member'].tolist()},
+                                            index = d_score_current['id_member'].tolist()),
+                               d_score_total], axis = 1)
     d_score_print = d_member[['id_member','name_jpn_full']].copy()
     d_score_print = pd.merge(d_score_print, d_score_current, on = 'id_member', how = 'left')
     d_score_print = pd.merge(d_score_print, d_score_total, on = 'id_member', how = 'left')
@@ -482,45 +484,47 @@ def split_lim(d_lim, l_class_duty):
 ################################################################################
 # Calculate past scores
 ################################################################################
-def past_score(p_root, d_member, year_plan, month_plan):
+def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start):
     # Load Past assignments
     l_dir_pastdata = os.listdir(os.path.join(p_root, 'Dropbox/dutyshift'))
     l_dir_pastdata = [dir for dir in l_dir_pastdata if dir.startswith('20')]
     l_dir_pastdata = [dir for dir in l_dir_pastdata if len(dir) == 6]
+    ym_start = (year_start * 100) + month_start
+    ym_plan = (year_plan * 100) + month_plan
+    l_dir_pastdata = [dir for dir in l_dir_pastdata if int(dir) >= ym_start]
+    l_dir_pastdata = [dir for dir in l_dir_pastdata if int(dir) < ym_plan]
     l_dir_pastdata = sorted(l_dir_pastdata)
-    ld_assign_date_duty = []
-    for dir in l_dir_pastdata:
-        year_dir = int(dir[:4])
-        month_dir = int(dir[4:6])
-        if year_dir < year_plan or (year_dir == year_plan and month_dir < month_plan):
+    if len(l_dir_pastdata) > 0:
+        ld_assign_date_duty = []
+        for dir in l_dir_pastdata:
+            year_dir = int(dir[:4])
+            month_dir = int(dir[4:6])
             d_assign_date_duty_append = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', dir, 'assign_date_duty.csv'))
             d_assign_date_duty_append['year'] = year_dir
             d_assign_date_duty_append['month'] = month_dir
             ld_assign_date_duty.append(d_assign_date_duty_append)
-    d_assign_date_duty = pd.concat(ld_assign_date_duty)
+        d_assign_date_duty = pd.concat(ld_assign_date_duty)
 
-    d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] == 1]
-
-    # Re-calculate scores for each past assignment
-    d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
-    l_type_score = [col for col in d_score_duty.columns if col != 'duty']
-    #d_assign_date_duty.drop(l_type_score, axis = 1, inplace = True)
-    #d_assign_date_duty = pd.merge(d_assign_date_duty, d_score_duty, on = 'duty', how = 'left')
-
-    # Include manually-defined scores of special assignment (end and beginning of a year)
+        d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] == 1]
 
     # Calculate past scores of each member
-    d_score_past = d_member.copy()
-    for id_member in d_score_past['id_member'].tolist():
-        d_score_member = d_assign_date_duty.loc[d_assign_date_duty['id_member'] == id_member,
-                                                l_type_score]
-        s_score_member = d_score_member.sum(axis = 0)
-        d_score_past.loc[d_score_past['id_member'] == id_member,
-                    l_type_score] = s_score_member.tolist()
+    d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
+    l_type_score = [col for col in d_score_duty.columns if col != 'duty']
 
-    d_score_past.index = d_score_past['id_member'].tolist()
-    d_score_past = d_score_past[['id_member'] + l_type_score]
+    if len(l_dir_pastdata) > 0:
+        d_score_past = d_member.copy()
+        for id_member in d_score_past['id_member'].tolist():
+            d_score_member = d_assign_date_duty.loc[d_assign_date_duty['id_member'] == id_member,
+                                                    l_type_score]
+            s_score_member = d_score_member.sum(axis = 0)
+            d_score_past.loc[d_score_past['id_member'] == id_member,
+                            l_type_score] = s_score_member.tolist()
 
+        d_score_past.index = d_score_past['id_member'].tolist()
+        d_score_past = d_score_past[['id_member'] + l_type_score]
+    else:
+        d_score_past = pd.DataFrame(0, index = range(len(d_member)), columns = ['id_member'] + l_type_score)
+        d_score_past['id_member'] = d_member['id_member']
     return d_score_past
 
 

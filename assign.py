@@ -13,10 +13,12 @@ from ortoolpy import addbinvars
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 3
-l_holiday = [21]
+month_plan = 4
+l_holiday = []
 l_date_ect_cancel = []
 f_member = 'member.csv'
+year_start = 2023
+month_start = 4
 
 # Fixed parameters for optimizing assignment count
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
@@ -83,7 +85,7 @@ s_cnt_class_duty = pd.read_csv(os.path.join(p_month, 'cnt_class_duty.csv'), inde
 
 # Prepare data of member specs and assignment limits
 d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
-    = prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, month_plan)
+    = prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, month_plan, year_start, month_start)
 
 
 # TODO: equilize 3 continous holidays assignment count
@@ -98,7 +100,6 @@ d_sigma_diff_score_current_notoc, d_sigma_diff_score_total_notoc = \
                    l_class_duty = ['ampm', 'daynight_tot', 'night_em', 'ect'])
 
 # Optimize assignment counts of OC
-# TODO: consider past OC assignments for assistant professors
 ln_daynight = d_lim_exact_notoc['daynight_tot'].tolist()
 #l_designation = d_member.loc[d_member['id_member'].isin(l_member), 'designation'].tolist()
 l_designation = d_member['designation'].tolist()
@@ -123,9 +124,9 @@ d_score_total = pd.concat([d_score_total_notoc, d_score_total_oc], axis = 1)
 
 # Save data
 for p_save in [p_month, p_data]:
-    d_lim_exact.to_csv(os.path.join(p_save, 'lim_exact.csv'), index = False)
-    d_score_current.to_csv(os.path.join(p_save, 'score_current_plan.csv'), index = False)
-    d_score_total.to_csv(os.path.join(p_save, 'score_total_plan.csv'), index = False)
+    d_lim_exact.to_csv(os.path.join(p_save, 'lim_exact.csv'), index = True)
+    d_score_current.to_csv(os.path.join(p_save, 'score_current_plan.csv'), index = True)
+    d_score_total.to_csv(os.path.join(p_save, 'score_total_plan.csv'), index = True)
 
 
 ###############################################################################
@@ -135,8 +136,8 @@ for p_save in [p_month, p_data]:
 d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
 d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
-d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'))
-d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'))
+d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'), index_col = 0)
+d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'), index_col = 0)
 d_availability, l_member, d_availability_ratio = prep_availability(p_month, p_data, d_date_duty, d_cal)
 d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
 d_date_duty, d_availability, l_date_duty_unavailable = skip_unavailable(d_date_duty, d_availability, d_availability_ratio)
