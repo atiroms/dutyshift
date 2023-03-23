@@ -34,7 +34,7 @@ else:
 ###############################################################################
 # Check available member of certain duty
 ###############################################################################
-date_duty = '1_day'
+date_duty = '2_day'
 
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
 d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'))
@@ -47,4 +47,5 @@ l_id_member_available = [int(id_member) for id_member in l_id_member_available]
 
 l_name_member_available = d_member.loc[d_member['id_member'].isin(l_id_member_available), 'name_jpn_full'].tolist()
 l_name_member_available = [name.replace('　',' ') for name in l_name_member_available]
-print(l_name_member_available)
+d_check_availability = pd.DataFrame({'id_member': l_id_member_available, 'name_member': l_name_member_available})
+print(d_check_availability)

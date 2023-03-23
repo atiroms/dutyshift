@@ -16,11 +16,14 @@ year_plan = 2023
 month_plan = 4
 l_holiday = []
 l_date_ect_cancel = []
-f_member = 'member.csv'
+l_date_duty_fulltime = ['1_day', '1_night', '2_day', '2_night']
+ignore_limit = True
+
 year_start = 2023
 month_start = 4
 
 # Fixed parameters for optimizing assignment count
+f_member = 'member.csv'
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em = 2 # Wednesday
 l_week_em = [] # 1st and 3rd weeks
@@ -35,20 +38,17 @@ dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 
 # Fixed parameters for optimizing assignment
 c_assign_suboptimal = 0.001
 c_cnt_deviation = 0.1
-thr_interval_daynight = 4
-thr_interval_ect = 2
-thr_interval_ampm = 2
+#thr_interval_daynight = 4
+#thr_interval_ect = 2
+#thr_interval_ampm = 2
 
 #thr_interval_daynight = 5
 #thr_interval_ect = 1
 #thr_interval_ampm = 1
 
-#thr_interval_daynight = 1
-#thr_interval_ect = 1
-#thr_interval_ampm = 1
-
-l_date_duty_fulltime = []
-ignore_limit = True
+thr_interval_daynight = 1
+thr_interval_ect = 1
+thr_interval_ampm = 1
 
 
 ###############################################################################
@@ -92,6 +92,7 @@ d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
 d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
 
 # Optimize assignment counts except OC
+print('Optimizing assignment count (non-OC and OC).')
 d_lim_exact_notoc, d_score_current_notoc, d_score_total_notoc,\
 d_sigma_diff_score_current_notoc, d_sigma_diff_score_total_notoc = \
     optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past,
@@ -138,6 +139,7 @@ d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
 d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'), index_col = 0)
 d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'), index_col = 0)
+d_assign_manual = pd.read_csv(os.path.join(p_month, 'assign_manual.csv'))
 d_availability, l_member, d_availability_ratio = prep_availability(p_month, p_data, d_date_duty, d_cal)
 d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
 d_date_duty, d_availability, l_date_duty_unavailable = skip_unavailable(d_date_duty, d_availability, d_availability_ratio)
@@ -146,12 +148,19 @@ d_date_duty, d_availability, l_date_duty_unavailable = skip_unavailable(d_date_d
 ###############################################################################
 # Initialize assignment problem and model
 ###############################################################################
+print('Optimizing assignment.')
 # Initialize model to be optimized
 prob_assign = LpProblem()
 
 # Binary assignment variables to be optimized
 dv_assign = pd.DataFrame(np.array(addbinvars(len(d_date_duty), len(l_member))),
                          index = d_date_duty['date_duty'].to_list(), columns = l_member)
+
+
+###############################################################################
+# Manual assignment
+###############################################################################
+# TODO: implement manual assignment using d_assign_manual
 
 
 ###############################################################################
@@ -188,8 +197,10 @@ for duty in ['day', 'night']:
 ###############################################################################
 # Force full-time doctor assignment
 ###############################################################################
-l_fulltime = d_member.loc[d_member['id_member'].isin(l_member), 'title_short']
-l_fulltime = [(title in ['limterm_instr', 'assist', 'limterm_clin']) for title in l_fulltime]
+d_fulltime = pd.DataFrame({'id_member': l_member, 'fulltime': False})
+d_fulltime = pd.merge(d_fulltime, d_member[['id_member', 'title_short']], on = 'id_member', how = 'left')
+d_fulltime['fulltime'] = d_fulltime['title_short'].isin(['limterm_instr', 'assist'])
+l_fulltime = d_fulltime['fulltime'].tolist()
 #l_fulltime = [(title in ['limterm_instr', 'assist']) for title in l_fulltime]
 for date_duty_fulltime in l_date_duty_fulltime:
     prob_assign += (lpSum(lpDot(dv_assign.loc[date_duty_fulltime].to_numpy(),
@@ -335,4 +346,3 @@ d_assign_date_duty, d_assign_date_print, d_assign_member,\
 d_deviation, d_score_current, d_score_total, d_score_print =\
     prep_assign2(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation,
                  d_availability, d_member, l_member, d_date_duty, d_cal)
-                 

@@ -14,7 +14,8 @@ from ortoolpy import addvars, addbinvars
 ################################################################################
 def skip_unavailable(d_date_duty, d_availability, d_availability_ratio):
     l_date_duty_unavailable = d_availability_ratio.loc[d_availability_ratio['available']==0,:].index.tolist()
-    print('No member available for:',l_date_duty_unavailable, '--> skipped from assignment.' )
+    if len(l_date_duty_unavailable) > 0:
+        print('No member available for:',l_date_duty_unavailable, '--> skipped from assignment.' )
     d_date_duty = d_date_duty.loc[~d_date_duty['date_duty'].isin(l_date_duty_unavailable),:]
     d_availability = d_availability.loc[~d_availability.index.isin(l_date_duty_unavailable),:]
     return d_date_duty, d_availability, l_date_duty_unavailable
@@ -434,10 +435,13 @@ def prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l
     # Calculate class of duty
     d_date_duty, s_cnt_class_duty = date_duty2class(p_root, d_date_duty, l_class_duty)
 
+    d_assign_manual = pd.DataFrame({'date_duty': d_date_duty['date_duty'].to_list(), 'id_member': None})
+
     # Save data
     for p_save in [p_month, p_data]:
         d_cal.to_csv(os.path.join(p_save, 'calendar.csv'), index = False)
         d_date_duty.to_csv(os.path.join(p_save, 'date_duty.csv'), index = False)
+        d_assign_manual.to_csv(os.path.join(p_save, 'assign_manual.csv'), index = False)
         s_cnt_duty.to_csv(os.path.join(p_save, 'cnt_duty.csv'), index = False)
         s_cnt_class_duty.to_csv(os.path.join(p_save, 'cnt_class_duty.csv'), index = True)
 
