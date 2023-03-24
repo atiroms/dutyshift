@@ -66,6 +66,7 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
     l_member = d_member['id_member'].tolist()
     l_lim_exact = [str(p[0]) + '_' + p[1] for p in itertools.product(l_member, l_class_duty)]
     dict_v_lim_exact = LpVariable.dicts(name = 'cnt', indices = l_lim_exact, lowBound = 0, upBound = None,  cat = 'Integer')
+    #dict_v_lim_exact = LpVariable.dicts(name = 'cnt', indices = l_lim_exact, lowBound = 0, upBound = None,  cat = 'Continuous')
     lv_lim_exact = list(dict_v_lim_exact.values())
     llv_lim_exact = [lv_lim_exact[i:i+len(l_class_duty)] for i in range(0, len(lv_lim_exact), len(l_class_duty))]
     dv_lim_exact = pd.DataFrame(llv_lim_exact, index = l_member, columns = l_class_duty)
@@ -209,7 +210,7 @@ def prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, mon
 ################################################################################
 # Extract data from optimized variables
 ################################################################################
-def prep_assign2(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation, d_availability, d_member, l_member, d_date_duty, d_cal):
+def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation, d_availability, d_member, l_member, d_date_duty, d_cal):
     # Convert variables to fixed values
     d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
                             index = dv_assign.index, columns = dv_assign.columns).astype(bool)

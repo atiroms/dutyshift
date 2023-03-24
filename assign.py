@@ -46,14 +46,6 @@ thr_interval_hard_ect = 1
 thr_interval_soft_ampm = 5
 thr_interval_hard_ampm = 1
 
-#thr_interval_daynight = 5
-#thr_interval_ect = 1
-#thr_interval_ampm = 1
-
-#thr_interval_daynight = 1
-#thr_interval_ect = 1
-#thr_interval_ampm = 1
-
 
 ###############################################################################
 # Script path
@@ -251,7 +243,6 @@ v_cnt_deviation = lpSum(dv_deviation.to_numpy())
 # Avoid overlapping / adjacent / close assignments
 ###############################################################################
 # Avoid ['day', 'ocday', 'night', 'emnight', 'ocnight'] in N(thr_interval_daynight) continuous days
-# TODO: Besides avoiding, penalize close assignment
 # Avoid 'ect' in N(thr_interval_ect) continuous days
 # Avoid ['am','pm'] in N(thr_interval_ampm) continuous days
 
@@ -286,7 +277,6 @@ for closeduty in dict_closeduty.keys():
 
 # Soft limit of closeness (penalize violence)
 dict_dv_closeduty = {}
-dict_v_closeduty = {}
 for closeduty in dict_closeduty.keys():
     thr_interval_soft = dict_closeduty[closeduty][1]
     l_duty = dict_closeduty[closeduty][2]
@@ -311,7 +301,7 @@ for closeduty in dict_closeduty.keys():
             prob_assign += (dict_dv_closeduty[closeduty].loc[date_start, member] >=\
                             (lpSum(dv_assign.loc[l_date_duty_cont, member]) + sum(d_assign_previous.loc[l_date_duty_cont_previous, member]) - 1))
             prob_assign += (dict_dv_closeduty[closeduty].loc[date_start, member] >= 0)
-    dict_v_closeduty[closeduty] = lpSum(dict_dv_closeduty[closeduty].to_numpy())
+v_closeduty = lpSum([lpSum(dv_closeduty.to_numpy()) for dv_closeduty in dict_dv_closeduty.values()])
 
 # Avoid [same-date 'pm', 'night', 'emnight' and 'ocnight'],
 #   and ['night', 'emnight', 'ocnight' and following-date 'ect','am']
@@ -343,11 +333,6 @@ for date in [0] + d_cal['date'].tolist():
 
 
 ###############################################################################
-# TODO: Team leader ECT assignment (defined elsewhere) 
-###############################################################################
-
-
-###############################################################################
 # Avoid ECT from the leader's team
 ###############################################################################
 l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].to_list()
@@ -366,9 +351,7 @@ for date in l_date_ect:
 ###############################################################################
 prob_assign += (c_assign_suboptimal * v_assign_suboptimal
                 + c_cnt_deviation * v_cnt_deviation
-                + c_closeduty * dict_v_closeduty['daynight']
-                + c_closeduty * dict_v_closeduty['ect']
-                + c_closeduty * dict_v_closeduty['ampm'])
+                + c_closeduty * v_closeduty)
 
           
 ###############################################################################
@@ -388,5 +371,5 @@ print('Solved: ' + str(LpStatus[prob_assign.status]) + ', ' + str(round(v_object
 ###############################################################################
 d_assign_date_duty, d_assign_date_print, d_assign_member,\
 d_deviation, d_score_current, d_score_total, d_score_print =\
-    prep_assign2(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation,
-                 d_availability, d_member, l_member, d_date_duty, d_cal)
+    extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation,
+                   d_availability, d_member, l_member, d_date_duty, d_cal)
