@@ -17,7 +17,7 @@ month_plan = 4
 l_holiday = []
 l_date_ect_cancel = []
 l_date_duty_fulltime = ['1_day', '1_night', '2_day', '2_night']
-ignore_limit = True
+type_limit = 'hard' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
 
 year_start = 2023
 month_start = 4
@@ -38,17 +38,21 @@ dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 
 # Fixed parameters for optimizing assignment
 c_assign_suboptimal = 0.001
 c_cnt_deviation = 0.1
-#thr_interval_daynight = 4
-#thr_interval_ect = 2
-#thr_interval_ampm = 2
+c_closeduty = 0.01
+thr_interval_soft_daynight = 5
+thr_interval_hard_daynight = 2
+thr_interval_soft_ect = 4
+thr_interval_hard_ect = 1
+thr_interval_soft_ampm = 5
+thr_interval_hard_ampm = 1
 
 #thr_interval_daynight = 5
 #thr_interval_ect = 1
 #thr_interval_ampm = 1
 
-thr_interval_daynight = 1
-thr_interval_ect = 1
-thr_interval_ampm = 1
+#thr_interval_daynight = 1
+#thr_interval_ect = 1
+#thr_interval_ampm = 1
 
 
 ###############################################################################
@@ -219,20 +223,26 @@ for member in l_member:
         cnt_min = float(lim_hard[1:-1].split(', ')[0])
         cnt_max = float(lim_hard[1:-1].split(', ')[1])
         cnt_target = d_lim_exact.loc[member, class_duty]
-        if ignore_limit:
-            if ~np.isnan(cnt_min):
+        if type_limit == 'ignore':
+            if ~np.isnan(cnt_min): # If limit is specified
+                # Consider deviation from target only
                 prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
                 prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
-        else:
+        elif type_limit == 'hard':
             if ~np.isnan(cnt_min):
                 if cnt_min == cnt_max:
+                    # Exact count
                     prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_min)
                     prob_assign += (dv_deviation.loc[member, class_duty] == 0)
                 else:
+                    # Consider deviation from target and hard limit
                     prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= cnt_min)
                     prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) <= cnt_max)
                     prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
                     prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
+        elif type_limit == 'soft':
+            # TODO: implement 'soft' limit (outlier penalized)
+            pass
 
 v_cnt_deviation = lpSum(dv_deviation.to_numpy())
 
@@ -248,29 +258,60 @@ v_cnt_deviation = lpSum(dv_deviation.to_numpy())
 l_member_missing = [m for m in l_member if m not in d_assign_previous.columns]
 d_assign_previous[l_member_missing] = 0
 
-l_closeduty = [[thr_interval_daynight, ['day', 'ocday', 'night', 'emnight', 'ocnight']],
-               [thr_interval_ect, ['ect']],
-               [thr_interval_ampm, ['am', 'pm']]]
+dict_closeduty = {'daynight': [thr_interval_hard_daynight, thr_interval_soft_daynight, ['day', 'ocday', 'night', 'emnight', 'ocnight']],
+                  'ect': [thr_interval_hard_ect, thr_interval_soft_ect, ['ect']],
+                  'ampm': [thr_interval_hard_ampm, thr_interval_soft_ampm, ['am', 'pm']]}
 
-for closeduty in l_closeduty:
-    thr_interval = closeduty[0]
-    l_duty = closeduty[1]
-    for date_start in [d for d in range(-thr_interval + 2, 1)] + d_cal['date'].tolist():
+# Hard limit of closeness (avoid violence)
+for closeduty in dict_closeduty.keys():
+    thr_interval_hard = dict_closeduty[closeduty][0]
+    l_duty = dict_closeduty[closeduty][2]
+    for date_start in [d for d in range(-thr_interval_hard + 2, 1)] + d_cal['date'].tolist():
         # Create list of continuous date_duty's
-        l_date_duty_exist = []
-        l_date_duty_exist_previous = []
-        for date in range(date_start, date_start + thr_interval):
+        l_date_duty_cont = []
+        l_date_duty_cont_previous = []
+        for date in range(date_start, date_start + thr_interval_hard):
             for duty in l_duty:
                 date_duty = str(date) + '_' + duty
                 if date_duty in dv_assign.index:
-                    l_date_duty_exist.append(date_duty)
+                    l_date_duty_cont.append(date_duty)
                 if date_duty in d_assign_previous.index:
-                    l_date_duty_exist_previous.append(date_duty)
-        
-        if (len(l_date_duty_exist) + len(l_date_duty_exist_previous)) >= 2:
+                    l_date_duty_cont_previous.append(date_duty)
+        # If the list of continuous date_duty's has more than one item
+        if (len(l_date_duty_cont) + len(l_date_duty_cont_previous)) >= 2:
             for member in l_member:
-                prob_assign += (lpSum(dv_assign.loc[l_date_duty_exist, member]) +\
-                                sum(d_assign_previous.loc[l_date_duty_exist_previous, member]) <= 1)
+                # Assignments within continuous date_duty's should not exceeed 1
+                prob_assign += (lpSum(dv_assign.loc[l_date_duty_cont, member]) +\
+                                sum(d_assign_previous.loc[l_date_duty_cont_previous, member]) <= 1)
+
+# Soft limit of closeness (penalize violence)
+dict_dv_closeduty = {}
+dict_v_closeduty = {}
+for closeduty in dict_closeduty.keys():
+    thr_interval_soft = dict_closeduty[closeduty][1]
+    l_duty = dict_closeduty[closeduty][2]
+    l_date_start = [d for d in range(-thr_interval_soft + 2, 1)] + d_cal['date'].tolist()
+    # Variable dataframe of count of assignments within continuous date_duty's staring from date_start, per member, per closeduty
+    dict_dv_closeduty[closeduty] = pd.DataFrame(np.array(addvars(len(l_date_start),len(l_member))), index = l_date_start, columns = l_member)                        
+    for date_start in l_date_start:
+        # Create list of continuous date_duty's
+        l_date_duty_cont = []
+        l_date_duty_cont_previous = []
+        for date in range(date_start, date_start + thr_interval_soft):
+            for duty in l_duty:
+                date_duty = str(date) + '_' + duty
+                if date_duty in dv_assign.index:
+                    l_date_duty_cont.append(date_duty)
+                if date_duty in d_assign_previous.index:
+                    l_date_duty_cont_previous.append(date_duty)
+        # Check if count of assignment per member per continuous date_duty's > 1 (penalize if so)
+        for member in l_member:
+            # For each variable in dict_dv_closeduty[closeduty], var >= (count - 1), and var >= 0, and var is minimized
+            # resulting in: var = 0 if count = 0, 1 (no penalty); var = count - 1 if count > 1 (penalty)
+            prob_assign += (dict_dv_closeduty[closeduty].loc[date_start, member] >=\
+                            (lpSum(dv_assign.loc[l_date_duty_cont, member]) + sum(d_assign_previous.loc[l_date_duty_cont_previous, member]) - 1))
+            prob_assign += (dict_dv_closeduty[closeduty].loc[date_start, member] >= 0)
+    dict_v_closeduty[closeduty] = lpSum(dict_dv_closeduty[closeduty].to_numpy())
 
 # Avoid [same-date 'pm', 'night', 'emnight' and 'ocnight'],
 #   and ['night', 'emnight', 'ocnight' and following-date 'ect','am']
@@ -287,18 +328,18 @@ for date in [0] + d_cal['date'].tolist():
                 [date_duty_night, date_duty_emnight, date_duty_ocnight, date_duty_ect_next, date_duty_am_next]]
     for l_avoid in ll_avoid:
         # Check if date_duty exists
-        l_date_duty_exist = []
-        l_date_duty_exist_previous = []
+        l_date_duty_cont = []
+        l_date_duty_cont_previous = []
         for date_duty in l_avoid:
             if date_duty in dv_assign.index:
-                l_date_duty_exist.append(date_duty)
+                l_date_duty_cont.append(date_duty)
             if date_duty in d_assign_previous.index:
-                l_date_duty_exist_previous.append(date_duty)
+                l_date_duty_cont_previous.append(date_duty)
 
-        if (len(l_date_duty_exist) + len(l_date_duty_exist_previous)) >= 2:
+        if (len(l_date_duty_cont) + len(l_date_duty_cont_previous)) >= 2:
             for member in l_member:
-                prob_assign += (lpSum(dv_assign.loc[l_date_duty_exist, member]) +\
-                                sum(d_assign_previous.loc[l_date_duty_exist_previous, member]) <= 1)
+                prob_assign += (lpSum(dv_assign.loc[l_date_duty_cont, member]) +\
+                                sum(d_assign_previous.loc[l_date_duty_cont_previous, member]) <= 1)
 
 
 ###############################################################################
@@ -324,7 +365,10 @@ for date in l_date_ect:
 # Define objective function to be minimized
 ###############################################################################
 prob_assign += (c_assign_suboptimal * v_assign_suboptimal
-                + c_cnt_deviation * v_cnt_deviation)
+                + c_cnt_deviation * v_cnt_deviation
+                + c_closeduty * dict_v_closeduty['daynight']
+                + c_closeduty * dict_v_closeduty['ect']
+                + c_closeduty * dict_v_closeduty['ampm'])
 
           
 ###############################################################################
