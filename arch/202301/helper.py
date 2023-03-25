@@ -14,8 +14,7 @@ from ortoolpy import addvars, addbinvars
 ################################################################################
 def skip_unavailable(d_date_duty, d_availability, d_availability_ratio):
     l_date_duty_unavailable = d_availability_ratio.loc[d_availability_ratio['available']==0,:].index.tolist()
-    if len(l_date_duty_unavailable) > 0:
-        print('No member available for:',l_date_duty_unavailable, '--> skipped from assignment.' )
+    print('No member available for:',l_date_duty_unavailable, '--> skipped from assignment.' )
     d_date_duty = d_date_duty.loc[~d_date_duty['date_duty'].isin(l_date_duty_unavailable),:]
     d_availability = d_availability.loc[~d_availability.index.isin(l_date_duty_unavailable),:]
     return d_date_duty, d_availability, l_date_duty_unavailable
@@ -29,7 +28,7 @@ def prep_assign_previous(p_root, year_plan, month_plan):
     l_dir_pastdata = [dir for dir in l_dir_pastdata if len(dir) == 6]
     l_dir_pastdata = sorted(l_dir_pastdata)
     dir_current = str(year_plan) + str(month_plan).zfill(2)
-    dir_previous = l_dir_pastdata[l_dir_pastdata.index(dir_current) - 1]
+    dir_previous = l_dir_pastdata(l_dir_pastdata.index(dir_current) - 1)
     year_previous = int(dir_previous[:4])
     month_previous = int(dir_previous[4:6])
         
@@ -66,7 +65,6 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
     l_member = d_member['id_member'].tolist()
     l_lim_exact = [str(p[0]) + '_' + p[1] for p in itertools.product(l_member, l_class_duty)]
     dict_v_lim_exact = LpVariable.dicts(name = 'cnt', indices = l_lim_exact, lowBound = 0, upBound = None,  cat = 'Integer')
-    #dict_v_lim_exact = LpVariable.dicts(name = 'cnt', indices = l_lim_exact, lowBound = 0, upBound = None,  cat = 'Continuous')
     lv_lim_exact = list(dict_v_lim_exact.values())
     llv_lim_exact = [lv_lim_exact[i:i+len(l_class_duty)] for i in range(0, len(lv_lim_exact), len(l_class_duty))]
     dv_lim_exact = pd.DataFrame(llv_lim_exact, index = l_member, columns = l_class_duty)
@@ -171,20 +169,20 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
 ################################################################################
 # Prepare data of member specs and assignment limits
 ################################################################################
-def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start):
+def prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, month_plan):
     l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn',
                     'designation_jpn','ect_asgn_jpn','name','title_short',
                     'designation', 'team', 'ect_leader', 'ect_subleader']
 
     # Load source member and assignment limit of the month
-    d_src = pd.read_csv(os.path.join(p_month, 'src', 'member.csv'))
+    d_src = pd.read_csv(os.path.join(p_month, 'src', f_member))
     l_col_member = [col for col in l_col_member if col in d_src.columns]
     d_member = d_src[l_col_member]
     d_lim = d_src[l_class_duty].copy()
     d_lim.index = d_member['id_member'].tolist()
 
     # Calculate past scores
-    d_score_past = past_score(p_root, d_member, year_plan, month_plan, year_start, month_start)
+    d_score_past = past_score(p_root, d_member, year_plan, month_plan)
 
     # Split assignment limit data into hard and soft
     d_lim_hard, d_lim_soft = split_lim(d_lim, l_class_duty)
@@ -198,11 +196,11 @@ def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, y
 
     # Save data
     for p_save in [p_month, p_data]:
-        d_member.to_csv(os.path.join(p_save, 'member.csv'), index = True)
-        d_score_past.to_csv(os.path.join(p_save, 'score_past.csv'), index = True)
-        d_lim_hard.to_csv(os.path.join(p_save, 'lim_hard.csv'), index = True)
-        d_lim_soft.to_csv(os.path.join(p_save, 'lim_soft.csv'), index = True)
-        d_grp_score.to_csv(os.path.join(p_save, 'grp_score.csv'), index = True)
+        d_member.to_csv(os.path.join(p_save, 'member.csv'), index = False)
+        d_score_past.to_csv(os.path.join(p_save, 'score_past.csv'), index = False)
+        d_lim_hard.to_csv(os.path.join(p_save, 'lim_hard.csv'), index = False)
+        d_lim_soft.to_csv(os.path.join(p_save, 'lim_soft.csv'), index = False)
+        d_grp_score.to_csv(os.path.join(p_save, 'grp_score.csv'), index = False)
 
     return d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score
 
@@ -210,24 +208,18 @@ def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, y
 ################################################################################
 # Extract data from optimized variables
 ################################################################################
-def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation, dict_dv_closeduty,
-                   d_availability, d_member, l_member, d_date_duty, d_cal, dict_closeduty, l_class_duty, d_lim_exact):
+def prep_assign2(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation, d_availability, d_member, l_member, d_date_duty, d_cal):
     # Convert variables to fixed values
     d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
                             index = dv_assign.index, columns = dv_assign.columns).astype(bool)
     d_deviation = pd.DataFrame(np.vectorize(value)(dv_deviation),
-                               index = dv_deviation.index, columns = dv_deviation.columns)
-    dict_d_closeduty = {}
-    for closeduty in dict_dv_closeduty.keys():
-        d_closeduty = pd.DataFrame(np.vectorize(value)(dict_dv_closeduty[closeduty]),
-                                   index = dict_dv_closeduty[closeduty].index, columns = dict_dv_closeduty[closeduty].columns)
-        dict_d_closeduty[closeduty] = d_closeduty
+                        index = dv_deviation.index, columns = dv_deviation.columns)
 
     # Assignments with date_duty as row
     d_assign_date_duty = pd.concat([pd.Series(d_assign.index, index = d_assign.index, name = 'date_duty'),
-                                    pd.Series(d_assign.sum(axis = 1), name = 'cnt'),
-                                    pd.Series(d_assign.apply(lambda row: row[row].index.to_list(), axis = 1), name = 'id_member')],
-                                    axis = 1)
+                               pd.Series(d_assign.sum(axis = 1), name = 'cnt'),
+                               pd.Series(d_assign.apply(lambda row: row[row].index.to_list(), axis = 1), name = 'id_member')],
+                               axis = 1)
     d_assign_date_duty.index = range(len(d_assign_date_duty))
     d_assign_date_duty['id_member'] = d_assign_date_duty['id_member'].apply(lambda x: x[0] if len(x) > 0 else np.nan)
     d_assign_date_duty = pd.merge(d_assign_date_duty, d_member.loc[:,['id_member','name_jpn','name']], on = 'id_member', how = 'left')
@@ -258,7 +250,7 @@ def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv
     d_assign_suboptimal = pd.DataFrame((d_availability == 1) & d_assign, columns = l_member, index = d_assign.index)
     #d_assign_error = pd.DataFrame((d_availability == 0) & d_assign, columns = l_member, index = d_assign.index)
     d_assign_member = pd.DataFrame({'id_member': l_member,
-                                    #'name_jpn': d_member.loc[d_member['id_member'].isin(l_member),'name_jpn'].tolist(),
+                                    'name_jpn': d_member.loc[d_member['id_member'].isin(l_member),'name_jpn'].tolist(),
                                     'duty_all': d_assign.apply(lambda col: col[col].index.to_list(), axis = 0),
                                     'duty_opt': d_assign_optimal.apply(lambda col: col[col].index.to_list(), axis = 0),
                                     'duty_sub': d_assign_suboptimal.apply(lambda col: col[col].index.to_list(), axis = 0),
@@ -266,18 +258,6 @@ def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv
                                     'cnt_opt': d_assign_optimal.sum(axis = 0),
                                     'cnt_sub': d_assign_suboptimal.sum(axis = 0)},
                                     index = l_member)
-    d_assign_member = pd.merge(d_member[['id_member', 'name_jpn']], d_assign_member, on = 'id_member', how = 'left')
-
-    # Prepare deviation results
-    d_deviation = pd.concat([d_member[['id_member', 'name_jpn']], pd.DataFrame(index = d_member.index, columns = l_class_duty)], axis = 1)
-    for member in l_member:
-        s_assign_class = pd.merge(d_assign_date_duty.loc[d_assign_date_duty['id_member'] == member, :], d_date_duty,
-                                  on = 'date_duty', how = 'left').sum(axis = 0)
-        l_assign_class = s_assign_class[['class_' + class_duty for class_duty in l_class_duty]].tolist()
-        l_assign_class = [int(class_member) for class_member in l_assign_class]
-        l_assign_class_target = d_lim_exact.loc[member, l_class_duty].tolist()
-        d_deviation.loc[d_deviation['id_member'] == member, l_class_duty] = [a - b for a, b in zip(l_assign_class, l_assign_class_target)]
-    d_deviation[l_class_duty] = d_deviation[l_class_duty].fillna(0).astype(int)
 
     # Score calculation
     d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
@@ -296,30 +276,14 @@ def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv
     d_score_current.index = d_score_current['id_member'].tolist()
     d_score_current = d_score_current[['id_member'] + l_type_score]
 
-    d_score_past = pd.read_csv(os.path.join(p_month, 'score_past.csv'), index_col = 0)
-    d_score_past.index = d_score_past['id_member'].tolist()
+    d_score_past = pd.read_csv(os.path.join(p_month, 'score_past.csv'))
     d_score_total = d_score_past[l_type_score] + d_score_current[l_type_score]
-    d_score_total = pd.concat([pd.DataFrame({'id_member': d_score_current['id_member'].tolist()},
-                                            index = d_score_current['id_member'].tolist()),
-                               d_score_total], axis = 1)
+    d_score_total = pd.concat([pd.DataFrame({'id_member': d_score_current['id_member'].tolist()}),
+                              d_score_total], axis = 1)
     d_score_print = d_member[['id_member','name_jpn_full']].copy()
     d_score_print = pd.merge(d_score_print, d_score_current, on = 'id_member', how = 'left')
     d_score_print = pd.merge(d_score_print, d_score_total, on = 'id_member', how = 'left')
     d_score_print.columns = ['id_member', 'name_jpn'] + ['score_' + col for col in l_type_score] + ['score_sigma_' + col for col in l_type_score]
-
-    # Closeduty
-    l_closeduty = []
-    for closeduty in dict_d_closeduty.keys():
-        for member in l_member:
-            s_closeduty = dict_d_closeduty[closeduty][member]
-            l_date_closeduty = s_closeduty[s_closeduty > 0].index.tolist()
-            thr_soft = dict_closeduty[closeduty]['thr_soft']
-            for date_start in l_date_closeduty:
-                date_end = date_start + thr_soft -1
-                l_closeduty.append([closeduty, member, date_start, date_end])
-    d_closeduty = pd.DataFrame(l_closeduty, columns = ['type_duty', 'id_member', 'date_start', 'date_end'])
-    d_closeduty = pd.merge(d_closeduty, d_member[['id_member', 'name_jpn']], on = 'id_member', how = 'left')
-    d_closeduty = d_closeduty[['type_duty', 'id_member', 'name_jpn', 'date_start', 'date_end']]
 
     for p_save in [p_month, p_data]:
         d_assign_date_duty.to_csv(os.path.join(p_save, 'assign_date_duty.csv'), index = False)
@@ -329,9 +293,8 @@ def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv
         d_score_current.to_csv(os.path.join(p_save, 'score_current.csv'), index = False)
         d_score_total.to_csv(os.path.join(p_save, 'score_total.csv'), index = False)
         d_score_print.to_csv(os.path.join(p_save, 'score_print.csv'), index = False)
-        d_closeduty.to_csv(os.path.join(p_save, 'closeduty.csv'), index = False)
 
-    return d_assign_date_duty, d_assign_date_print, d_assign_member, d_deviation, d_score_current, d_score_total, d_score_print, d_closeduty
+    return d_assign_date_duty, d_assign_date_print, d_assign_member, d_deviation, d_score_current, d_score_total, d_score_print
 
 
 ################################################################################
@@ -469,13 +432,10 @@ def prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l
     # Calculate class of duty
     d_date_duty, s_cnt_class_duty = date_duty2class(p_root, d_date_duty, l_class_duty)
 
-    d_assign_manual = pd.DataFrame({'date_duty': d_date_duty['date_duty'].to_list(), 'id_member': None})
-
     # Save data
     for p_save in [p_month, p_data]:
         d_cal.to_csv(os.path.join(p_save, 'calendar.csv'), index = False)
         d_date_duty.to_csv(os.path.join(p_save, 'date_duty.csv'), index = False)
-        d_assign_manual.to_csv(os.path.join(p_save, 'assign_manual.csv'), index = False)
         s_cnt_duty.to_csv(os.path.join(p_save, 'cnt_duty.csv'), index = False)
         s_cnt_class_duty.to_csv(os.path.join(p_save, 'cnt_class_duty.csv'), index = True)
 
@@ -522,47 +482,45 @@ def split_lim(d_lim, l_class_duty):
 ################################################################################
 # Calculate past scores
 ################################################################################
-def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start):
+def past_score(p_root, d_member, year_plan, month_plan):
     # Load Past assignments
     l_dir_pastdata = os.listdir(os.path.join(p_root, 'Dropbox/dutyshift'))
     l_dir_pastdata = [dir for dir in l_dir_pastdata if dir.startswith('20')]
     l_dir_pastdata = [dir for dir in l_dir_pastdata if len(dir) == 6]
-    ym_start = (year_start * 100) + month_start
-    ym_plan = (year_plan * 100) + month_plan
-    l_dir_pastdata = [dir for dir in l_dir_pastdata if int(dir) >= ym_start]
-    l_dir_pastdata = [dir for dir in l_dir_pastdata if int(dir) < ym_plan]
     l_dir_pastdata = sorted(l_dir_pastdata)
-    if len(l_dir_pastdata) > 0:
-        ld_assign_date_duty = []
-        for dir in l_dir_pastdata:
-            year_dir = int(dir[:4])
-            month_dir = int(dir[4:6])
+    ld_assign_date_duty = []
+    for dir in l_dir_pastdata:
+        year_dir = int(dir[:4])
+        month_dir = int(dir[4:6])
+        if year_dir < year_plan or (year_dir == year_plan and month_dir < month_plan):
             d_assign_date_duty_append = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', dir, 'assign_date_duty.csv'))
             d_assign_date_duty_append['year'] = year_dir
             d_assign_date_duty_append['month'] = month_dir
             ld_assign_date_duty.append(d_assign_date_duty_append)
-        d_assign_date_duty = pd.concat(ld_assign_date_duty)
+    d_assign_date_duty = pd.concat(ld_assign_date_duty)
 
-        d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] == 1]
+    d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] == 1]
 
-    # Calculate past scores of each member
+    # Re-calculate scores for each past assignment
     d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
     l_type_score = [col for col in d_score_duty.columns if col != 'duty']
+    #d_assign_date_duty.drop(l_type_score, axis = 1, inplace = True)
+    #d_assign_date_duty = pd.merge(d_assign_date_duty, d_score_duty, on = 'duty', how = 'left')
 
-    if len(l_dir_pastdata) > 0:
-        d_score_past = d_member.copy()
-        for id_member in d_score_past['id_member'].tolist():
-            d_score_member = d_assign_date_duty.loc[d_assign_date_duty['id_member'] == id_member,
-                                                    l_type_score]
-            s_score_member = d_score_member.sum(axis = 0)
-            d_score_past.loc[d_score_past['id_member'] == id_member,
-                            l_type_score] = s_score_member.tolist()
+    # Include manually-defined scores of special assignment (end and beginning of a year)
 
-        d_score_past.index = d_score_past['id_member'].tolist()
-        d_score_past = d_score_past[['id_member'] + l_type_score]
-    else:
-        d_score_past = pd.DataFrame(0, index = range(len(d_member)), columns = ['id_member'] + l_type_score)
-        d_score_past['id_member'] = d_member['id_member']
+    # Calculate past scores of each member
+    d_score_past = d_member.copy()
+    for id_member in d_score_past['id_member'].tolist():
+        d_score_member = d_assign_date_duty.loc[d_assign_date_duty['id_member'] == id_member,
+                                                l_type_score]
+        s_score_member = d_score_member.sum(axis = 0)
+        d_score_past.loc[d_score_past['id_member'] == id_member,
+                    l_type_score] = s_score_member.tolist()
+
+    d_score_past.index = d_score_past['id_member'].tolist()
+    d_score_past = d_score_past[['id_member'] + l_type_score]
+
     return d_score_past
 
 

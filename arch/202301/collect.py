@@ -10,7 +10,7 @@ import os, datetime
 # Parameters
 ###############################################################################
 year_plan = 2023
-month_plan = 4
+month_plan = 1
 
 
 ###############################################################################
@@ -56,8 +56,8 @@ d_member['name_jpn_full'] = d_member['name_jpn_full'].str.replace('　',' ')
 l_member_ans = list(set(d_availability_src['お名前（敬称略）'].tolist()))
 #l_member_all = d_member['name_jpn_full'].tolist()
 #l_member_all = [m.replace('\u3000',' ') for m in l_member_all]
-l_member_active = d_member.loc[d_member['active'] == True, 'name_jpn_full'].tolist()
-l_member_missing = [m for m in l_member_active if m not in l_member_ans]
+l_member_enlisted = d_member.loc[d_member['enlisted'] == True, 'name_jpn_full'].tolist()
+l_member_missing = [m for m in l_member_enlisted if m not in l_member_ans]
 str_member_missing = ', '.join(l_member_missing)
 l_mail_missing = d_member[d_member['name_jpn_full'].isin(l_member_missing)]['email'].tolist()
 str_mail_missing = ', '.join(l_mail_missing)

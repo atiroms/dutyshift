@@ -11,17 +11,22 @@ import os, datetime
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 4
-l_holiday = []
+month_plan = 1
+l_holiday = [1, 2, 3, 9]
 l_date_ect_cancel = []
+
 
 # Fixed parameters
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em = 2 # Wednesday
 l_week_em = [] # 1st and 3rd weeks
 
+l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
+
+dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.01, 'oc': 0.001, 'ect': 0.01}
+dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 'oc': 0.01, 'ect': 0.1}
 
 
 ###############################################################################

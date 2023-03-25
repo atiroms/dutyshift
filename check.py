@@ -1,9 +1,8 @@
-
 ###############################################################################
 # Libraries
 ###############################################################################
 import pandas as pd
-import os, datetime
+import os
 
 
 ###############################################################################
@@ -12,16 +11,6 @@ import os, datetime
 # Unfixed parameters
 year_plan = 2023
 month_plan = 4
-l_holiday = []
-l_date_ect_cancel = []
-
-# Fixed parameters
-l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
-day_em = 2 # Wednesday
-l_week_em = [] # 1st and 3rd weeks
-
-l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
-dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
 
 
 ###############################################################################
@@ -40,23 +29,23 @@ else:
     # Set paths and directories
     d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
     p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
-    d_data = datetime.datetime.now().strftime('form_%Y%m%d_%H%M%S')
-    p_result = os.path.join(p_month, 'result')
-    p_data = os.path.join(p_result, d_data)
-    for p_dir in [p_result, p_data]:
-        if not os.path.exists(p_dir):
-            os.makedirs(p_dir)
-
-from helper import *
 
 
 ###############################################################################
-# Load and prepare data
+# Check available member of certain duty
 ###############################################################################
-# Prepare calendar and all duties of the month
-d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty \
-    = prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel,
-                    day_em, l_week_em, year_plan, month_plan)
+date_duty = '16_night'
 
-# Prepare calendar for google forms
-d_cal_duty, d_form = prep_forms(p_month, p_data, d_cal, dict_duty)
+d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
+d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'))
+d_availability.index = d_availability['date_duty']
+d_availability = d_availability.iloc[:,1:]
+
+d_availability_t = d_availability.T
+l_id_member_available = d_availability_t.index[d_availability_t[date_duty] > 0].tolist()
+l_id_member_available = [int(id_member) for id_member in l_id_member_available]
+
+l_name_member_available = d_member.loc[d_member['id_member'].isin(l_id_member_available), 'name_jpn_full'].tolist()
+l_name_member_available = [name.replace('　',' ') for name in l_name_member_available]
+d_check_availability = pd.DataFrame({'id_member': l_id_member_available, 'name_member': l_name_member_available})
+print(d_check_availability)
