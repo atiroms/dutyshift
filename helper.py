@@ -211,7 +211,7 @@ def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, y
 # Extract data from optimized variables
 ################################################################################
 def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation, dict_dv_closeduty,
-                   d_availability, d_member, l_member, d_date_duty, d_cal, dict_closeduty):
+                   d_availability, d_member, l_member, d_date_duty, d_cal, dict_closeduty, l_class_duty, d_lim_exact):
     # Convert variables to fixed values
     d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
                             index = dv_assign.index, columns = dv_assign.columns).astype(bool)
@@ -269,8 +269,15 @@ def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv
     d_assign_member = pd.merge(d_member[['id_member', 'name_jpn']], d_assign_member, on = 'id_member', how = 'left')
 
     # Prepare deviation results
-    d_deviation['id_member'] = d_deviation.index
-    d_deviation = pd.merge(d_member[['id_member', 'name_jpn']], d_deviation, on = 'id_member', how = 'left')
+    d_deviation = pd.concat([d_member[['id_member', 'name_jpn']], pd.DataFrame(index = d_member.index, columns = l_class_duty)], axis = 1)
+    for member in l_member:
+        s_assign_class = pd.merge(d_assign_date_duty.loc[d_assign_date_duty['id_member'] == member, :], d_date_duty,
+                                  on = 'date_duty', how = 'left').sum(axis = 0)
+        l_assign_class = s_assign_class[['class_' + class_duty for class_duty in l_class_duty]].tolist()
+        l_assign_class = [int(class_member) for class_member in l_assign_class]
+        l_assign_class_target = d_lim_exact.loc[member, l_class_duty].tolist()
+        d_deviation.loc[d_deviation['id_member'] == member, l_class_duty] = [a - b for a, b in zip(l_assign_class, l_assign_class_target)]
+    d_deviation[l_class_duty] = d_deviation[l_class_duty].fillna(0).astype(int)
 
     # Score calculation
     d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))

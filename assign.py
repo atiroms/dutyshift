@@ -17,7 +17,7 @@ month_plan = 4
 l_holiday = []
 l_date_ect_cancel = []
 l_date_duty_fulltime = ['1_day', '1_night', '2_day', '2_night']
-type_limit = 'hard' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
+type_limit = 'ignore' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
 
 year_start = 2023
 month_start = 4
@@ -35,7 +35,7 @@ dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0
 dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 'oc': 0.01, 'ect': 0.1}
 
 # Fixed parameters for optimizing assignment
-dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 2,'thr_soft': 5},
+dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1,'thr_soft': 5},
                   'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1,'thr_soft': 4},
                   'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1,'thr_soft': 5}}
 c_assign_suboptimal = 0.001
@@ -176,6 +176,9 @@ for duty in ['am', 'pm', 'day', 'night', 'emnight', 'ect']:
 
 # If non-designated member is assigned to ['day', 'night'] for the same date/time,
 # assign one member per date_duty for ['oc_day', 'oc_night']
+l_designation = []
+for member in l_member:
+    l_designation.append(d_member.loc[d_member['id_member'] == member, 'designation'].tolist()[0])
 for duty in ['day', 'night']:
     for date in d_date_duty[d_date_duty['duty'] == duty]['date'].to_list():
         date_duty = str(date) + '_' + duty
@@ -184,7 +187,7 @@ for duty in ['day', 'night']:
             # Sum of dot product of (normal and oc assignments) and (designation)
             # Returns number of 'designated' member assigned in the same date/time, which should be 1
             prob_assign += (lpSum(lpDot(dv_assign.loc[[date_duty, date_duty_oc]].to_numpy(),
-                                        np.array([d_member.loc[d_member['id_member'].isin(l_member), 'designation']]*2))) == 1)
+                                        np.array([l_designation] * 2))) == 1)
 
 
 ###############################################################################
@@ -365,4 +368,4 @@ print('Solved: ' + str(LpStatus[prob_assign.status]) + ', ' + str(round(v_object
 d_assign_date_duty, d_assign_date_print, d_assign_member,\
 d_deviation, d_score_current, d_score_total, d_score_print, d_closeduty =\
     extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation, dict_dv_closeduty,
-                   d_availability, d_member, l_member, d_date_duty, d_cal, dict_closeduty)
+                   d_availability, d_member, l_member, d_date_duty, d_cal, dict_closeduty, l_class_duty, d_lim_exact)
