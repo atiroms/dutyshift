@@ -23,7 +23,6 @@ year_start = 2023
 month_start = 4
 
 # Fixed parameters for optimizing assignment count
-f_member = 'member.csv'
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em = 2 # Wednesday
 l_week_em = [] # 1st and 3rd weeks
@@ -32,19 +31,17 @@ l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
 
-dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.01, 'oc': 0.001, 'ect': 0.01}
+dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.001, 'oc': 0.001, 'ect': 0.01}
 dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 'oc': 0.01, 'ect': 0.1}
 
 # Fixed parameters for optimizing assignment
+dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 2,'thr_soft': 5},
+                  'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1,'thr_soft': 4},
+                  'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1,'thr_soft': 5}}
 c_assign_suboptimal = 0.001
 c_cnt_deviation = 0.1
 c_closeduty = 0.01
-thr_interval_soft_daynight = 5
-thr_interval_hard_daynight = 2
-thr_interval_soft_ect = 4
-thr_interval_hard_ect = 1
-thr_interval_soft_ampm = 5
-thr_interval_hard_ampm = 1
+l_title_fulltime = ['assist'] # ['limterm_instr', 'assist', 'limterm_clin']
 
 
 ###############################################################################
@@ -81,7 +78,7 @@ s_cnt_class_duty = pd.read_csv(os.path.join(p_month, 'cnt_class_duty.csv'), inde
 
 # Prepare data of member specs and assignment limits
 d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
-    = prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, month_plan, year_start, month_start)
+    = prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start)
 
 
 # TODO: equilize 3 continous holidays assignment count
@@ -132,7 +129,7 @@ for p_save in [p_month, p_data]:
 # Prepare data of member availability
 d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
 d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
-d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
+d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
 d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'), index_col = 0)
 d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'), index_col = 0)
 d_assign_manual = pd.read_csv(os.path.join(p_month, 'assign_manual.csv'))
@@ -195,7 +192,7 @@ for duty in ['day', 'night']:
 ###############################################################################
 d_fulltime = pd.DataFrame({'id_member': l_member, 'fulltime': False})
 d_fulltime = pd.merge(d_fulltime, d_member[['id_member', 'title_short']], on = 'id_member', how = 'left')
-d_fulltime['fulltime'] = d_fulltime['title_short'].isin(['limterm_instr', 'assist'])
+d_fulltime['fulltime'] = d_fulltime['title_short'].isin(l_title_fulltime)
 l_fulltime = d_fulltime['fulltime'].tolist()
 #l_fulltime = [(title in ['limterm_instr', 'assist']) for title in l_fulltime]
 for date_duty_fulltime in l_date_duty_fulltime:
@@ -249,14 +246,10 @@ v_cnt_deviation = lpSum(dv_deviation.to_numpy())
 l_member_missing = [m for m in l_member if m not in d_assign_previous.columns]
 d_assign_previous[l_member_missing] = 0
 
-dict_closeduty = {'daynight': [thr_interval_hard_daynight, thr_interval_soft_daynight, ['day', 'ocday', 'night', 'emnight', 'ocnight']],
-                  'ect': [thr_interval_hard_ect, thr_interval_soft_ect, ['ect']],
-                  'ampm': [thr_interval_hard_ampm, thr_interval_soft_ampm, ['am', 'pm']]}
-
 # Hard limit of closeness (avoid violence)
 for closeduty in dict_closeduty.keys():
-    thr_interval_hard = dict_closeduty[closeduty][0]
-    l_duty = dict_closeduty[closeduty][2]
+    thr_interval_hard = dict_closeduty[closeduty]['thr_hard']
+    l_duty = dict_closeduty[closeduty]['l_duty']
     for date_start in [d for d in range(-thr_interval_hard + 2, 1)] + d_cal['date'].tolist():
         # Create list of continuous date_duty's
         l_date_duty_cont = []
@@ -278,8 +271,8 @@ for closeduty in dict_closeduty.keys():
 # Soft limit of closeness (penalize violence)
 dict_dv_closeduty = {}
 for closeduty in dict_closeduty.keys():
-    thr_interval_soft = dict_closeduty[closeduty][1]
-    l_duty = dict_closeduty[closeduty][2]
+    thr_interval_soft = dict_closeduty[closeduty]['thr_soft']
+    l_duty = dict_closeduty[closeduty]['l_duty']
     l_date_start = [d for d in range(-thr_interval_soft + 2, 1)] + d_cal['date'].tolist()
     # Variable dataframe of count of assignments within continuous date_duty's staring from date_start, per member, per closeduty
     dict_dv_closeduty[closeduty] = pd.DataFrame(np.array(addvars(len(l_date_start),len(l_member))), index = l_date_start, columns = l_member)                        
@@ -370,6 +363,6 @@ print('Solved: ' + str(LpStatus[prob_assign.status]) + ', ' + str(round(v_object
 # Extract data
 ###############################################################################
 d_assign_date_duty, d_assign_date_print, d_assign_member,\
-d_deviation, d_score_current, d_score_total, d_score_print =\
-    extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation,
-                   d_availability, d_member, l_member, d_date_duty, d_cal)
+d_deviation, d_score_current, d_score_total, d_score_print, d_closeduty =\
+    extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation, dict_dv_closeduty,
+                   d_availability, d_member, l_member, d_date_duty, d_cal, dict_closeduty)

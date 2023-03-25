@@ -171,13 +171,13 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
 ################################################################################
 # Prepare data of member specs and assignment limits
 ################################################################################
-def prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, month_plan, year_start, month_start):
+def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start):
     l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn',
                     'designation_jpn','ect_asgn_jpn','name','title_short',
                     'designation', 'team', 'ect_leader', 'ect_subleader']
 
     # Load source member and assignment limit of the month
-    d_src = pd.read_csv(os.path.join(p_month, 'src', f_member))
+    d_src = pd.read_csv(os.path.join(p_month, 'src', 'member.csv'))
     l_col_member = [col for col in l_col_member if col in d_src.columns]
     d_member = d_src[l_col_member]
     d_lim = d_src[l_class_duty].copy()
@@ -210,18 +210,24 @@ def prep_member2(p_root, p_month, p_data, f_member, l_class_duty, year_plan, mon
 ################################################################################
 # Extract data from optimized variables
 ################################################################################
-def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation, d_availability, d_member, l_member, d_date_duty, d_cal):
+def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation, dict_dv_closeduty,
+                   d_availability, d_member, l_member, d_date_duty, d_cal, dict_closeduty):
     # Convert variables to fixed values
     d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
                             index = dv_assign.index, columns = dv_assign.columns).astype(bool)
     d_deviation = pd.DataFrame(np.vectorize(value)(dv_deviation),
-                        index = dv_deviation.index, columns = dv_deviation.columns)
+                               index = dv_deviation.index, columns = dv_deviation.columns)
+    dict_d_closeduty = {}
+    for closeduty in dict_dv_closeduty.keys():
+        d_closeduty = pd.DataFrame(np.vectorize(value)(dict_dv_closeduty[closeduty]),
+                                   index = dict_dv_closeduty[closeduty].index, columns = dict_dv_closeduty[closeduty].columns)
+        dict_d_closeduty[closeduty] = d_closeduty
 
     # Assignments with date_duty as row
     d_assign_date_duty = pd.concat([pd.Series(d_assign.index, index = d_assign.index, name = 'date_duty'),
-                               pd.Series(d_assign.sum(axis = 1), name = 'cnt'),
-                               pd.Series(d_assign.apply(lambda row: row[row].index.to_list(), axis = 1), name = 'id_member')],
-                               axis = 1)
+                                    pd.Series(d_assign.sum(axis = 1), name = 'cnt'),
+                                    pd.Series(d_assign.apply(lambda row: row[row].index.to_list(), axis = 1), name = 'id_member')],
+                                    axis = 1)
     d_assign_date_duty.index = range(len(d_assign_date_duty))
     d_assign_date_duty['id_member'] = d_assign_date_duty['id_member'].apply(lambda x: x[0] if len(x) > 0 else np.nan)
     d_assign_date_duty = pd.merge(d_assign_date_duty, d_member.loc[:,['id_member','name_jpn','name']], on = 'id_member', how = 'left')
@@ -252,7 +258,7 @@ def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv
     d_assign_suboptimal = pd.DataFrame((d_availability == 1) & d_assign, columns = l_member, index = d_assign.index)
     #d_assign_error = pd.DataFrame((d_availability == 0) & d_assign, columns = l_member, index = d_assign.index)
     d_assign_member = pd.DataFrame({'id_member': l_member,
-                                    'name_jpn': d_member.loc[d_member['id_member'].isin(l_member),'name_jpn'].tolist(),
+                                    #'name_jpn': d_member.loc[d_member['id_member'].isin(l_member),'name_jpn'].tolist(),
                                     'duty_all': d_assign.apply(lambda col: col[col].index.to_list(), axis = 0),
                                     'duty_opt': d_assign_optimal.apply(lambda col: col[col].index.to_list(), axis = 0),
                                     'duty_sub': d_assign_suboptimal.apply(lambda col: col[col].index.to_list(), axis = 0),
@@ -260,6 +266,11 @@ def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv
                                     'cnt_opt': d_assign_optimal.sum(axis = 0),
                                     'cnt_sub': d_assign_suboptimal.sum(axis = 0)},
                                     index = l_member)
+    d_assign_member = pd.merge(d_member[['id_member', 'name_jpn']], d_assign_member, on = 'id_member', how = 'left')
+
+    # Prepare deviation results
+    d_deviation['id_member'] = d_deviation.index
+    d_deviation = pd.merge(d_member[['id_member', 'name_jpn']], d_deviation, on = 'id_member', how = 'left')
 
     # Score calculation
     d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
@@ -289,6 +300,20 @@ def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv
     d_score_print = pd.merge(d_score_print, d_score_total, on = 'id_member', how = 'left')
     d_score_print.columns = ['id_member', 'name_jpn'] + ['score_' + col for col in l_type_score] + ['score_sigma_' + col for col in l_type_score]
 
+    # Closeduty
+    l_closeduty = []
+    for closeduty in dict_d_closeduty.keys():
+        for member in l_member:
+            s_closeduty = dict_d_closeduty[closeduty][member]
+            l_date_closeduty = s_closeduty[s_closeduty > 0].index.tolist()
+            thr_soft = dict_closeduty[closeduty]['thr_soft']
+            for date_start in l_date_closeduty:
+                date_end = date_start + thr_soft -1
+                l_closeduty.append([closeduty, member, date_start, date_end])
+    d_closeduty = pd.DataFrame(l_closeduty, columns = ['type_duty', 'id_member', 'date_start', 'date_end'])
+    d_closeduty = pd.merge(d_closeduty, d_member[['id_member', 'name_jpn']], on = 'id_member', how = 'left')
+    d_closeduty = d_closeduty[['type_duty', 'id_member', 'name_jpn', 'date_start', 'date_end']]
+
     for p_save in [p_month, p_data]:
         d_assign_date_duty.to_csv(os.path.join(p_save, 'assign_date_duty.csv'), index = False)
         d_assign_date_print.to_csv(os.path.join(p_save, 'assign_date.csv'), index = False)
@@ -297,8 +322,9 @@ def extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv
         d_score_current.to_csv(os.path.join(p_save, 'score_current.csv'), index = False)
         d_score_total.to_csv(os.path.join(p_save, 'score_total.csv'), index = False)
         d_score_print.to_csv(os.path.join(p_save, 'score_print.csv'), index = False)
+        d_closeduty.to_csv(os.path.join(p_save, 'closeduty.csv'), index = False)
 
-    return d_assign_date_duty, d_assign_date_print, d_assign_member, d_deviation, d_score_current, d_score_total, d_score_print
+    return d_assign_date_duty, d_assign_date_print, d_assign_member, d_deviation, d_score_current, d_score_total, d_score_print, d_closeduty
 
 
 ################################################################################
