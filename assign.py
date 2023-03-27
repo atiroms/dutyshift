@@ -365,7 +365,11 @@ print('Solved: ' + str(LpStatus[prob_assign.status]) + ', ' + str(round(v_object
 ###############################################################################
 # Extract data
 ###############################################################################
-d_assign_date_duty, d_assign_date_print, d_assign_member,\
-d_deviation, d_score_current, d_score_total, d_score_print, d_closeduty =\
-    extract_result(p_root, p_month, p_data, year_plan, month_plan, dv_assign, dv_deviation, dict_dv_closeduty,
-                   d_availability, d_member, l_member, d_date_duty, d_cal, dict_closeduty, l_class_duty, d_lim_exact)
+d_assign, d_assign_date_duty =\
+    extract_assignment(p_root, p_month, p_data, year_plan, month_plan, dv_assign, d_member, d_date_duty)
+
+d_closeduty = extract_closeduty(p_month, p_data, dict_dv_closeduty, d_member, dict_closeduty)
+
+d_assign_date_print, d_assign_member, d_deviation, d_score_current, d_score_total, d_score_print =\
+    convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability, 
+                   d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact)

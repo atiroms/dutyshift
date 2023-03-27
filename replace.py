@@ -12,6 +12,9 @@ import os, datetime
 year_plan = 2023
 month_plan = 4
 
+l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
+l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
+
 
 ###############################################################################
 # Script path
@@ -75,29 +78,14 @@ d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 for id, row in d_replace.iterrows():
     d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member','name','name_jpn']] = row[['id_member','name','name_jpn']].tolist()
 
-# Assignments with date as row for printing
-d_assign_date_print = d_cal.loc[:,['title_date','date', 'em']].copy()
-d_assign_date_print[['am','pm','night','ocday','ocnight','ect']] = ''
-for _, row in d_assign_date_duty.loc[d_assign_date_duty['cnt'] > 0].iterrows():
-    date = row['date']
-    duty = row['duty']
-    name_jpn = row['name_jpn']
-    if duty == 'day':
-        d_assign_date_print.loc[d_assign_date_print['date'] == date, 'am'] = name_jpn
-        d_assign_date_print.loc[d_assign_date_print['date'] == date, 'pm'] = name_jpn
-    elif duty == 'emnight':
-        d_assign_date_print.loc[d_assign_date_print['date'] == date, 'night'] = name_jpn
-    else:
-        d_assign_date_print.loc[d_assign_date_print['date'] == date, duty] = name_jpn
-for date in d_assign_date_print.loc[d_assign_date_print['em'] == True, 'date'].tolist():
-    d_assign_date_print.loc[d_assign_date_print['date'] == date, 'night'] += '(救急)'
-d_assign_date_print = d_assign_date_print.loc[:,['title_date','am','pm','night','ocday','ocnight','ect']]
-d_assign_date_print.columns = ['日付', '午前日直', '午後日直', '当直', '日直OC', '当直OC', 'ECT']
+d_assign = pd.read_csv(os.path.join(p_month, 'assign.csv'), index_col = 0)
+d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
+d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
+d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'), index_col = 0)
 
-# TODO: replace other csv files
-for p_save in [p_month, p_data]:
-    d_assign_date_duty.to_csv(os.path.join(p_save, 'assign_date_duty.csv'), index = False)
-    d_assign_date_print.to_csv(os.path.join(p_save, 'assign_date.csv'), index = False)
+d_assign_date_print, d_assign_member, d_deviation, d_score_current, d_score_total, d_score_print =\
+    convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability, 
+                   d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact)
 
 
 ###############################################################################
