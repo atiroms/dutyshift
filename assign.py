@@ -17,7 +17,11 @@ month_plan = 5
 l_holiday = [3, 4, 5]
 l_date_ect_cancel = []
 l_date_duty_fulltime = []
-type_limit = 'ignore' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
+type_limit = 'hard' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
+#l_date_skip = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+#l_date_skip = [2,3,4,5,6,7]
+#l_date_skip = [1,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31]
+l_date_skip = []
 
 year_start = 2023
 month_start = 4
@@ -80,7 +84,6 @@ s_cnt_class_duty = pd.read_csv(os.path.join(p_month, 'cnt_class_duty.csv'), inde
 d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
     = prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start)
 
-
 # TODO: equilize 3 continous holidays assignment count
 d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
 
@@ -137,7 +140,7 @@ d_assign_manual = pd.read_csv(os.path.join(p_month, 'assign_manual.csv'))
 d_availability, l_member, d_availability_ratio = prep_availability(p_month, p_data, d_date_duty, d_cal)
 d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
 d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_manual_assign, l_date_duty_skip =\
-    skip_unavailable(d_date_duty, d_availability, d_availability_ratio, d_assign_manual)
+    skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_skip)
 
 
 ###############################################################################
@@ -158,7 +161,8 @@ dv_assign = pd.DataFrame(np.array(addbinvars(len(d_date_duty), len(l_member))),
 for i_date_duty in d_assign_manual.loc[~d_assign_manual['id_member'].isna(), :].index.to_list():
     date_duty = d_assign_manual.loc[i_date_duty, 'date_duty']
     id_member = d_assign_manual.loc[i_date_duty, 'id_member']
-    prob_assign += (dv_assign.loc[date_duty, id_member] == 1)
+    if date_duty in d_date_duty['date_duty'].tolist():
+        prob_assign += (dv_assign.loc[date_duty, id_member] == 1)
 
 
 ###############################################################################
@@ -337,6 +341,7 @@ for date in [0] + d_cal['date'].tolist():
 # Avoid ECT from the leader's team
 ###############################################################################
 l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].to_list()
+l_date_ect = [date for date in l_date_ect if not date in l_date_skip]
 l_team = sorted(list(set(d_member['team'].to_list())))
 for date in l_date_ect:
     wday = d_cal.loc[d_cal['date'] == date, 'wday'].to_list()[0]

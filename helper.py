@@ -12,8 +12,8 @@ from ortoolpy import addvars, addbinvars
 ################################################################################
 # Delete date_duty for which no one is available, and not manually assigned
 ################################################################################
-def skip_unavailable(d_date_duty, d_availability, d_availability_ratio, d_assign_manual):
-    l_date_duty_unavailable = d_availability_ratio.loc[d_availability_ratio['available']==0,:].index.tolist()
+def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_skip):
+    l_date_duty_unavailable = d_availability_ratio.loc[d_availability_ratio['available'] == 0,:].index.tolist()
     l_date_duty_manual_assign = d_assign_manual.loc[~d_assign_manual['id_member'].isna(), 'date_duty'].tolist()
     if len(l_date_duty_unavailable) > 0:
         print('No member available for:', l_date_duty_unavailable)
@@ -21,8 +21,18 @@ def skip_unavailable(d_date_duty, d_availability, d_availability_ratio, d_assign
         print('Manually assigned member(s) for:', l_date_duty_manual_assign)
         for date_duty in l_date_duty_manual_assign:
             id_member = d_assign_manual.loc[d_assign_manual['date_duty'] == date_duty, 'id_member'].tolist()[0]
-            d_availability.loc[id_member, date_duty] = 1
+            d_availability.loc[date_duty, id_member] = 1
+    # Skip date_duty for which no one is available, and not manually assigned
     l_date_duty_skip = [date_duty for date_duty in l_date_duty_unavailable if not date_duty in l_date_duty_manual_assign]
+    
+    # Skip duties in specified date
+    l_date_duty = d_date_duty.loc[:, 'date_duty'].tolist()
+    l_date_duty_skip_spec = []
+    for date in l_date_skip:
+        l_date_duty_skip_spec += [date_duty for date_duty in l_date_duty if date_duty.startswith(str(date) + '_')]
+    l_date_duty_skip = list(set(l_date_duty_skip + l_date_duty_skip_spec))
+    l_date_duty_skip = [date_duty for date_duty in l_date_duty if date_duty in l_date_duty_skip]
+
     if len(l_date_duty_skip) > 0:
         print('Skipping assignment for:', l_date_duty_skip)
     
