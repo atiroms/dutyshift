@@ -10,7 +10,7 @@ import os
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 4
+month_plan = 5
 
 
 ###############################################################################
@@ -34,7 +34,7 @@ else:
 ###############################################################################
 # Check available member of certain duty
 ###############################################################################
-date_duty = '7_am'
+date_duty = '24_pm'
 
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
 d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'))

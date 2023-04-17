@@ -10,15 +10,26 @@ from ortoolpy import addvars, addbinvars
 
 
 ################################################################################
-# Delete date_duty for which no one is available
+# Delete date_duty for which no one is available, and not manually assigned
 ################################################################################
-def skip_unavailable(d_date_duty, d_availability, d_availability_ratio):
+def skip_unavailable(d_date_duty, d_availability, d_availability_ratio, d_assign_manual):
     l_date_duty_unavailable = d_availability_ratio.loc[d_availability_ratio['available']==0,:].index.tolist()
+    l_date_duty_manual_assign = d_assign_manual.loc[~d_assign_manual['id_member'].isna(), 'date_duty'].tolist()
     if len(l_date_duty_unavailable) > 0:
-        print('No member available for:',l_date_duty_unavailable, '--> skipped from assignment.' )
-    d_date_duty = d_date_duty.loc[~d_date_duty['date_duty'].isin(l_date_duty_unavailable),:]
-    d_availability = d_availability.loc[~d_availability.index.isin(l_date_duty_unavailable),:]
-    return d_date_duty, d_availability, l_date_duty_unavailable
+        print('No member available for:', l_date_duty_unavailable)
+    if len(l_date_duty_manual_assign) > 0:
+        print('Manually assigned member(s) for:', l_date_duty_manual_assign)
+        for date_duty in l_date_duty_manual_assign:
+            id_member = d_assign_manual.loc[d_assign_manual['date_duty'] == date_duty, 'id_member'].tolist()[0]
+            d_availability.loc[id_member, date_duty] = 1
+    l_date_duty_skip = [date_duty for date_duty in l_date_duty_unavailable if not date_duty in l_date_duty_manual_assign]
+    if len(l_date_duty_skip) > 0:
+        print('Skipping assignment for:', l_date_duty_skip)
+    
+    d_date_duty = d_date_duty.loc[~d_date_duty['date_duty'].isin(l_date_duty_skip),:]
+    d_availability = d_availability.loc[~d_availability.index.isin(l_date_duty_skip),:]
+    return d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_manual_assign, l_date_duty_skip
+
 
 ################################################################################
 # Load previous month assignment
