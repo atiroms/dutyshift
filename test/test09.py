@@ -1,3 +1,5 @@
+# replace erroneous calendar assignment in 2023/4
+
 
 ###############################################################################
 # Libraries
@@ -97,60 +99,61 @@ l_result_event = []
 
 l_member = sorted(list(set(d_date_duty['id_member'])))
 
-for id_member in l_member:
-    d_date_duty_member = d_date_duty[d_date_duty['id_member'] == id_member]
+l_duty_subset = ['3_pm', '3_ect', '4_pm', '7_am', '7_pm', '9_night', '16_night']
+d_date_duty = d_date_duty.loc[d_date_duty['date_duty'].isin(l_duty_subset), :]
 
-    for _, row in d_date_duty_member.iterrows():
-        date_duty = row['date_duty']
-        title_duty = row['duty_jpn']
-        date = int(row['date'])
-        duty = row['duty']
-        id_member = int(row['id_member'])
-        name_member = row['name_jpn_full'].replace('　',' ')
-        email = row['email']
-        str_start = row['start']
-        str_end = row['end']
-        t_start = (dt.datetime(year = year_plan, month = month_plan, day = date) +\
-                   dt.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
-        t_end = (dt.datetime(year = year_plan, month = month_plan, day = date) +\
-                 dt.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
-        s_id_member_proxy = d_availability.loc[d_availability['date_duty'] == date_duty,:].reset_index(drop=True).squeeze().iloc[1:]
-        l_id_member_proxy = [int(id) for id in s_id_member_proxy.loc[s_id_member_proxy > 0].index.tolist()]
-        d_member_proxy = d_member.loc[d_member['id_member'].isin(l_id_member_proxy),['id_member', 'name_jpn_full', 'designation']]
-        # Consider designation status for day and night
-        if duty in ['day','night']:
-            designation_member = d_member_proxy.loc[d_member_proxy['id_member'] == id_member, 'designation'].tolist()[0]
-            l_id_member_proxy = d_member_proxy.loc[d_member_proxy['designation'] == designation_member, 'id_member'].tolist()
-            l_id_member_proxy_sub = d_member_proxy.loc[d_member_proxy['designation'] != designation_member, 'id_member'].tolist()
-        else:
-            l_id_member_proxy_sub = []
-        l_id_member_proxy = [id for id in l_id_member_proxy if id != id_member]
-        if len(l_id_member_proxy) > 0:
-            l_member_proxy = d_member_proxy.loc[d_member_proxy['id_member'].isin(l_id_member_proxy),'name_jpn_full'].tolist()
-            l_member_proxy = [name.replace('　',' ') for name in l_member_proxy]
-            str_member_proxy = ','.join(l_member_proxy)
-        else:
-            str_member_proxy = ''
-        if len(l_id_member_proxy_sub) > 0:
-            l_member_proxy_sub = d_member_proxy.loc[d_member_proxy['id_member'].isin(l_id_member_proxy_sub),'name_jpn_full'].tolist()
-            l_member_proxy_sub = [name.replace('　',' ') for name in l_member_proxy_sub]
-            str_member_proxy = str_member_proxy + '(,' + ','.join(l_member_proxy_sub) + ')'
-        if str_member_proxy == '':
-            str_member_proxy == 'なし'
 
-        description = name_member + '先生ご担当\n代理候補(敬称略): ' + str_member_proxy +\
-                      '\nhttps://github.com/atiroms/dutyshift で自動生成'
+d_date_duty_member = d_date_duty
 
-        body_event = {'summary': title_duty,
-                      'location': '東大病院',
-                      'start': {'dateTime': t_start, 'timeZone': 'Asia/Tokyo'},
-                      'end': {'dateTime': t_end, 'timeZone': 'Asia/Tokyo'},
-                      'attendees': [{'email': email}],
-                      #'attendees': [{'email': email, 'displayName':name_member}],
-                      #'attendees': [{'email': email, 'responseStatus':'accepted'}],
-                      'description': description
-                      }
-        result_event = service.events().insert(calendarId=id_calendar_duty,body=body_event).execute()
-        l_result_event.append(result_event)
+for _, row in d_date_duty_member.iterrows():
+    date_duty = row['date_duty']
+    title_duty = row['duty_jpn']
+    date = int(row['date'])
+    duty = row['duty']
+    id_member = int(row['id_member'])
+    name_member = row['name_jpn_full'].replace('　',' ')
+    email = row['email']
+    str_start = row['start']
+    str_end = row['end']
+    t_start = (dt.datetime(year = year_plan, month = month_plan, day = date) +\
+                dt.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
+    t_end = (dt.datetime(year = year_plan, month = month_plan, day = date) +\
+                dt.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
+    s_id_member_proxy = d_availability.loc[d_availability['date_duty'] == date_duty,:].reset_index(drop=True).squeeze().iloc[1:]
+    l_id_member_proxy = [int(id) for id in s_id_member_proxy.loc[s_id_member_proxy > 0].index.tolist()]
+    d_member_proxy = d_member.loc[d_member['id_member'].isin(l_id_member_proxy),['id_member', 'name_jpn_full', 'designation']]
+    # Consider designation status for day and night
+    if duty in ['day','night']:
+        designation_member = d_member_proxy.loc[d_member_proxy['id_member'] == id_member, 'designation'].tolist()[0]
+        l_id_member_proxy = d_member_proxy.loc[d_member_proxy['designation'] == designation_member, 'id_member'].tolist()
+        l_id_member_proxy_sub = d_member_proxy.loc[d_member_proxy['designation'] != designation_member, 'id_member'].tolist()
+    else:
+        l_id_member_proxy_sub = []
+    l_id_member_proxy = [id for id in l_id_member_proxy if id != id_member]
+    if len(l_id_member_proxy) > 0:
+        l_member_proxy = d_member_proxy.loc[d_member_proxy['id_member'].isin(l_id_member_proxy),'name_jpn_full'].tolist()
+        l_member_proxy = [name.replace('　',' ') for name in l_member_proxy]
+        str_member_proxy = ','.join(l_member_proxy)
+    else:
+        str_member_proxy = ''
+    if len(l_id_member_proxy_sub) > 0:
+        l_member_proxy_sub = d_member_proxy.loc[d_member_proxy['id_member'].isin(l_id_member_proxy_sub),'name_jpn_full'].tolist()
+        l_member_proxy_sub = [name.replace('　',' ') for name in l_member_proxy_sub]
+        str_member_proxy = str_member_proxy + '(,' + ','.join(l_member_proxy_sub) + ')'
+    if str_member_proxy == '':
+        str_member_proxy == 'なし'
 
-    sleep(t_sleep)
+    description = name_member + '先生ご担当\n代理候補(敬称略): ' + str_member_proxy +\
+                    '\nhttps://github.com/atiroms/dutyshift で自動生成'
+
+    body_event = {'summary': title_duty,
+                    'location': '東大病院',
+                    'start': {'dateTime': t_start, 'timeZone': 'Asia/Tokyo'},
+                    'end': {'dateTime': t_end, 'timeZone': 'Asia/Tokyo'},
+                    'attendees': [{'email': email}],
+                    #'attendees': [{'email': email, 'displayName':name_member}],
+                    #'attendees': [{'email': email, 'responseStatus':'accepted'}],
+                    'description': description
+                    }
+    result_event = service.events().insert(calendarId=id_calendar_duty,body=body_event).execute()
+    l_result_event.append(result_event)
