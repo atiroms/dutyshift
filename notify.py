@@ -119,7 +119,7 @@ for id_member in l_member:
         d_member_proxy = d_member.loc[d_member['id_member'].isin(l_id_member_proxy),['id_member', 'name_jpn_full', 'designation']]
         # Consider designation status for day and night
         if duty in ['day','night']:
-            designation_member = d_member_proxy.loc[d_member_proxy['id_member'] == id_member, 'designation'].tolist()[0]
+            designation_member = d_member.loc[d_member['id_member'] == id_member, 'designation'].tolist()[0]
             l_id_member_proxy = d_member_proxy.loc[d_member_proxy['designation'] == designation_member, 'id_member'].tolist()
             l_id_member_proxy_sub = d_member_proxy.loc[d_member_proxy['designation'] != designation_member, 'id_member'].tolist()
         else:
