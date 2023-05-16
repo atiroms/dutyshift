@@ -2,7 +2,6 @@
 ###############################################################################
 # Libraries
 ###############################################################################
-import pandas as pd
 import os, datetime
 
 
@@ -11,9 +10,9 @@ import os, datetime
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 5
-l_holiday = [3, 4, 5]
-l_date_ect_cancel = []
+month_plan = 6
+l_holiday = []
+l_date_ect_cancel = [1]
 
 # Fixed parameters
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
@@ -35,7 +34,7 @@ for p_test in ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']:
 if p_root is None:
     print('No root directory.')
 else:
-    p_script=os.path.join(p_root,'GitHub/dutyshift')
+    p_script = os.path.join(p_root,'GitHub/dutyshift')
     os.chdir(p_script)
     # Set paths and directories
     d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
