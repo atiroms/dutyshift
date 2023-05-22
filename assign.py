@@ -17,7 +17,7 @@ month_plan = 6
 l_holiday = []
 l_date_ect_cancel = [1]
 l_date_duty_fulltime = []
-type_limit = 'ignore' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
+type_limit = 'hard' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
 l_date_skip = []
 
 year_start = 2023

@@ -62,11 +62,4 @@ d_availability = d_availability.iloc[:,1:]
 
 l_date_duty_available = d_availability.loc[d_availability[str(id_member)] > 0,:].index.tolist()
 
-d_availability_t = d_availability.T
-l_id_member_available = d_availability_t.index[d_availability_t[date_duty] > 0].tolist()
-l_id_member_available = [int(id_member) for id_member in l_id_member_available]
-
-l_name_member_available = d_member.loc[d_member['id_member'].isin(l_id_member_available), 'name_jpn_full'].tolist()
-l_name_member_available = [name.replace('　',' ') for name in l_name_member_available]
-d_check_availability = pd.DataFrame({'id_member': l_id_member_available, 'name_member': l_name_member_available})
-print(d_check_availability)
+print(l_date_duty_available)
