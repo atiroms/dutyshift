@@ -10,7 +10,7 @@ import os
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 5
+month_plan = 6
 
 
 ###############################################################################
@@ -54,7 +54,7 @@ print(d_check_availability)
 ###############################################################################
 # Check available date_duty of a certain member
 ###############################################################################
-id_member = 19
+id_member = 18
 
 d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'))
 d_availability.index = d_availability['date_duty']
