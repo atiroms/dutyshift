@@ -10,7 +10,7 @@ import os, datetime
 # Parameters
 ###############################################################################
 year_plan = 2023
-month_plan = 6
+month_plan = 5
 
 l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']

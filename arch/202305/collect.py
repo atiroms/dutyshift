@@ -10,7 +10,7 @@ import os, datetime
 # Parameters
 ###############################################################################
 year_plan = 2023
-month_plan = 6
+month_plan = 5
 
 
 ###############################################################################
@@ -93,10 +93,10 @@ for idx, row in d_cal_duty.iterrows():
 d_availability = pd.DataFrame(dict_l_availability)
 #d_availability = d_availability.fillna(0)
 
-d_availability_head = d_availability_src[['お名前（敬称略）', 'Timestamp']].copy()
+d_availability_head = d_availability_src[['お名前（敬称略）', 'タイムスタンプ']].copy()
 d_availability_head.columns = ['name_jpn_full', 'timestamp']
 #d_availability_head = pd.merge(d_availability_head, d_member[['name_jpn_full', 'id_member']], on = 'name_jpn_full')
-d_availability_head['unixtime'] = d_availability_head['timestamp'].apply(lambda x: datetime.datetime.strptime(x, '%m/%d/%Y %H:%M:%S').timestamp())
+d_availability_head['unixtime'] = d_availability_head['timestamp'].apply(lambda x: datetime.datetime.strptime(x, '%Y/%m/%d %H:%M:%S').timestamp())
 
 # Designation
 l_designation = [np.nan] * d_availability_src.shape[0]

@@ -10,7 +10,7 @@ import os
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 6
+month_plan = 5
 
 
 ###############################################################################
@@ -54,7 +54,7 @@ print(d_check_availability)
 ###############################################################################
 # Check available date_duty of a certain member
 ###############################################################################
-id_member = 18
+id_member = 19
 
 d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'))
 d_availability.index = d_availability['date_duty']
@@ -62,4 +62,11 @@ d_availability = d_availability.iloc[:,1:]
 
 l_date_duty_available = d_availability.loc[d_availability[str(id_member)] > 0,:].index.tolist()
 
-print(l_date_duty_available)
+d_availability_t = d_availability.T
+l_id_member_available = d_availability_t.index[d_availability_t[date_duty] > 0].tolist()
+l_id_member_available = [int(id_member) for id_member in l_id_member_available]
+
+l_name_member_available = d_member.loc[d_member['id_member'].isin(l_id_member_available), 'name_jpn_full'].tolist()
+l_name_member_available = [name.replace('　',' ') for name in l_name_member_available]
+d_check_availability = pd.DataFrame({'id_member': l_id_member_available, 'name_member': l_name_member_available})
+print(d_check_availability)
