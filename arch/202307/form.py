@@ -58,4 +58,4 @@ d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty \
                     day_em, l_week_em, year_plan, month_plan)
 
 # Prepare calendar for google forms
-d_cal_duty, d_form = prep_forms2(p_month, p_data, d_cal, dict_duty)
+d_cal_duty, d_form = prep_forms(p_month, p_data, d_cal, dict_duty)
