@@ -383,7 +383,7 @@ def prep_forms2(p_month, p_data, d_cal, dict_duty):
 
     l_cal_duty = []
     for duty in dict_duty_jpn.keys():
-        d_cal_duty = d_cal.loc[d_cal[duty] == True, ['date', 'title_date', 'holiday_wday']].copy()
+        d_cal_duty = d_cal.loc[d_cal[duty] == True, ['date', 'title_date', 'wday', 'holiday_wday']].copy()
         d_cal_duty['duty'] = duty
         l_cal_duty.append(d_cal_duty)
     d_cal_duty = pd.concat(l_cal_duty, axis = 0)
@@ -394,7 +394,7 @@ def prep_forms2(p_month, p_data, d_cal, dict_duty):
     d_cal_duty['duty_jpn'] = d_cal_duty['duty'].map(dict_duty_jpn)
     d_cal_duty['title_dateduty'] = d_cal_duty['title_date'] + d_cal_duty['duty_jpn']
 
-    d_cal_duty = d_cal_duty[['date','duty', 'holiday_wday','title_dateduty']]
+    d_cal_duty = d_cal_duty[['date', 'wday', 'duty', 'holiday_wday','title_dateduty']]
 
     # Dictionary of title and duty
     dict_title_duty = {'assoc': ['ocday', 'ocnight'],
