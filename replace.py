@@ -10,7 +10,7 @@ import os, datetime
 # Parameters
 ###############################################################################
 year_plan = 2023
-month_plan = 7
+month_plan = 8
 
 l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
@@ -88,7 +88,7 @@ for p_save in [p_month, p_data]:
     #d_assign.to_csv(os.path.join(p_save, 'assign.csv'), index = True)
     d_assign_date_duty.to_csv(os.path.join(p_save, 'assign_date_duty.csv'), index = False)
 
-d_assign_date_print, d_assign_member, d_deviation, d_score_current, d_score_total, d_score_print =\
+d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
     convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability, 
                    d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact)
 

@@ -380,7 +380,7 @@ def convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability
         d_assign_date_print.to_csv(os.path.join(p_save, 'assign_date.csv'), index = False)
         d_assign_member.to_csv(os.path.join(p_save, 'assign_member.csv'), index = False)
         d_deviation.to_csv(os.path.join(p_save, 'deviation.csv'), index = False)
-        d_deviation_summary.to_csv(os.path.join(p_save, 'deviation2.csv'), index = False)
+        d_deviation_summary.to_csv(os.path.join(p_save, 'deviation_summary.csv'), index = False)
         d_score_current.to_csv(os.path.join(p_save, 'score_current.csv'), index = False)
         d_score_total.to_csv(os.path.join(p_save, 'score_total.csv'), index = False)
         d_score_print.to_csv(os.path.join(p_save, 'score_print.csv'), index = False)
