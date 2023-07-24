@@ -13,12 +13,14 @@ from ortoolpy import addbinvars
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 7
-l_holiday = [17]
+month_plan = 8
+l_holiday = [11]
 l_date_ect_cancel = []
 l_date_duty_fulltime = []
-type_limit = 'hard' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
-l_date_skip = []
+type_limit = 'soft' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
+#l_date_duty_skip_manual = []
+#l_date_duty_skip_manual = ['23_'] # All duties starting with 23_
+l_date_duty_skip_manual = ['23_am']
 
 year_start = 2023
 month_start = 4
@@ -36,9 +38,9 @@ dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0
 dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 'oc': 0.01, 'ect': 0.1}
 
 # Fixed parameters for optimizing assignment
-dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1,'thr_soft': 5},
-                  'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1,'thr_soft': 4},
-                  'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1,'thr_soft': 5}}
+dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1, 'thr_soft': 5},
+                  'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
+                  'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
 c_assign_suboptimal = 0.001
 c_cnt_deviation = 0.1
 c_closeduty = 0.01
@@ -85,7 +87,7 @@ d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
 d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
 
 # Optimize assignment counts except OC
-print('Optimizing assignment count (non-OC).')
+print('Optimizing assignment count (non-OC)...')
 d_lim_exact_notoc, d_score_current_notoc, d_score_total_notoc,\
 d_sigma_diff_score_current_notoc, d_sigma_diff_score_total_notoc = \
     optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past,
@@ -94,7 +96,7 @@ d_sigma_diff_score_current_notoc, d_sigma_diff_score_total_notoc = \
                    l_class_duty = ['ampm', 'daynight_tot', 'night_em', 'ect'])
 
 # Optimize assignment counts of OC
-print('Optimizing assignment count (OC).')
+print('Optimizing assignment count (OC)...')
 ln_daynight = d_lim_exact_notoc['daynight_tot'].tolist()
 #l_designation = d_member.loc[d_member['id_member'].isin(l_member), 'designation'].tolist()
 l_designation = d_member['designation'].tolist()
@@ -137,13 +139,13 @@ d_assign_manual = pd.read_csv(os.path.join(p_month, 'assign_manual.csv'))
 d_availability, l_member, d_availability_ratio = prep_availability(p_month, p_data, d_date_duty, d_cal)
 d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
 d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_manual_assign, l_date_duty_skip =\
-    skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_skip)
+    skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual)
 
 
 ###############################################################################
 # Initialize assignment problem and model
 ###############################################################################
-print('Optimizing assignment.')
+print('Optimizing assignment...')
 # Initialize model to be optimized
 prob_assign = LpProblem()
 
@@ -212,8 +214,12 @@ for date_duty_fulltime in l_date_duty_fulltime:
 ###############################################################################
 # Penalize limit outliers per member per class_duty
 ###############################################################################
-dv_deviation = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
-                            index = l_member, columns = l_class_duty)
+# Variable dataframe of deviation from target
+dv_deviation_target = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
+                                   index = l_member, columns = l_class_duty)
+# Variable dataframe of deviation from limit
+dv_deviation_limit = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
+                                  index = l_member, columns = l_class_duty)
 
 for member in l_member:
     for class_duty in l_class_duty:
@@ -223,26 +229,35 @@ for member in l_member:
         cnt_target = d_lim_exact.loc[member, class_duty]
         if type_limit == 'ignore':
             if ~np.isnan(cnt_min): # If limit is specified
-                # Consider deviation from target only
-                prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
-                prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
+                prob_assign += (dv_deviation_limit.loc[member, class_duty] == 0)
+                # Penalize deviation from target
+                prob_assign += (dv_deviation_target.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
+                prob_assign += (dv_deviation_target.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
         elif type_limit == 'hard':
             if ~np.isnan(cnt_min):
+                prob_assign += (dv_deviation_limit.loc[member, class_duty] == 0)
                 if cnt_min == cnt_max:
                     # Exact count
                     prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) == cnt_min)
-                    prob_assign += (dv_deviation.loc[member, class_duty] == 0)
+                    prob_assign += (dv_deviation_target.loc[member, class_duty] == 0)
                 else:
-                    # Consider deviation from target and hard limit
+                    # Prohibit outlier from limit
                     prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) >= cnt_min)
                     prob_assign += (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) <= cnt_max)
-                    prob_assign += (dv_deviation.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
-                    prob_assign += (dv_deviation.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
+                    # Penalize deviation from target
+                    prob_assign += (dv_deviation_target.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
+                    prob_assign += (dv_deviation_target.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
         elif type_limit == 'soft':
-            # TODO: implement 'soft' limit (outlier penalized)
-            pass
+            if ~np.isnan(cnt_min):
+                # Penalize outlier from limit
+                prob_assign += (dv_deviation_limit.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_max))
+                prob_assign += (dv_deviation_limit.loc[member, class_duty] >= (cnt_min - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
+                prob_assign += (dv_deviation_limit.loc[member, class_duty] >= 0)
+                # Penalize deviation from target
+                prob_assign += (dv_deviation_target.loc[member, class_duty] >= (lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty]) - cnt_target))
+                prob_assign += (dv_deviation_target.loc[member, class_duty] >= (cnt_target - lpDot(dv_assign.loc[:, member], d_date_duty.loc[:, 'class_' + class_duty])))
 
-v_cnt_deviation = lpSum(dv_deviation.to_numpy())
+v_cnt_deviation = lpSum([lpSum(dv_deviation_target.to_numpy()), lpSum(dv_deviation_limit.to_numpy())])
 
 
 ###############################################################################
@@ -337,8 +352,9 @@ for date in [0] + d_cal['date'].tolist():
 ###############################################################################
 # Avoid ECT from the leader's team
 ###############################################################################
-l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].to_list()
-l_date_ect = [date for date in l_date_ect if not date in l_date_skip]
+l_date_ect = d_date_duty.loc[d_date_duty['duty'] == 'ect', 'date'].tolist()
+#l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].to_list()
+#l_date_ect = [date for date in l_date_ect if not date in l_date_skip]
 l_team = sorted(list(set(d_member['team'].to_list())))
 for date in l_date_ect:
     wday = d_cal.loc[d_cal['date'] == date, 'wday'].to_list()[0]
@@ -377,6 +393,10 @@ d_assign, d_assign_date_duty =\
 
 d_closeduty = extract_closeduty(p_month, p_data, dict_dv_closeduty, d_member, dict_closeduty)
 
-d_assign_date_print, d_assign_member, d_deviation, d_score_current, d_score_total, d_score_print =\
+d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
     convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability, 
                    d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact)
+
+#print(d_assign_date_print)
+print('Deviation from target:')
+print(d_deviation_summary)
