@@ -12,7 +12,7 @@ from ortoolpy import addvars, addbinvars
 ################################################################################
 # Delete date_duty for which no one is available, and not manually assigned
 ################################################################################
-def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual):
+def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_skip):
     l_date_duty_unavailable = d_availability_ratio.loc[d_availability_ratio['available'] == 0,:].index.tolist()
     l_date_duty_manual_assign = d_assign_manual.loc[~d_assign_manual['id_member'].isna(), 'date_duty'].tolist()
     if len(l_date_duty_unavailable) > 0:
@@ -28,19 +28,13 @@ def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_m
     # Skip duties in specified date
     l_date_duty = d_date_duty.loc[:, 'date_duty'].tolist()
     l_date_duty_skip_spec = []
-    for date_duty_skip_manual in l_date_duty_skip_manual:
-        if date_duty_skip_manual.endswith('_'): # if date_duty is e.g. '4_', skip all date_duty's that starts wtih '4_'
-            l_date_duty_skip_spec += [date_duty for date_duty in l_date_duty if date_duty.startswith(date_duty_skip_manual)]
-        else:
-            l_date_duty_skip_spec += [date_duty for date_duty in l_date_duty if date_duty == date_duty_skip_manual]
-    if len(l_date_duty_skip_spec) > 0:
-        print('Manually skipped assignment for:', l_date_duty_skip_spec)
-
+    for date in l_date_skip:
+        l_date_duty_skip_spec += [date_duty for date_duty in l_date_duty if date_duty.startswith(str(date) + '_')]
     l_date_duty_skip = list(set(l_date_duty_skip + l_date_duty_skip_spec))
     l_date_duty_skip = [date_duty for date_duty in l_date_duty if date_duty in l_date_duty_skip]
 
     if len(l_date_duty_skip) > 0:
-        print('In total, skipping assignment for:', l_date_duty_skip)
+        print('Skipping assignment for:', l_date_duty_skip)
     
     d_date_duty = d_date_duty.loc[~d_date_duty['date_duty'].isin(l_date_duty_skip),:]
     d_availability = d_availability.loc[~d_availability.index.isin(l_date_duty_skip),:]
@@ -337,23 +331,14 @@ def convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability
 
     # Prepare deviation results
     d_deviation = pd.concat([d_member[['id_member', 'name_jpn']], pd.DataFrame(index = d_member.index, columns = l_class_duty)], axis = 1)
-    ll_deviation = []
     for member in d_assign.columns:
         s_assign_class = pd.merge(d_assign_date_duty.loc[d_assign_date_duty['id_member'] == member, :], d_date_duty,
                                   on = 'date_duty', how = 'left').sum(axis = 0)
         l_assign_class = s_assign_class[['class_' + class_duty for class_duty in l_class_duty]].tolist()
         l_assign_class = [int(class_member) for class_member in l_assign_class]
         l_assign_class_target = d_lim_exact.loc[int(member), l_class_duty].tolist()
-        l_deviation_member = [a - b for a, b in zip(l_assign_class, l_assign_class_target)]
-        d_deviation.loc[d_deviation['id_member'] == int(member), l_class_duty] = l_deviation_member
-        for class_duty, deviation in zip(l_class_duty, l_deviation_member):
-            if deviation > 0 or deviation < 0:
-                ll_deviation.append([int(member), class_duty, int(deviation)])
+        d_deviation.loc[d_deviation['id_member'] == int(member), l_class_duty] = [a - b for a, b in zip(l_assign_class, l_assign_class_target)]
     d_deviation[l_class_duty] = d_deviation[l_class_duty].fillna(0).astype(int)
-
-    d_deviation_summary = pd.DataFrame(ll_deviation, columns = ['id_member', 'class_duty', 'deviation'])
-    d_deviation_summary = pd.merge(d_deviation_summary, d_member[['id_member', 'name_jpn']], on = 'id_member', how = 'left')
-    d_deviation_summary = d_deviation_summary[['id_member', 'name_jpn', 'class_duty', 'deviation']]
 
     # Score calculation
     d_score_current = d_member.copy()
@@ -380,62 +365,16 @@ def convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability
         d_assign_date_print.to_csv(os.path.join(p_save, 'assign_date.csv'), index = False)
         d_assign_member.to_csv(os.path.join(p_save, 'assign_member.csv'), index = False)
         d_deviation.to_csv(os.path.join(p_save, 'deviation.csv'), index = False)
-        d_deviation_summary.to_csv(os.path.join(p_save, 'deviation_summary.csv'), index = False)
         d_score_current.to_csv(os.path.join(p_save, 'score_current.csv'), index = False)
         d_score_total.to_csv(os.path.join(p_save, 'score_total.csv'), index = False)
         d_score_print.to_csv(os.path.join(p_save, 'score_print.csv'), index = False)
 
-    return d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print
+    return d_assign_date_print, d_assign_member, d_deviation, d_score_current, d_score_total, d_score_print
 
 
 ################################################################################
 # Prepare calendar for google forms
 ################################################################################
-def prep_forms2(p_month, p_data, d_cal, dict_duty):
-    #l_duty = ['am', 'pm', 'day', 'ocday', 'night', 'ocnight']
-    dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'emnight': '救急当直', 'ocnight': '当直OC'}
-    
-    d_cal['holiday_wday'] = [a and b for a, b in zip(d_cal['wday'].isin([0, 2, 3, 4]).tolist(), d_cal['holiday'].tolist())]
-
-    l_cal_duty = []
-    for duty in dict_duty_jpn.keys():
-        d_cal_duty = d_cal.loc[d_cal[duty] == True, ['date', 'title_date', 'wday', 'holiday_wday']].copy()
-        d_cal_duty['duty'] = duty
-        l_cal_duty.append(d_cal_duty)
-    d_cal_duty = pd.concat(l_cal_duty, axis = 0)
-    d_cal_duty['duty_sort'] = d_cal_duty['duty'].map(dict_duty)
-    d_cal_duty = d_cal_duty.sort_values(by = ['date', 'duty_sort'])
-    d_cal_duty.index = range(len(d_cal_duty))
-
-    d_cal_duty['duty_jpn'] = d_cal_duty['duty'].map(dict_duty_jpn)
-    d_cal_duty['title_dateduty'] = d_cal_duty['title_date'] + d_cal_duty['duty_jpn']
-
-    d_cal_duty = d_cal_duty[['date', 'wday', 'duty', 'holiday_wday','title_dateduty']]
-
-    # Dictionary of title and duty
-    dict_title_duty = {'assoc': ['ocday', 'ocnight'],
-                       'instr': ['am', 'pm', 'ocday', 'ocnight'],
-                       'assist_leader': ['am', 'pm', 'day', 'night', 'ocday', 'ocnight'],
-                       'assist_subleader': ['am', 'pm', 'day', 'night'],
-                       'limtermclin': ['am', 'pm', 'day', 'night'],
-                       'stud': ['day', 'night'],
-                       'assist_child': ['am', 'pm']}
-
-    dict_l_form = {}
-    for title in dict_title_duty.keys():
-        l_duty_title = dict_title_duty[title]
-        l_dateduty_holiday = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title) & d_cal_duty['holiday_wday'], 'title_dateduty'].tolist()
-        l_dateduty = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title) & ~d_cal_duty['holiday_wday'], 'title_dateduty'].tolist()
-        dict_l_form[title + '_holiday'] = l_dateduty_holiday
-        dict_l_form[title + '_others'] = l_dateduty
-    d_form = pd.DataFrame(dict([(key, pd.Series(l_form)) for key, l_form in dict_l_form.items() ]))
-    # Save data
-    for p_save in [p_month, p_data]:
-        d_cal_duty.to_csv(os.path.join(p_save, 'duty.csv'), index = False)
-        d_form.to_csv(os.path.join(p_save, 'form.csv'), index = False)
-
-    return d_cal_duty, d_form
-
 def prep_forms(p_month, p_data, d_cal, dict_duty):
     #l_duty = ['am', 'pm', 'day', 'ocday', 'night', 'ocnight']
     dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'emnight': '救急当直', 'ocnight': '当直OC'}

@@ -10,7 +10,7 @@ import os, datetime
 # Parameters
 ###############################################################################
 year_plan = 2023
-month_plan = 8
+month_plan = 7
 
 
 ###############################################################################
@@ -73,44 +73,13 @@ print(str_mail_missing)
 d_cal_duty = pd.read_csv(os.path.join(p_month, 'duty.csv'))
 l_col = d_availability_src.columns.tolist()
 
-dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
-dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'ocnight': '当直OC'}
-
-# Collect weekly pattern
-dict_l_weekly = {}
-for key_day, item_day in dict_jpnday.items():
-    for key_duty, item_duty in dict_duty_jpn.items():
-        col_dayduty = item_day + '　' + item_duty
-        l_col_dayduty = [col for col in l_col if ('[' + col_dayduty + ']') in col]
-        if len(l_col_dayduty) > 0:
-            l_availability = [np.nan] * d_availability_src.shape[0]
-            for col in l_col_dayduty: # Iterate over columns of specific date_duty in columns of d_availability_src
-                l_availbility_src = d_availability_src[col].tolist()
-                for idx, availability_src in enumerate(l_availbility_src):
-                    if availability_src == '不可':
-                        l_availability[idx] = 0
-                    elif availability_src == '可':
-                        l_availability[idx] = 1
-                    elif availability_src == '希望':
-                        l_availability[idx] = 2
-            dict_l_weekly[str(key_day) + '_' + key_duty] = l_availability
-d_weekly = pd.DataFrame(dict_l_weekly)
-
 dict_l_availability = {}
-for idx, row in d_cal_duty.iterrows(): # Iterate over date_duty's
+for idx, row in d_cal_duty.iterrows():
     title_dateduty = row['title_dateduty']
     dateduty = str(row['date']) + '_' + row['duty']
     l_col_dateduty = [col for col in l_col if ('[' + title_dateduty + ']') in col]
-    day = row['wday']
-    duty = row['duty']
-    holiday_wday = row['holiday_wday']
-    # Apply weekly pattern
-    if not holiday_wday:
-        l_availability = d_weekly[str(day) + '_' + duty].tolist()
-    else:
-        l_availability = [np.nan] * d_availability_src.shape[0]
-    # Apply irregular pattern
-    for col in l_col_dateduty: # Iterate over columns of specific date_duty in columns of d_availability_src
+    l_availability = [np.nan] * d_availability_src.shape[0]
+    for col in l_col_dateduty:
         l_availbility_src = d_availability_src[col].tolist()
         for idx, availability_src in enumerate(l_availbility_src):
             if availability_src == '不可':
