@@ -98,6 +98,7 @@ l_result_event = []
 l_member = sorted(list(set(d_date_duty['id_member'])))
 
 for id_member in l_member:
+    print('Member ID:', str(id_member))
     d_date_duty_member = d_date_duty[d_date_duty['id_member'] == id_member]
 
     for _, row in d_date_duty_member.iterrows():
