@@ -10,8 +10,8 @@ import os, datetime
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 8
-l_holiday = [11]
+month_plan = 9
+l_holiday = [18]
 l_date_ect_cancel = []
 
 # Fixed parameters

@@ -13,14 +13,14 @@ from ortoolpy import addbinvars
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 8
-l_holiday = [11]
+month_plan = 9
+l_holiday = [18]
 l_date_ect_cancel = []
 l_date_duty_fulltime = []
 type_limit = 'soft' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
-#l_date_duty_skip_manual = []
+l_date_duty_skip_manual = []
 #l_date_duty_skip_manual = ['23_'] # All duties starting with 23_
-l_date_duty_skip_manual = ['23_am']
+#l_date_duty_skip_manual = ['23_am']
 
 year_start = 2023
 month_start = 4
@@ -43,7 +43,8 @@ dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'o
                   'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
 c_assign_suboptimal = 0.001
 c_cnt_deviation = 0.1
-c_closeduty = 0.01
+#c_closeduty = 0.01
+c_closeduty = 0.1
 l_title_fulltime = ['assist'] # ['limterm_instr', 'assist', 'limterm_clin']
 
 
