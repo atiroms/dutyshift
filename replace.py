@@ -99,11 +99,14 @@ for id, row in d_replace_checked.iterrows():
 
 d_replace_checked.index = [i for i in range(len(d_replace_checked))]
 
-d_replace_print = d_replace_checked[['month', 'date', 'duty', 'name_jpn_src', 'name_jpn']]
-d_replace_print.columns = ['month', 'date', 'duty', 'before', 'after']
+if len(d_replace_checked) > 0:
+    d_replace_print = d_replace_checked[['month', 'date', 'duty', 'name_jpn_src', 'name_jpn']]
+    d_replace_print.columns = ['month', 'date', 'duty', 'before', 'after']
 
-print('Replacing:')
-d_replace_print
+    print('Replacing:')
+    d_replace_print
+else:
+    print('No new data detected')
 
 
 ###############################################################################
