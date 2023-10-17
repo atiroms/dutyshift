@@ -104,7 +104,7 @@ if len(d_replace_checked) > 0:
     d_replace_print.columns = ['month', 'date', 'duty', 'before', 'after']
 
     print('Replacing:')
-    d_replace_print
+    print(d_replace_print)
 else:
     print('No new data detected')
 
