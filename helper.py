@@ -10,6 +10,20 @@ from ortoolpy import addvars, addbinvars
 
 
 ################################################################################
+# Read config/member.xlsx file
+################################################################################
+def read_member(p_root, year_plan, month_plan):
+    name_sheet = 'member_' + str(year_plan).zfill(4) + str(month_plan).zfill(2)
+    d_member_src = pd.read_excel(os.path.join(p_root, "Dropbox/dutyshift/config/member.xlsx"), sheet_name = name_sheet)
+    d_member = d_member_src.iloc[3:,:]
+    d_member.columns = d_member_src.iloc[2,:].tolist()
+    d_member.index = [i for i in range(len(d_member))]
+    d_member.loc[:, 'name_jpn_full'] = d_member.loc[:, 'name_jpn_full'].str.replace('　',' ')
+
+    return d_member
+
+
+################################################################################
 # Delete date_duty for which no one is available, and not manually assigned
 ################################################################################
 def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual):
@@ -204,7 +218,8 @@ def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, y
                     'designation', 'team', 'ect_leader', 'ect_subleader']
 
     # Load source member and assignment limit of the month
-    d_src = pd.read_csv(os.path.join(p_month, 'src', 'member.csv'))
+    #d_src = pd.read_csv(os.path.join(p_month, 'src', 'member.csv'))
+    d_src = read_member(p_root, year_plan, month_plan)
     l_col_member = [col for col in l_col_member if col in d_src.columns]
     d_member = d_src[l_col_member]
     d_lim = d_src[l_class_duty].copy()

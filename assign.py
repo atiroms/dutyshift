@@ -43,8 +43,8 @@ dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'o
                   'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
 c_assign_suboptimal = 0.001
 c_cnt_deviation = 0.1
-#c_closeduty = 0.01
-c_closeduty = 0.1
+c_closeduty = 0.01
+#c_closeduty = 0.1
 l_title_fulltime = ['assist'] # ['limterm_instr', 'assist', 'limterm_clin']
 
 
