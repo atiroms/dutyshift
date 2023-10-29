@@ -4,13 +4,15 @@
 ###############################################################################
 import numpy as np, pandas as pd
 import os, datetime
+from helper import read_member
 
 
 ###############################################################################
 # Parameters
 ###############################################################################
 year_plan = 2023
-month_plan = 10
+month_plan = 11
+address_response = "https://docs.google.com/spreadsheets/d/1zfubUfk7_fs3O-u0HFFH1yVlqonfeMjrccNu4ubgbbg/edit?resourcekey#gid=1662573061"
 
 
 ###############################################################################
@@ -42,12 +44,11 @@ from helper import *
 ###############################################################################
 # Read data
 ###############################################################################
-f_answer = os.listdir(os.path.join(p_month, 'src'))
-f_answer = [f for f in f_answer if 'dutyshift' in f][0]
-d_availability_src = pd.read_csv(os.path.join(p_month, 'src',f_answer))
+sheet_id = address_response.split('/')[5]
+name_sheet = "FormResponses1"
+d_availability_src = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={name_sheet}")
 
-d_member = pd.read_csv(os.path.join(p_month,'src', 'member.csv'))
-d_member['name_jpn_full'] = d_member['name_jpn_full'].str.replace('　',' ')
+d_member = read_member(p_root, year_plan, month_plan)
 
 
 ###############################################################################
@@ -178,3 +179,4 @@ d_availability = d_availability[['id_member','name_jpn_full'] + list(dict_l_avai
 for p_save in [p_month, p_data]:
     d_availability.to_csv(os.path.join(p_save, 'availability_src.csv'), index = False)
     d_info.to_csv(os.path.join(p_save, 'info.csv'), index = False)
+    d_member.to_csv(os.path.join(p_save, 'member.csv'), index = False)

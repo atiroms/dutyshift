@@ -13,8 +13,8 @@ from ortoolpy import addbinvars
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 10
-l_holiday = [9]
+month_plan = 11
+l_holiday = [3, 23]
 l_date_ect_cancel = []
 l_date_duty_fulltime = []
 type_limit = 'soft' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
@@ -35,16 +35,16 @@ l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_to
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
 
 dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.001, 'oc': 0.001, 'ect': 0.01}
-dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.1, 'oc': 0.01, 'ect': 0.1}
+dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.01, 'oc': 0.01, 'ect': 0.1}
 
 # Fixed parameters for optimizing assignment
 dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1, 'thr_soft': 5},
                   'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
                   'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
-c_assign_suboptimal = 0.001
-c_cnt_deviation = 0.1
-#c_closeduty = 0.01
-c_closeduty = 0.1
+c_assign_suboptimal = 0.0001
+c_cnt_deviation = 0.001
+c_closeduty = 0.01
+#c_closeduty = 0.1
 l_title_fulltime = ['assist'] # ['limterm_instr', 'assist', 'limterm_clin']
 
 
