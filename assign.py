@@ -13,12 +13,15 @@ from ortoolpy import addbinvars
 ###############################################################################
 # Unfixed parameters
 year_plan = 2023
-month_plan = 11
-l_holiday = [3, 23]
+month_plan = 12
+l_holiday = [29, 30, 31]
 l_date_ect_cancel = []
 l_date_duty_fulltime = []
 type_limit = 'soft' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
 l_date_duty_skip_manual = []
+#l_date_duty_skip_manual = ['29_']
+#l_date_duty_skip_manual = ['23_','24_','25_','26_','27_','28_','29_','30_','31_']
+#l_date_duty_skip_manual = ['1_','2_','3_','4_','5_','6_','7_','8_','9_','10_','11_','12_','13_','14_','15_']
 #l_date_duty_skip_manual = ['23_'] # All duties starting with 23_
 #l_date_duty_skip_manual = ['23_am']
 
@@ -35,14 +38,24 @@ l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_to
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
 
 dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.001, 'oc': 0.001, 'ect': 0.01}
-dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.01, 'oc': 0.01, 'ect': 0.1}
+#dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.01, 'oc': 0.01, 'ect': 0.1}
+dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 1.0, 'oc': 0.01, 'ect': 0.1}
 
 # Fixed parameters for optimizing assignment
-dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1, 'thr_soft': 5},
+# Parameters for avoiding/penalizing close duties
+#dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1, 'thr_soft': 5},
+#                  'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
+#                  'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
+dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 0, 'thr_soft': 5},
                   'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
                   'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
+# Parameters for avoiding overlapping duties
+ll_avoid_adjacent = [[['pm', 0], ['night', 0], ['emnight', 0], ['ocnight', 0]],
+                     [['night', 0], ['emnight', 0], ['ocnight', 0], ['ect', 1], ['am', 1]]]
+
 c_assign_suboptimal = 0.0001
-c_cnt_deviation = 0.001
+#c_cnt_deviation = 0.001
+c_cnt_deviation = 0.1
 c_closeduty = 0.01
 #c_closeduty = 0.1
 l_title_fulltime = ['assist'] # ['limterm_instr', 'assist', 'limterm_clin']
@@ -273,25 +286,26 @@ d_assign_previous[l_member_missing] = 0
 
 # Hard limit of closeness (avoid violence)
 for closeduty in dict_closeduty.keys():
-    thr_interval_hard = dict_closeduty[closeduty]['thr_hard']
+    thr_interval_hard = dict_closeduty[closeduty]['thr_hard'] # 1: avoid within same day, 2: avoid within 2 continuous days
     l_duty = dict_closeduty[closeduty]['l_duty']
-    for date_start in [d for d in range(-thr_interval_hard + 2, 1)] + d_cal['date'].tolist():
-        # Create list of continuous date_duty's
-        l_date_duty_cont = []
-        l_date_duty_cont_previous = []
-        for date in range(date_start, date_start + thr_interval_hard):
-            for duty in l_duty:
-                date_duty = str(date) + '_' + duty
-                if date_duty in dv_assign.index:
-                    l_date_duty_cont.append(date_duty)
-                if date_duty in d_assign_previous.index:
-                    l_date_duty_cont_previous.append(date_duty)
-        # If the list of continuous date_duty's has more than one item
-        if (len(l_date_duty_cont) + len(l_date_duty_cont_previous)) >= 2:
-            for member in l_member:
-                # Assignments within continuous date_duty's should not exceeed 1
-                prob_assign += (lpSum(dv_assign.loc[l_date_duty_cont, member]) +\
-                                sum(d_assign_previous.loc[l_date_duty_cont_previous, member]) <= 1)
+    if thr_interval_hard > 0:
+        for date_start in [d for d in range(-thr_interval_hard + 2, 1)] + d_cal['date'].tolist():
+            # Create list of continuous date_duty's
+            l_date_duty_cont = []
+            l_date_duty_cont_previous = []
+            for date in range(date_start, date_start + thr_interval_hard):
+                for duty in l_duty:
+                    date_duty = str(date) + '_' + duty
+                    if date_duty in dv_assign.index:
+                        l_date_duty_cont.append(date_duty)
+                    if date_duty in d_assign_previous.index:
+                        l_date_duty_cont_previous.append(date_duty)
+            # If the list of continuous date_duty's has more than one item
+            if (len(l_date_duty_cont) + len(l_date_duty_cont_previous)) >= 2:
+                for member in l_member:
+                    # Assignments within continuous date_duty's should not exceeed 1
+                    prob_assign += (lpSum(dv_assign.loc[l_date_duty_cont, member]) +\
+                                    sum(d_assign_previous.loc[l_date_duty_cont_previous, member]) <= 1)
 
 # Soft limit of closeness (penalize violence)
 dict_dv_closeduty = {}
@@ -321,6 +335,27 @@ for closeduty in dict_closeduty.keys():
             prob_assign += (dict_dv_closeduty[closeduty].loc[date_start, member] >= 0)
 v_closeduty = lpSum([lpSum(dv_closeduty.to_numpy()) for dv_closeduty in dict_dv_closeduty.values()])
 
+# Avoid overlapping duties:
+#       [same-date 'pm', 'night', 'emnight' and 'ocnight'],
+#   and ['night', 'emnight', 'ocnight' and following-date 'ect','am']
+for date in [0] + d_cal['date'].tolist():
+    for l_avoid_adjacent in ll_avoid_adjacent:
+        l_avoid = [str(date + avoid[1]) + '_' + avoid[0] for avoid in l_avoid_adjacent]
+        # Check if date_duty exists
+        l_date_duty_cont = []
+        l_date_duty_cont_previous = []
+        for date_duty in l_avoid:
+            if date_duty in dv_assign.index:
+                l_date_duty_cont.append(date_duty)
+            if date_duty in d_assign_previous.index:
+                l_date_duty_cont_previous.append(date_duty)
+
+        if (len(l_date_duty_cont) + len(l_date_duty_cont_previous)) >= 2:
+            for member in l_member:
+                prob_assign += (lpSum(dv_assign.loc[l_date_duty_cont, member]) +\
+                                sum(d_assign_previous.loc[l_date_duty_cont_previous, member]) <= 1)
+
+'''
 # Avoid [same-date 'pm', 'night', 'emnight' and 'ocnight'],
 #   and ['night', 'emnight', 'ocnight' and following-date 'ect','am']
 for date in [0] + d_cal['date'].tolist():
@@ -348,7 +383,7 @@ for date in [0] + d_cal['date'].tolist():
             for member in l_member:
                 prob_assign += (lpSum(dv_assign.loc[l_date_duty_cont, member]) +\
                                 sum(d_assign_previous.loc[l_date_duty_cont_previous, member]) <= 1)
-
+'''
 
 ###############################################################################
 # Avoid ECT from the leader's team

@@ -98,6 +98,7 @@ for key_day, item_day in dict_jpnday.items():
             dict_l_weekly[str(key_day) + '_' + key_duty] = l_availability
 d_weekly = pd.DataFrame(dict_l_weekly)
 
+# Apply weekly pattern to list of date_duty
 dict_l_availability = {}
 for idx, row in d_cal_duty.iterrows(): # Iterate over date_duty's
     title_dateduty = row['title_dateduty']
