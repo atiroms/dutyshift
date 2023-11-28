@@ -34,7 +34,7 @@ else:
 ###############################################################################
 # Check available member of a certain date_duty
 ###############################################################################
-date_duty = '22_night'
+date_duty = '23_night'
 
 d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
 d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'))
