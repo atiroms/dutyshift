@@ -10,11 +10,11 @@ from helper import read_member
 ###############################################################################
 # Parameters
 ###############################################################################
-year_plan = 2023
-month_plan = 12
+year_plan = 2024
+month_plan = 1
 #address_response = "https://docs.google.com/spreadsheets/d/1zfubUfk7_fs3O-u0HFFH1yVlqonfeMjrccNu4ubgbbg/edit?resourcekey#gid=1662573061"
-address_response = "https://docs.google.com/spreadsheets/d/18enxLaXnQ8YSGEBEZCPEVvOQFtz8W9ktYt2L0Qh9wIM/edit?resourcekey#gid=1314164618"
-
+#address_response = "https://docs.google.com/spreadsheets/d/18enxLaXnQ8YSGEBEZCPEVvOQFtz8W9ktYt2L0Qh9wIM/edit?resourcekey#gid=1314164618"
+address_response = "https://docs.google.com/spreadsheets/d/1kQ-5CSB1tyoa8tQKnXxyLJGs26O-PB6fapb_woeQOqc/edit?resourcekey#gid=85558763"
 
 ###############################################################################
 # Script path

@@ -12,9 +12,9 @@ from ortoolpy import addbinvars
 # Parameters
 ###############################################################################
 # Unfixed parameters
-year_plan = 2023
-month_plan = 12
-l_holiday = [29, 30, 31]
+year_plan = 2024
+month_plan = 1
+l_holiday = [1, 2, 3, 8]
 l_date_ect_cancel = []
 l_date_duty_fulltime = []
 type_limit = 'soft' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
