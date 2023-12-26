@@ -18,7 +18,8 @@ l_holiday = [1, 2, 3, 8]
 l_date_ect_cancel = []
 l_date_duty_fulltime = []
 type_limit = 'soft' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
-l_date_duty_skip_manual = []
+#l_date_duty_skip_manual = []
+l_date_duty_skip_manual = ['4_ect']
 #l_date_duty_skip_manual = ['29_']
 #l_date_duty_skip_manual = ['23_','24_','25_','26_','27_','28_','29_','30_','31_']
 #l_date_duty_skip_manual = ['1_','2_','3_','4_','5_','6_','7_','8_','9_','10_','11_','12_','13_','14_','15_']
@@ -43,12 +44,12 @@ dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 1.0, 
 
 # Fixed parameters for optimizing assignment
 # Parameters for avoiding/penalizing close duties
-#dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1, 'thr_soft': 5},
-#                  'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
-#                  'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
-dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 0, 'thr_soft': 5},
+dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1, 'thr_soft': 5},
                   'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
                   'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
+#dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 0, 'thr_soft': 5},
+#                  'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
+#                  'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
 # Parameters for avoiding overlapping duties
 ll_avoid_adjacent = [[['pm', 0], ['night', 0], ['emnight', 0], ['ocnight', 0]],
                      [['night', 0], ['emnight', 0], ['ocnight', 0], ['ect', 1], ['am', 1]]]
@@ -429,8 +430,8 @@ d_assign, d_assign_date_duty =\
 
 d_closeduty = extract_closeduty(p_month, p_data, dict_dv_closeduty, d_member, dict_closeduty)
 
-d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
-    convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability, 
+d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
+    convert_result(p_month, p_data, d_assign_date_duty, d_availability, 
                    d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact)
 
 #print(d_assign_date_print)

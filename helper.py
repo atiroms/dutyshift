@@ -104,7 +104,7 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
                    d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total, l_type_score, l_class_duty):
 
     # Dataframe of variables
-    l_member = d_member['id_member'].tolist()
+    l_member = d_member.loc[d_member['active'], 'id_member'].tolist()
     l_lim_exact = [str(p[0]) + '_' + p[1] for p in itertools.product(l_member, l_class_duty)]
     dict_v_lim_exact = LpVariable.dicts(name = 'cnt', indices = l_lim_exact, lowBound = 0, upBound = None,  cat = 'Integer')
     #dict_v_lim_exact = LpVariable.dicts(name = 'cnt', indices = l_lim_exact, lowBound = 0, upBound = None,  cat = 'Continuous')
@@ -215,11 +215,12 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
 def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start):
     l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn',
                     'designation_jpn','ect_asgn_jpn','name','title_short',
-                    'designation', 'team', 'ect_leader', 'ect_subleader']
+                    'designation', 'team', 'ect_leader', 'ect_subleader', 'active']
 
     # Load source member and assignment limit of the month
     #d_src = pd.read_csv(os.path.join(p_month, 'src', 'member.csv'))
     d_src = read_member(p_root, year_plan, month_plan)
+    d_src = d_src.loc[d_src['active'], ]
     l_col_member = [col for col in l_col_member if col in d_src.columns]
     d_member = d_src[l_col_member]
     d_lim = d_src[l_class_duty].copy()
@@ -313,9 +314,19 @@ def extract_closeduty(p_month, p_data, dict_dv_closeduty, d_member, dict_closedu
 ################################################################################
 # Convert result
 ################################################################################
-def convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability, 
+def convert_result(p_month, p_data, d_assign_date_duty, d_availability, 
                    d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact):
+    # d_assign_date_duty >> d_assign
+    d_assign.loc[:, :] = False
+    for id, row in d_assign_date_duty.iterrows():
+        date_duty = row['date_duty']
+        id_member = row['id_member']
+        if ~np.isnan(id_member):
+            id_member = str(int(id_member))
+            d_assign.loc[date_duty, id_member] = True
+    d_assign = d_assign.fillna(False)
 
+    # d_assign_date_duty >> d_assgin_date_print
     # Assignments with date as row for printing
     d_assign_date_print = d_cal.loc[:,['title_date','date', 'em']].copy()
     d_assign_date_print[['am','pm','night','ocday','ocnight','ect']] = ''
@@ -335,6 +346,7 @@ def convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability
     d_assign_date_print = d_assign_date_print.loc[:,['title_date','am','pm','night','ocday','ocnight','ect']]
     d_assign_date_print.columns = ['日付', '午前日直', '午後日直', '当直', '日直OC', '当直OC', 'ECT']
 
+    # d_assign, d_availability >> d_assign_member
     # Assignments with member as row
     d_assign_optimal = pd.DataFrame((d_availability == 2) & d_assign, columns = d_assign.columns, index = d_assign.index)                         
     d_assign_suboptimal = pd.DataFrame((d_availability == 1) & d_assign, columns = d_assign.columns, index = d_assign.index)
@@ -350,6 +362,7 @@ def convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability
                                     index = d_assign.columns)
     d_assign_member = pd.merge(d_member[['id_member', 'name_jpn']], d_assign_member, on = 'id_member', how = 'left')
 
+    # d_assign_date_duty >> d_deviation, d_deviation_summary
     # Prepare deviation results
     d_deviation = pd.concat([d_member[['id_member', 'name_jpn']], pd.DataFrame(index = d_member.index, columns = l_class_duty)], axis = 1)
     ll_deviation = []
@@ -370,6 +383,7 @@ def convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability
     d_deviation_summary = pd.merge(d_deviation_summary, d_member[['id_member', 'name_jpn']], on = 'id_member', how = 'left')
     d_deviation_summary = d_deviation_summary[['id_member', 'name_jpn', 'class_duty', 'deviation']]
 
+    # d_assign_date_duty >> d_score_print, d_score_past, d_score_total
     # Score calculation
     d_score_current = d_member.copy()
     for id_member in d_score_current['id_member'].tolist():
@@ -392,6 +406,7 @@ def convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability
     d_score_print.columns = ['id_member', 'name_jpn'] + ['score_' + col for col in l_type_score] + ['score_sigma_' + col for col in l_type_score]
 
     for p_save in [p_month, p_data]:
+        d_assign.to_csv(os.path.join(p_save, 'assign.csv'), index = False)
         d_assign_date_print.to_csv(os.path.join(p_save, 'assign_date.csv'), index = False)
         d_assign_member.to_csv(os.path.join(p_save, 'assign_member.csv'), index = False)
         d_deviation.to_csv(os.path.join(p_save, 'deviation.csv'), index = False)
@@ -400,7 +415,7 @@ def convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability
         d_score_total.to_csv(os.path.join(p_save, 'score_total.csv'), index = False)
         d_score_print.to_csv(os.path.join(p_save, 'score_print.csv'), index = False)
 
-    return d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print
+    return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print
 
 
 ################################################################################
@@ -410,7 +425,7 @@ def prep_forms2(p_month, p_data, d_cal, dict_duty):
     #l_duty = ['am', 'pm', 'day', 'ocday', 'night', 'ocnight']
     dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'emnight': '救急当直', 'ocnight': '当直OC'}
     
-    d_cal['holiday_wday'] = [a and b for a, b in zip(d_cal['wday'].isin([0, 2, 3, 4]).tolist(), d_cal['holiday'].tolist())]
+    d_cal['holiday_wday'] = [a and b for a, b in zip(d_cal['wday'].isin([0, 1, 2, 3, 4]).tolist(), d_cal['holiday'].tolist())]
 
     l_cal_duty = []
     for duty in dict_duty_jpn.keys():

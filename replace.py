@@ -16,8 +16,8 @@ from googleapiclient.errors import HttpError
 ###############################################################################
 # Parameters
 ###############################################################################
-year_plan = 2023
-month_plan = 12
+year_plan = 2024
+month_plan = 1
 
 sheet_id = "1glzf0fM1jyAZffFE7l7SHE26m3M4QBI5AAOsdSlmHxE"
 sheet_name = "response"
@@ -78,6 +78,7 @@ d_replace['duty'] = [dict_replace[duty] for duty in d_replace['duty']]
 
 ###############################################################################
 # Check data and delete duplication
+# d_replace_checked as result
 ###############################################################################
 # Delete duplicate data in d_replace
 l_replace_checked = []
@@ -111,6 +112,7 @@ else:
 
 ###############################################################################
 # Replace data
+# update d_assign_duty according to d_replace_checked
 ###############################################################################
 
 # OPTIONAL: specify which replacement to execute
@@ -133,8 +135,8 @@ for p_save in [p_month, p_data]:
 
 d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 
-d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
-    convert_result(p_month, p_data, d_assign, d_assign_date_duty, d_availability, 
+d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
+    convert_result(p_month, p_data,d_assign_date_duty, d_availability, 
                    d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact)
 
 
