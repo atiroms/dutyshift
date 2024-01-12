@@ -123,7 +123,6 @@ else:
 for id, row in d_replace_checked.iterrows():
     d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member','name','name_jpn']] = row[['id_member','name','name_jpn']].tolist()
 
-d_assign = pd.read_csv(os.path.join(p_month, 'assign.csv'), index_col = 0)
 d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
 d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
 d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'), index_col = 0)
@@ -136,7 +135,7 @@ for p_save in [p_month, p_data]:
 d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
 
 d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
-    convert_result(p_month, p_data,d_assign_date_duty, d_availability, 
+    convert_result(p_month, p_data, d_assign_date_duty, d_availability, 
                    d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact)
 
 

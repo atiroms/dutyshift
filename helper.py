@@ -317,7 +317,7 @@ def extract_closeduty(p_month, p_data, dict_dv_closeduty, d_member, dict_closedu
 def convert_result(p_month, p_data, d_assign_date_duty, d_availability, 
                    d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact):
     # d_assign_date_duty >> d_assign
-    d_assign.loc[:, :] = False
+    d_assign = pd.DataFrame(index = d_availability.index, columns = d_availability.columns)
     for id, row in d_assign_date_duty.iterrows():
         date_duty = row['date_duty']
         id_member = row['id_member']
@@ -406,7 +406,7 @@ def convert_result(p_month, p_data, d_assign_date_duty, d_availability,
     d_score_print.columns = ['id_member', 'name_jpn'] + ['score_' + col for col in l_type_score] + ['score_sigma_' + col for col in l_type_score]
 
     for p_save in [p_month, p_data]:
-        d_assign.to_csv(os.path.join(p_save, 'assign.csv'), index = False)
+        d_assign.to_csv(os.path.join(p_save, 'assign.csv'), index = True)
         d_assign_date_print.to_csv(os.path.join(p_save, 'assign_date.csv'), index = False)
         d_assign_member.to_csv(os.path.join(p_save, 'assign_member.csv'), index = False)
         d_deviation.to_csv(os.path.join(p_save, 'deviation.csv'), index = False)
