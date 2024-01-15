@@ -12,53 +12,51 @@ from ortoolpy import addbinvars
 # Parameters
 ###############################################################################
 # Unfixed parameters
-year_plan = 2024
-month_plan = 1
-l_holiday = [1, 2, 3, 8]
-l_date_ect_cancel = []
-l_date_duty_fulltime = []
-type_limit = 'soft' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
-#l_date_duty_skip_manual = []
-l_date_duty_skip_manual = ['4_ect']
-#l_date_duty_skip_manual = ['29_']
-#l_date_duty_skip_manual = ['23_','24_','25_','26_','27_','28_','29_','30_','31_']
-#l_date_duty_skip_manual = ['1_','2_','3_','4_','5_','6_','7_','8_','9_','10_','11_','12_','13_','14_','15_']
-#l_date_duty_skip_manual = ['23_'] # All duties starting with 23_
-#l_date_duty_skip_manual = ['23_am']
+#year_plan = 2024
+#month_plan = 1
+#l_holiday = [1, 2, 3, 8]
+#l_date_ect_cancel = []
+#l_date_duty_fulltime = []
+#type_limit = 'soft' # 'hard': never exceed, 'soft': outlier penalized, 'ignore': no penalty
+##l_date_duty_skip_manual = []
+#l_date_duty_skip_manual = ['4_ect']
+##l_date_duty_skip_manual = ['29_']
+##l_date_duty_skip_manual = ['23_','24_','25_','26_','27_','28_','29_','30_','31_']
+##l_date_duty_skip_manual = ['1_','2_','3_','4_','5_','6_','7_','8_','9_','10_','11_','12_','13_','14_','15_']
+##l_date_duty_skip_manual = ['23_'] # All duties starting with 23_
+##l_date_duty_skip_manual = ['23_am']
 
-year_start = 2023
-month_start = 4
+#year_start = 2023
+#month_start = 4
 
 # Fixed parameters for optimizing assignment count
-l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
-day_em = 2 # Wednesday
-l_week_em = [] # 1st and 3rd weeks
+#l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
+#day_em = 2 # Wednesday
+#l_week_em = [] # 1st and 3rd weeks
 
 l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
 
-dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.001, 'oc': 0.001, 'ect': 0.01}
-#dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.01, 'oc': 0.01, 'ect': 0.1}
-dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 1.0, 'oc': 0.01, 'ect': 0.1}
+#dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.001, 'oc': 0.001, 'ect': 0.01}
+##dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.01, 'oc': 0.01, 'ect': 0.1}
+#dict_c_diff_score_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 1.0, 'oc': 0.01, 'ect': 0.1}
 
 # Fixed parameters for optimizing assignment
 # Parameters for avoiding/penalizing close duties
 dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1, 'thr_soft': 5},
                   'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
                   'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
-#dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 0, 'thr_soft': 5},
-#                  'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
-#                  'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
+
 # Parameters for avoiding overlapping duties
 ll_avoid_adjacent = [[['pm', 0], ['night', 0], ['emnight', 0], ['ocnight', 0]],
                      [['night', 0], ['emnight', 0], ['ocnight', 0], ['ect', 1], ['am', 1]]]
 
-c_assign_suboptimal = 0.0001
-#c_cnt_deviation = 0.001
-c_cnt_deviation = 0.1
-c_closeduty = 0.01
-#c_closeduty = 0.1
+#c_assign_suboptimal = 0.0001
+##c_cnt_deviation = 0.001
+#c_cnt_deviation = 0.1
+#c_closeduty = 0.01
+##c_closeduty = 0.1
 l_title_fulltime = ['assist'] # ['limterm_instr', 'assist', 'limterm_clin']
 
 
