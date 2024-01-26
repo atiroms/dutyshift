@@ -322,7 +322,7 @@ def convert_result(p_month, p_data, d_assign_date_duty, d_availability,
         date_duty = row['date_duty']
         id_member = row['id_member']
         if ~np.isnan(id_member):
-            id_member = str(int(id_member))
+            id_member = int(id_member)
             d_assign.loc[date_duty, id_member] = True
     d_assign = d_assign.fillna(False)
 
@@ -353,9 +353,9 @@ def convert_result(p_month, p_data, d_assign_date_duty, d_availability,
     #d_assign_error = pd.DataFrame((d_availability == 0) & d_assign, columns = l_member, index = d_assign.index)
     d_assign_member = pd.DataFrame({'id_member': [int(id) for id in d_assign.columns.tolist()],
                                     #'name_jpn': d_member.loc[d_member['id_member'].isin(l_member),'name_jpn'].tolist(),
-                                    'duty_all': d_assign.apply(lambda col: col[col].index.to_list(), axis = 0),
-                                    'duty_opt': d_assign_optimal.apply(lambda col: col[col].index.to_list(), axis = 0),
-                                    'duty_sub': d_assign_suboptimal.apply(lambda col: col[col].index.to_list(), axis = 0),
+                                    'duty_all': [', '.join(l) for l in d_assign.apply(lambda col: col[col].index.to_list(), axis = 0).values.tolist()],
+                                    #'duty_opt': [', '.join(l) for l in d_assign_optimal.apply(lambda col: col[col].index.to_list(), axis = 0).values.tolist()],
+                                    #'duty_sub': [', '.join(l) for l in d_assign_suboptimal.apply(lambda col: col[col].index.to_list(), axis = 0).values.tolist()],
                                     'cnt_all': d_assign.sum(axis = 0),
                                     'cnt_opt': d_assign_optimal.sum(axis = 0),
                                     'cnt_sub': d_assign_suboptimal.sum(axis = 0)},
