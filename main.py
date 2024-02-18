@@ -13,8 +13,8 @@ from replace import *
 ###############################################################################
 # Related to all functions
 year_plan = 2024
-month_plan = 2
-l_holiday = [12, 23]
+month_plan = 3
+l_holiday = [20]
 l_date_ect_cancel = []
 
 # Related to response collection
