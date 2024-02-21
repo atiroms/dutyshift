@@ -19,7 +19,8 @@ l_date_ect_cancel = []
 
 # Related to response collection
 #address_response = "https://docs.google.com/spreadsheets/d/1kQ-5CSB1tyoa8tQKnXxyLJGs26O-PB6fapb_woeQOqc/edit?resourcekey#gid=85558763"
-address_response = "https://docs.google.com/spreadsheets/d/1WGJX7bzoD1EKZCXhHtNaeFHwXlA2ZtaV0Hpoz23gshQ/edit?resourcekey#gid=370013882"
+#address_response = "https://docs.google.com/spreadsheets/d/1WGJX7bzoD1EKZCXhHtNaeFHwXlA2ZtaV0Hpoz23gshQ/edit?resourcekey#gid=370013882"
+address_response = "https://docs.google.com/spreadsheets/d/1-EtioCPAsdYj-2Hl_cKlM2EcFCZMqpVSRVG-BfPgGy0/edit?resourcekey#gid=1100814982"
 
 # Related to assignment count optimization
 dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.001, 'oc': 0.001, 'ect': 0.01}
@@ -86,7 +87,7 @@ str_member_missing, str_mail_missing, d_availability, d_info, d_member =\
 
 
 ###############################################################################
-# Collect google form response
+# Optimize assignment count and assign members
 ###############################################################################
 d_assign, d_assign_date_print, d_assign_member, d_deviation, d_score_print, d_closeduty =\
     optimize_count_and_assign(year_plan, month_plan, year_start, month_start,
