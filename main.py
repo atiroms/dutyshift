@@ -13,14 +13,15 @@ from replace import *
 ###############################################################################
 # Related to all functions
 year_plan = 2024
-month_plan = 3
-l_holiday = [20]
+month_plan = 4
+l_holiday = [29]
 l_date_ect_cancel = []
 
 # Related to response collection
 #address_response = "https://docs.google.com/spreadsheets/d/1kQ-5CSB1tyoa8tQKnXxyLJGs26O-PB6fapb_woeQOqc/edit?resourcekey#gid=85558763"
 #address_response = "https://docs.google.com/spreadsheets/d/1WGJX7bzoD1EKZCXhHtNaeFHwXlA2ZtaV0Hpoz23gshQ/edit?resourcekey#gid=370013882"
-address_response = "https://docs.google.com/spreadsheets/d/1-EtioCPAsdYj-2Hl_cKlM2EcFCZMqpVSRVG-BfPgGy0/edit?resourcekey#gid=1100814982"
+#address_response = "https://docs.google.com/spreadsheets/d/1-EtioCPAsdYj-2Hl_cKlM2EcFCZMqpVSRVG-BfPgGy0/edit?resourcekey#gid=1100814982"
+address_response = "https://docs.google.com/spreadsheets/d/1zCdtuSHwzYn4idJM6ZZzzLJbQh4cJjf8uL8b4FySVCw/edit?resourcekey#gid=1443213949"
 
 # Related to assignment count optimization
 dict_c_diff_score_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.001, 'oc': 0.001, 'ect': 0.01}
@@ -44,7 +45,7 @@ l_date_duty_skip_manual = []
 # Fixed parameters
 ###############################################################################
 # Used for assignment
-year_start = 2023
+year_start = 2024
 month_start = 4
 
 # Fixed parameters for optimizing assignment count
