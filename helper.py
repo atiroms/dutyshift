@@ -422,10 +422,7 @@ def convert_result(p_month, p_data, d_assign_date_duty, d_availability,
 ################################################################################
 # Prepare calendar for google forms
 ################################################################################
-def prep_forms2(p_month, p_data, d_cal, dict_duty):
-    #l_duty = ['am', 'pm', 'day', 'ocday', 'night', 'ocnight']
-    dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'emnight': '救急当直', 'ocnight': '当直OC'}
-    
+def prep_forms2(p_month, p_data, d_cal, dict_duty, dict_duty_jpn, dict_title_duty):
     d_cal['holiday_wday'] = [a and b for a, b in zip(d_cal['wday'].isin([0, 1, 2, 3, 4]).tolist(), d_cal['holiday'].tolist())]
 
     l_cal_duty = []
@@ -443,14 +440,7 @@ def prep_forms2(p_month, p_data, d_cal, dict_duty):
 
     d_cal_duty = d_cal_duty[['date', 'wday', 'duty', 'holiday_wday','title_dateduty']]
 
-    # Dictionary of title and duty
-    dict_title_duty = {'assoc': ['ocday', 'ocnight'],
-                       'instr': ['am', 'pm', 'ocday', 'ocnight'],
-                       'assist_leader': ['am', 'pm', 'day', 'night', 'ocday', 'ocnight'],
-                       'assist_subleader': ['am', 'pm', 'day', 'night'],
-                       'limtermclin': ['am', 'pm', 'day', 'night'],
-                       'stud': ['day', 'night'],
-                       'assist_child': ['am', 'pm']}
+
 
     dict_l_form = {}
     for title in dict_title_duty.keys():
@@ -554,7 +544,7 @@ def prep_availability(p_month, p_data, d_date_duty, d_cal):
 # Prepare calendar of the month
 ################################################################################
 def prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
-                  year_plan, month_plan):
+                  year_plan, month_plan, dict_score_duty, dict_class_duty):
     dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
 
     # Prepare d_cal (calendar with existence of each duty)
@@ -594,12 +584,13 @@ def prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l
     d_date_duty.index = range(len(d_date_duty))
 
     # Calculate scores
-    d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
+    #d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
+    d_score_duty = pd.DataFrame(dict_score_duty)
     d_score_duty.columns = [d_score_duty.columns.tolist()[0]] + ['score_' + col for col in d_score_duty.columns.tolist()[1:]]
     d_date_duty = pd.merge(d_date_duty, d_score_duty, on = 'duty', how = 'left')
 
     # Calculate class of duty
-    d_date_duty, s_cnt_class_duty = date_duty2class(p_root, d_date_duty, l_class_duty)
+    d_date_duty, s_cnt_class_duty = date_duty2class(p_root, d_date_duty, l_class_duty, dict_class_duty)
 
     d_assign_manual = pd.DataFrame({'date_duty': d_date_duty['date_duty'].to_list(), 'id_member': None})
 
@@ -701,9 +692,10 @@ def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start)
 ################################################################################
 # Convert date_duty to class
 ################################################################################
-def date_duty2class(p_root, d_date_duty, l_class_duty):
+def date_duty2class(p_root, d_date_duty, l_class_duty, dict_class_duty):
     # Load class data
-    d_class_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/class_duty.csv'))
+    #d_class_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/class_duty.csv'))
+    d_class_duty = pd.DataFrame(dict_class_duty)
     #l_class_duty = sorted(list(set(d_class_duty['class'].tolist())))
     d_date_duty[['class_' + class_duty for class_duty in  l_class_duty]] = False
 

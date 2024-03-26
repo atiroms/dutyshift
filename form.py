@@ -6,24 +6,9 @@ import os, datetime
 from helper import *
 
 
-###############################################################################
-# Parameters
-###############################################################################
-# Unfixed parameters
-#year_plan = 2024
-#month_plan = 1
-#l_holiday = [1, 2, 3, 8]
-#l_date_ect_cancel = []
 
-
-def prep_form(year_plan, month_plan, l_holiday, l_date_ect_cancel):
-    # Fixed parameters
-    l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
-    day_em = 2 # Wednesday
-    l_week_em = [] # 1st and 3rd weeks
-
-    l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
-    dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
+def prepare_form(year_plan, month_plan, l_holiday, l_date_ect_cancel, l_day_ect, day_em, l_week_em,
+                 l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn, dict_title_duty, dict_class_duty):
 
     ###############################################################################
     # Script path
@@ -55,9 +40,9 @@ def prep_form(year_plan, month_plan, l_holiday, l_date_ect_cancel):
     # Prepare calendar and all duties of the month
     d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty \
         = prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel,
-                        day_em, l_week_em, year_plan, month_plan)
+                        day_em, l_week_em, year_plan, month_plan, dict_score_duty, dict_class_duty)
 
     # Prepare calendar for google forms
-    d_cal_duty, d_form = prep_forms2(p_month, p_data, d_cal, dict_duty)
+    d_cal_duty, d_form = prep_forms2(p_month, p_data, d_cal, dict_duty, dict_duty_jpn, dict_title_duty)
 
     return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty, d_cal_duty, d_form
