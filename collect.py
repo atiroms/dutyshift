@@ -1,82 +1,29 @@
 
-###############################################################################
-# Libraries
-###############################################################################
 import numpy as np, pandas as pd
 import os, datetime
 from helper import *
 
+def collect_availability(lp_root, year_plan, month_plan, address_response, dict_jpnday, dict_duty_jpn):
 
-###############################################################################
-# Parameters
-###############################################################################
-#year_plan = 2024
-#month_plan = 1
-#address_response = "https://docs.google.com/spreadsheets/d/1zfubUfk7_fs3O-u0HFFH1yVlqonfeMjrccNu4ubgbbg/edit?resourcekey#gid=1662573061"
-#address_response = "https://docs.google.com/spreadsheets/d/18enxLaXnQ8YSGEBEZCPEVvOQFtz8W9ktYt2L0Qh9wIM/edit?resourcekey#gid=1314164618"
-#address_response = "https://docs.google.com/spreadsheets/d/1kQ-5CSB1tyoa8tQKnXxyLJGs26O-PB6fapb_woeQOqc/edit?resourcekey#gid=85558763"
+    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = 'clct')
 
-
-def collect_availability(year_plan, month_plan, address_response):
-
-    ###############################################################################
-    # Script path
-    ###############################################################################
-    p_root = None
-    for p_test in ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']:
-        if os.path.isdir(p_test):
-            p_root = p_test
-
-    if p_root is None:
-        print('No root directory.')
-    else:
-        p_script=os.path.join(p_root,'GitHub/dutyshift')
-        os.chdir(p_script)
-        # Set paths and directories
-        d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
-        p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
-        d_data = datetime.datetime.now().strftime('collect_%Y%m%d_%H%M%S')
-        p_result = os.path.join(p_month, 'result')
-        p_data = os.path.join(p_result, d_data)
-        for p_dir in [p_result, p_data]:
-            if not os.path.exists(p_dir):
-                os.makedirs(p_dir)
-
-    ###############################################################################
     # Read data
-    ###############################################################################
     sheet_id = address_response.split('/')[5]
     name_sheet = "FormResponses1"
     d_availability_src = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={name_sheet}")
-
     d_member = read_member(p_root, year_plan, month_plan)
 
-
-    ###############################################################################
     # Check missing members
-    ###############################################################################
     l_member_ans = list(set(d_availability_src['お名前（敬称略）'].tolist()))
-    #l_member_all = d_member['name_jpn_full'].tolist()
-    #l_member_all = [m.replace('\u3000',' ') for m in l_member_all]
     l_member_active = d_member.loc[d_member['active'] == True, 'name_jpn_full'].tolist()
     l_member_missing = [m for m in l_member_active if m not in l_member_ans]
     str_member_missing = ', '.join(l_member_missing)
     l_mail_missing = d_member[d_member['name_jpn_full'].isin(l_member_missing)]['email'].tolist()
     str_mail_missing = ', '.join(l_mail_missing)
 
-    print('Missing members/emails:')
-    print(str_member_missing)
-    print(str_mail_missing)
-
-
-    ###############################################################################
     # Format answer
-    ###############################################################################
     d_cal_duty = pd.read_csv(os.path.join(p_month, 'duty.csv'))
     l_col = d_availability_src.columns.tolist()
-
-    dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
-    dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'ocnight': '当直OC'}
 
     # Collect weekly pattern
     dict_l_weekly = {}
@@ -177,6 +124,27 @@ def collect_availability(year_plan, month_plan, address_response):
     d_availability.index = d_availability['id_member'].tolist()
     d_info = d_availability[['id_member','name_jpn_full','designation','assign_twice','request']].copy()
     d_availability = d_availability[['id_member','name_jpn_full'] + list(dict_l_availability.keys())]
+
+    # Print missing
+    if len(l_member_missing) > 0:
+        print('Missing members and emails:')
+        print(str_member_missing)
+        print(str_mail_missing)
+
+    # Print info
+    d_info_print = d_info.loc[~d_info['request'].isna(), :]
+    if len(d_info_print) > 0:
+        print('Requests:')
+        for index, row in d_info_print.iterrows():
+            print(row['name_jpn_full'], row['request'])
+
+    # Print designation inconsistency
+    for member in d_info['id_member'].tolist():
+        designation_form = d_info.loc[d_info['id_member'] == member, 'designation'].tolist()[0]
+        if ~np.isnan(designation_form):
+            designation_src = d_member.loc[d_member['id_member'] == member, 'designation'].tolist()[0]
+            if designation_form != designation_src:
+                print('Inconsistent designation status, ID:', member, designation_form, designation_src)
 
     for p_save in [p_month, p_data]:
         d_availability.to_csv(os.path.join(p_save, 'availability_src.csv'), index = False)

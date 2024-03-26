@@ -6,7 +6,34 @@ import datetime, calendar, os
 import numpy as np, pandas as pd
 from math import ceil
 from pulp import *
-from ortoolpy import addvars, addbinvars
+from ortoolpy import addvars
+
+
+################################################################################
+# Prepare data directories
+################################################################################
+def prep_dirs(lp_root, year_plan, month_plan, prefix_dir):
+    p_root = None
+    for p_r in lp_root:
+        if os.path.isdir(p_r):
+            p_root = p_r
+
+    if p_root is None:
+        print('No root directory.')
+    else:
+        p_script = os.path.join(p_root,'GitHub/dutyshift')
+        os.chdir(p_script)
+        # Set paths and directories
+        d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
+        p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
+        d_data = prefix_dir + '_' + datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        p_result = os.path.join(p_month, 'result')
+        p_data = os.path.join(p_result, d_data)
+        for p_dir in [p_result, p_data]:
+            if not os.path.exists(p_dir):
+                os.makedirs(p_dir)
+
+    return p_root, p_month, p_data 
 
 
 ################################################################################
@@ -146,9 +173,13 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
             prob_cnt += (dv_score_current.loc[member, type_score] == \
                          lpDot(lv_lim_exact_tmp, l_constant_tmp))
             # Current + past score
+            if member in d_score_past['id_member'].tolist():
+                score_past = d_score_past.loc[d_score_past['id_member'] == member, type_score].values[0]
+            else:
+                score_past = 0.0
             prob_cnt += (dv_score_total.loc[member, type_score] == \
                          dv_score_current.loc[member, type_score] + \
-                         d_score_past.loc[d_score_past['id_member'] == member, type_score].values[0])
+                         score_past)
 
     # Calculate sum of score differences
     n_grp_max = d_grp_score.max().max() + 1
@@ -213,7 +244,7 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
 ################################################################################
 # Prepare data of member specs and assignment limits
 ################################################################################
-def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start):
+def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start, dict_score_duty):
     l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn',
                     'designation_jpn','ect_asgn_jpn','name','title_short',
                     'designation', 'team', 'ect_leader', 'ect_subleader', 'active']
@@ -228,7 +259,7 @@ def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, y
     d_lim.index = d_member['id_member'].tolist()
 
     # Calculate past scores
-    d_score_past = past_score(p_root, d_member, year_plan, month_plan, year_start, month_start)
+    d_score_past = past_score(p_root, d_member, year_plan, month_plan, year_start, month_start, dict_score_duty)
 
     # Split assignment limit data into hard and soft
     d_lim_hard, d_lim_soft = split_lim(d_lim, l_class_duty)
@@ -254,7 +285,7 @@ def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, y
 ################################################################################
 # Extract data from optimized variables
 ################################################################################
-def extract_assignment(p_root, p_month, p_data, year_plan, month_plan, dv_assign, d_member, d_date_duty):
+def extract_assignment(p_month, p_data, year_plan, month_plan, dv_assign, d_member, d_date_duty, dict_score_duty):
     # Convert variables to fixed values
     d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
                             index = dv_assign.index, columns = dv_assign.columns).astype(bool)
@@ -271,7 +302,8 @@ def extract_assignment(p_root, p_month, p_data, year_plan, month_plan, dv_assign
     d_assign_date_duty = d_assign_date_duty.loc[:,['date_duty', 'date','duty', 'id_member','name','name_jpn','cnt']]
 
     # Score calculation
-    d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
+    #d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
+    d_score_duty = pd.DataFrame(dict_score_duty)
     l_type_score = [col for col in d_score_duty.columns if col != 'duty']
     d_assign_date_duty = pd.merge(d_assign_date_duty, d_score_duty, on = 'duty', how = 'left')
     d_assign_date_duty['year'] = year_plan
@@ -422,6 +454,7 @@ def convert_result(p_month, p_data, d_assign_date_duty, d_availability,
 ################################################################################
 # Prepare calendar for google forms
 ################################################################################
+'''
 def prep_forms2(p_month, p_data, d_cal, dict_duty, dict_duty_jpn, dict_title_duty):
     d_cal['holiday_wday'] = [a and b for a, b in zip(d_cal['wday'].isin([0, 1, 2, 3, 4]).tolist(), d_cal['holiday'].tolist())]
 
@@ -439,8 +472,6 @@ def prep_forms2(p_month, p_data, d_cal, dict_duty, dict_duty_jpn, dict_title_dut
     d_cal_duty['title_dateduty'] = d_cal_duty['title_date'] + d_cal_duty['duty_jpn']
 
     d_cal_duty = d_cal_duty[['date', 'wday', 'duty', 'holiday_wday','title_dateduty']]
-
-
 
     dict_l_form = {}
     for title in dict_title_duty.keys():
@@ -505,7 +536,7 @@ def prep_forms(p_month, p_data, d_cal, dict_duty):
         d_form.to_csv(os.path.join(p_save, 'form.csv'), index = False)
 
     return d_cal_duty, d_form
-
+'''
 
 ################################################################################
 # Prepare data of member availability
@@ -645,7 +676,7 @@ def split_lim(d_lim, l_class_duty):
 ################################################################################
 # Calculate past scores
 ################################################################################
-def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start):
+def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start, dict_score_duty):
     # Load Past assignments
     l_dir_pastdata = os.listdir(os.path.join(p_root, 'Dropbox/dutyshift'))
     l_dir_pastdata = [dir for dir in l_dir_pastdata if dir.startswith('20')]
@@ -669,7 +700,8 @@ def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start)
         d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] == 1]
 
     # Calculate past scores of each member
-    d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
+    #d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
+    d_score_duty = pd.DataFrame(dict_score_duty)
     l_type_score = [col for col in d_score_duty.columns if col != 'duty']
 
     if len(l_dir_pastdata) > 0:
