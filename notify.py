@@ -1,7 +1,4 @@
 
-###############################################################################
-# Libraries
-###############################################################################
 import pandas as pd, datetime as dt
 import os
 from time import sleep
@@ -14,42 +11,8 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 
-###############################################################################
-# Parameters
-###############################################################################
-#year_plan = 2024
-#month_plan = 1
-#
-#t_sleep = 600
-#
-#l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
-#l_scope = ['https://www.googleapis.com/auth/calendar']
-
-
-###############################################################################
-# Script path
-###############################################################################
-
-def notify(year_plan, month_plan, l_scope, t_sleep):
-    p_root = None
-    for p_test in ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']:
-        if os.path.isdir(p_test):
-            p_root = p_test
-
-    if p_root is None:
-        print('No root directory.')
-    else:
-        p_script = os.path.join(p_root,'GitHub/dutyshift')
-        os.chdir(p_script)
-        # Set paths and directories
-        d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
-        p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
-        d_data = dt.datetime.now().strftime('notate_%Y%m%d_%H%M%S')
-        p_result = os.path.join(p_month, 'result')
-        p_data = os.path.join(p_result, d_data)
-        for p_dir in [p_result, p_data]:
-            if not os.path.exists(p_dir):
-                os.makedirs(p_dir)
+def notify(lp_root, year_plan, month_plan, l_scope, t_sleep):
+    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
 
 
     ###############################################################################

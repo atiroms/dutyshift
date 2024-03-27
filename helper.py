@@ -12,7 +12,7 @@ from ortoolpy import addvars
 ################################################################################
 # Prepare data directories
 ################################################################################
-def prep_dirs(lp_root, year_plan, month_plan, prefix_dir):
+def prep_dirs(lp_root, year_plan, month_plan, prefix_dir, make_data_dir = True):
     p_root = None
     for p_r in lp_root:
         if os.path.isdir(p_r):
@@ -26,12 +26,16 @@ def prep_dirs(lp_root, year_plan, month_plan, prefix_dir):
         # Set paths and directories
         d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
         p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
-        d_data = prefix_dir + '_' + datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        p_result = os.path.join(p_month, 'result')
-        p_data = os.path.join(p_result, d_data)
-        for p_dir in [p_result, p_data]:
-            if not os.path.exists(p_dir):
-                os.makedirs(p_dir)
+
+        if make_data_dir:
+            d_data = prefix_dir + '_' + datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+            p_result = os.path.join(p_month, 'result')
+            p_data = os.path.join(p_result, d_data)
+            for p_dir in [p_result, p_data]:
+                if not os.path.exists(p_dir):
+                    os.makedirs(p_dir)
+        else:
+            p_data = None
 
     return p_root, p_month, p_data 
 
@@ -428,10 +432,15 @@ def convert_result(p_month, p_data, d_assign_date_duty, d_availability,
     d_score_current = d_score_current[['id_member'] + l_type_score]
 
     d_score_past = pd.read_csv(os.path.join(p_month, 'score_past.csv'), index_col = 0)
+    d_score_past = d_score_past.loc[~np.isnan(d_score_past['id_member']), :]
     d_score_past.index = d_score_past['id_member'].tolist()
+
     d_score_total = d_score_past[l_type_score] + d_score_current[l_type_score]
-    d_score_total = pd.concat([pd.DataFrame({'id_member': d_score_current['id_member'].tolist()},
-                                            index = d_score_current['id_member'].tolist()),
+    #d_score_total = pd.concat([pd.DataFrame({'id_member': d_score_current['id_member'].tolist()},
+    #                                        index = d_score_current['id_member'].tolist()),
+    #                           d_score_total], axis = 1)
+    d_score_total = pd.concat([pd.DataFrame({'id_member': [int(id) for id in d_score_total.index.tolist()]},
+                                            index = [int(id) for id in d_score_total.index.tolist()]),
                                d_score_total], axis = 1)
     d_score_print = d_member[['id_member','name_jpn_full']].copy()
     d_score_print = pd.merge(d_score_print, d_score_current, on = 'id_member', how = 'left')
@@ -450,93 +459,6 @@ def convert_result(p_month, p_data, d_assign_date_duty, d_availability,
 
     return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print
 
-
-################################################################################
-# Prepare calendar for google forms
-################################################################################
-'''
-def prep_forms2(p_month, p_data, d_cal, dict_duty, dict_duty_jpn, dict_title_duty):
-    d_cal['holiday_wday'] = [a and b for a, b in zip(d_cal['wday'].isin([0, 1, 2, 3, 4]).tolist(), d_cal['holiday'].tolist())]
-
-    l_cal_duty = []
-    for duty in dict_duty_jpn.keys():
-        d_cal_duty = d_cal.loc[d_cal[duty] == True, ['date', 'title_date', 'wday', 'holiday_wday']].copy()
-        d_cal_duty['duty'] = duty
-        l_cal_duty.append(d_cal_duty)
-    d_cal_duty = pd.concat(l_cal_duty, axis = 0)
-    d_cal_duty['duty_sort'] = d_cal_duty['duty'].map(dict_duty)
-    d_cal_duty = d_cal_duty.sort_values(by = ['date', 'duty_sort'])
-    d_cal_duty.index = range(len(d_cal_duty))
-
-    d_cal_duty['duty_jpn'] = d_cal_duty['duty'].map(dict_duty_jpn)
-    d_cal_duty['title_dateduty'] = d_cal_duty['title_date'] + d_cal_duty['duty_jpn']
-
-    d_cal_duty = d_cal_duty[['date', 'wday', 'duty', 'holiday_wday','title_dateduty']]
-
-    dict_l_form = {}
-    for title in dict_title_duty.keys():
-        l_duty_title = dict_title_duty[title]
-        l_dateduty_holiday = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title) & d_cal_duty['holiday_wday'], 'title_dateduty'].tolist()
-        l_dateduty = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title) & ~d_cal_duty['holiday_wday'], 'title_dateduty'].tolist()
-        if len(l_dateduty_holiday) > 0:
-            dict_l_form[title + '_holiday'] = l_dateduty_holiday
-        if len(l_dateduty) > 0:
-            dict_l_form[title + '_others'] = l_dateduty
-    d_form = pd.DataFrame(dict([(key, pd.Series(l_form)) for key, l_form in dict_l_form.items() ]))
-    # Save data
-    for p_save in [p_month, p_data]:
-        d_cal_duty.to_csv(os.path.join(p_save, 'duty.csv'), index = False)
-        d_form.to_csv(os.path.join(p_save, 'form.csv'), index = False)
-
-    return d_cal_duty, d_form
-
-def prep_forms(p_month, p_data, d_cal, dict_duty):
-    #l_duty = ['am', 'pm', 'day', 'ocday', 'night', 'ocnight']
-    dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'emnight': '救急当直', 'ocnight': '当直OC'}
-    
-    l_cal_duty = []
-    for duty in dict_duty_jpn.keys():
-        d_cal_duty = d_cal.loc[d_cal[duty] == True, ['date', 'title_date']].copy()
-        d_cal_duty['duty'] = duty
-        l_cal_duty.append(d_cal_duty)
-    d_cal_duty = pd.concat(l_cal_duty, axis = 0)
-    d_cal_duty['duty_sort'] = d_cal_duty['duty'].map(dict_duty)
-    d_cal_duty = d_cal_duty.sort_values(by = ['date', 'duty_sort'])
-    d_cal_duty.index = range(len(d_cal_duty))
-
-    d_cal_duty['duty_jpn'] = d_cal_duty['duty'].map(dict_duty_jpn)
-    d_cal_duty['title_dateduty'] = d_cal_duty['title_date'] + d_cal_duty['duty_jpn']
-
-    d_cal_duty = d_cal_duty[['date','duty','title_dateduty']]
-
-    # Dictionary of title and duty
-    dict_title_duty = {'assoc': ['ocday', 'ocnight'],
-                       'instr': ['am','pm','ocday','ocnight'],
-                       'assist_leader': ['am','pm','day','night','emnight','ocday','ocnight'],
-                       'assist_subleader': ['am','pm','day','night','emnight'],
-                       'limtermclin': ['am','pm','day','night'],
-                       'stud': ['day','night']}
-
-    dict_l_form = {}
-    for title in dict_title_duty.keys():
-        l_duty_title = dict_title_duty[title]
-        l_duty_title_ampm = [duty for duty in l_duty_title if duty in ['am','pm']]
-        l_duty_title_daynight = [duty for duty in l_duty_title if duty not in ['am','pm']]
-        if len(l_duty_title_ampm) > 0:
-            col = title + '_ampm'
-            dict_l_form[col] = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title_ampm), 'title_dateduty'].tolist()
-        if len(l_duty_title_daynight) > 0:
-            col = title + '_daynight'
-            dict_l_form[col] = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title_daynight), 'title_dateduty'].tolist()
-    d_form = pd.DataFrame(dict([(key, pd.Series(l_form)) for key, l_form in dict_l_form.items() ]))
-
-    # Save data
-    for p_save in [p_month, p_data]:
-        d_cal_duty.to_csv(os.path.join(p_save, 'duty.csv'), index = False)
-        d_form.to_csv(os.path.join(p_save, 'form.csv'), index = False)
-
-    return d_cal_duty, d_form
-'''
 
 ################################################################################
 # Prepare data of member availability

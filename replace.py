@@ -1,7 +1,4 @@
 
-###############################################################################
-# Libraries
-###############################################################################
 import numpy as np, pandas as pd
 import os
 import datetime as dt
@@ -14,36 +11,9 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 
-###############################################################################
-# Parameters
-###############################################################################
-#year_plan = 2024
-#month_plan = 1
-#
-#sheet_id = "1glzf0fM1jyAZffFE7l7SHE26m3M4QBI5AAOsdSlmHxE"
-#
-#l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
-#l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
-#l_scope = ['https://www.googleapis.com/auth/calendar']
+def check_replacement(lp_root, year_plan, month_plan, sheet_id):
+    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
 
-
-def check_replacement(year_plan, month_plan, sheet_id):
-    ###############################################################################
-    # Script path
-    ###############################################################################
-    p_root = None
-    for p_test in ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']:
-        if os.path.isdir(p_test):
-            p_root = p_test
-
-    if p_root is None:
-        print('No root directory.')
-    else:
-        p_script=os.path.join(p_root,'GitHub/dutyshift')
-        os.chdir(p_script)
-        # Set paths and directories
-        d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
-        p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
 
     ###############################################################################
     # Read and convert data
@@ -104,29 +74,8 @@ def check_replacement(year_plan, month_plan, sheet_id):
     return d_replace_checked
 
 
-def replace_assignment(year_plan, month_plan, l_type_score, l_class_duty, d_replace_checked = None):
-    ###############################################################################
-    # Script path
-    ###############################################################################
-    p_root = None
-    for p_test in ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']:
-        if os.path.isdir(p_test):
-            p_root = p_test
-
-    if p_root is None:
-        print('No root directory.')
-    else:
-        p_script=os.path.join(p_root,'GitHub/dutyshift')
-        os.chdir(p_script)
-        # Set paths and directories
-        d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
-        p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
-        d_data = dt.datetime.now().strftime('replace_%Y%m%d_%H%M%S')
-        p_result = os.path.join(p_month, 'result')
-        p_data = os.path.join(p_result, d_data)
-        for p_dir in [p_result, p_data]:
-            if not os.path.exists(p_dir):
-                os.makedirs(p_dir)
+def replace_assignment(lp_root, year_plan, month_plan, l_type_score, l_class_duty, d_replace_checked = None):
+    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = 'rplc')
 
     ###############################################################################
     # Replace data
@@ -164,24 +113,8 @@ def replace_assignment(year_plan, month_plan, l_type_score, l_class_duty, d_repl
     return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print
 
 
-def add_replaced_calendar(year_plan, month_plan, d_replace_checked, l_scope):
-    ###############################################################################
-    # Script path
-    ###############################################################################
-    p_root = None
-    for p_test in ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']:
-        if os.path.isdir(p_test):
-            p_root = p_test
-
-    if p_root is None:
-        print('No root directory.')
-    else:
-        p_script=os.path.join(p_root,'GitHub/dutyshift')
-        os.chdir(p_script)
-        # Set paths and directories
-        d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
-        p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
-
+def add_replaced_calendar(lp_root, year_plan, month_plan, d_replace_checked, l_scope):
+    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
 
     ###############################################################################
     # Handle Credentials and token
