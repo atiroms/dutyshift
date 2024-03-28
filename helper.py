@@ -68,6 +68,7 @@ def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_m
         for date_duty in l_date_duty_manual_assign:
             id_member = d_assign_manual.loc[d_assign_manual['date_duty'] == date_duty, 'id_member'].tolist()[0]
             d_availability.loc[date_duty, id_member] = 1
+            print(date_duty, ' manually set to ', id_member)
     # Skip date_duty for which no one is available, and not manually assigned
     l_date_duty_skip = [date_duty for date_duty in l_date_duty_unavailable if not date_duty in l_date_duty_manual_assign]
     
