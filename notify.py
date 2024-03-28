@@ -11,7 +11,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 
-def notify(lp_root, year_plan, month_plan, l_scope, t_sleep):
+def notify(lp_root, year_plan, month_plan, l_scope, t_sleep, dict_time_duty):
     p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
 
 
@@ -43,7 +43,8 @@ def notify(lp_root, year_plan, month_plan, l_scope, t_sleep):
     ###############################################################################
     # Create and share events
     ###############################################################################
-    d_time_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/time_duty.csv'))
+    #d_time_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/time_duty.csv'))
+    d_time_duty = pd.DataFrame(dict_time_duty)
     d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
     d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'))
     d_date_duty = pd.read_csv(os.path.join(p_month, 'assign_date_duty.csv'))
