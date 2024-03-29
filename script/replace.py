@@ -2,7 +2,7 @@
 import numpy as np, pandas as pd
 import os
 import datetime as dt
-from helper import *
+from script.helper import *
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials

@@ -2,7 +2,7 @@
 import pandas as pd, datetime as dt
 import os
 from time import sleep
-from helper import *
+from script.helper import *
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials

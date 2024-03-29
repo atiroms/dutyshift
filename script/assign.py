@@ -3,7 +3,7 @@ import numpy as np, pandas as pd
 import os
 from pulp import *
 from ortoolpy import addbinvars
-from helper import *
+from script.helper import *
 
 def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_start,
                               l_type_score, l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,

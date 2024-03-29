@@ -1,7 +1,7 @@
 
 import pandas as pd
 import os
-from helper import *
+from script.helper import *
 
 def check_availability_all(lp_root, year_plan, month_plan):
     p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
