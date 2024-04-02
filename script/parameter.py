@@ -44,7 +44,7 @@ dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'o
 ll_avoid_adjacent = [[['pm', 0], ['night', 0], ['emnight', 0], ['ocnight', 0]], [['night', 0], ['emnight', 0], ['ocnight', 0], ['ect', 1], ['am', 1]]]
 l_title_fulltime = ['assist'] # ['limterm_instr', 'assist', 'limterm_clin']
 # Notification
-t_sleep = 600
+t_sleep = 600.0
 dict_time_duty = {'duty': ['am', 'pm', 'day', 'night', 'emnight', 'ocday', 'ocnight', 'ect'],
                   'duty_jpn': ['午前日直', '午後日直', '日直', '当直', '救急当直', '日直OC', '当直OC', 'ECT当番'],
                   'start': ['08:30', '12:30', '08:30', '17:15', '17:15', '08:30', '17:15', '07:30'],

@@ -3,6 +3,7 @@ import numpy as np, pandas as pd
 import os
 import datetime as dt
 from script.helper import *
+from script.notify import *
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -47,7 +48,7 @@ def check_replacement(lp_root, year_plan, month_plan, sheet_id):
     d_replace_checked = pd.DataFrame(columns = d_replace.columns)
     for id, row in d_replace.iterrows():
         row_duplicate = d_replace_checked.loc[(d_replace_checked['ymd'] == row['ymd']) & (d_replace_checked['duty'] == row['duty']), :]
-        if len(row_duplicate) > 0:
+        if len(row_duplicate) > 0: # Overwirte if duplicate
             d_replace_checked.loc[(d_replace_checked['ymd'] == row['ymd']) & (d_replace_checked['duty'] == row['duty']), :] = row.to_list()
         else:
             d_replace_checked.loc[len(d_replace_checked), :] = row
@@ -55,7 +56,9 @@ def check_replacement(lp_root, year_plan, month_plan, sheet_id):
     # Delete already replaced data
     for id, row in d_replace_checked.iterrows():
         member_src = d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member', 'name_jpn']]
-        if row['id_member'] == member_src['id_member'].tolist()[0]:
+        if row['id_member'] == member_src['id_member'].tolist()[0]: # already replaced
+            d_replace_checked = d_replace_checked.drop(id)
+        elif np.isnan(row['id_member']) and np.isnan(member_src['id_member'].tolist()[0]):
             d_replace_checked = d_replace_checked.drop(id)
         else:
             d_replace_checked.loc[id, 'name_jpn_src'] = member_src['name_jpn'].tolist()[0]
@@ -113,7 +116,7 @@ def replace_assignment(lp_root, year_plan, month_plan, l_type_score, l_class_dut
     return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print
 
 
-def add_replaced_calendar(lp_root, year_plan, month_plan, d_replace_checked, l_scope):
+'''def add_replaced_calendar(lp_root, year_plan, month_plan, d_replace_checked, l_scope):
     p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
 
     ###############################################################################
@@ -219,3 +222,4 @@ def add_replaced_calendar(lp_root, year_plan, month_plan, d_replace_checked, l_s
         l_result_event.append(result_event)
 
     return l_result_event
+'''
