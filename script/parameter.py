@@ -27,7 +27,8 @@ dict_class_duty = {'class': ['ampm', 'ampm', 'daynight_tot', 'daynight_tot', 'da
                    'date':  ['all', 'all', 'all', 'all', 'all', 'all', 'wd', 'all', 'all', 'hd', 'all', 'all', 'all', 'all', 'all'],
                    'duty':  ['am', 'pm', 'day', 'night', 'emnight', 'emnight', 'night', 'emnight', 'day', 'night', 'ocday', 'ocnight', 'ocday', 'ocnight', 'ect']}
 # Data collection
-address_response = "https://docs.google.com/spreadsheets/d/1zCdtuSHwzYn4idJM6ZZzzLJbQh4cJjf8uL8b4FySVCw/edit?resourcekey#gid=1443213949"
+#address_response = "https://docs.google.com/spreadsheets/d/1zCdtuSHwzYn4idJM6ZZzzLJbQh4cJjf8uL8b4FySVCw/edit?resourcekey#gid=1443213949"
+id_sheet_response = '1zCdtuSHwzYn4idJM6ZZzzLJbQh4cJjf8uL8b4FySVCw'
 # Optimizing assignment count
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em, l_week_em = 2, [] # Wednesday, 1st and 3rd weeks
