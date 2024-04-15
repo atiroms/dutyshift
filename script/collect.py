@@ -2,6 +2,7 @@
 import numpy as np, pandas as pd
 import os, datetime
 from script.helper import *
+from script.check import *
 
 def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict_jpnday, dict_duty_jpn):
 
@@ -146,9 +147,14 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
             if designation_form != designation_src:
                 print('Inconsistent designation status, ID:', member, designation_form, designation_src)
 
+    d_availability_duty = check_availability_duty(d_member, d_availability)
+    d_availability_member = check_availability_member(d_member, d_availability)
+
     for p_save in [p_month, p_data]:
         d_availability.to_csv(os.path.join(p_save, 'availability_src.csv'), index = False)
         d_info.to_csv(os.path.join(p_save, 'info.csv'), index = False)
         d_member.to_csv(os.path.join(p_save, 'member.csv'), index = False)
+        d_availability_duty.to_csv(os.path.join(p_save, 'availability_duty.csv'), index = True)
+        d_availability_member.to_csv(os.path.join(p_save, 'availability_member.csv'), index = False)
 
     return str_member_missing, str_mail_missing, d_availability, d_info, d_member
