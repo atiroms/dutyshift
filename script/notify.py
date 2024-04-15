@@ -222,7 +222,11 @@ def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_du
                                 'id_member': id_member,
                                 'name_jpn': name_jpn,
                                 'id_event': row['id']})
-    
-    d_assign_calendar = pd.DataFrame(l_assign_calendar)
+        
+
+    if len(l_assign_calendar) > 0:
+        d_assign_calendar = pd.DataFrame(l_assign_calendar)
+    else:
+        d_assign_calendar = pd.DataFrame(columns = ['date_duty', 'year', 'month', 'date', 'duty', 'id_member', 'name_jpn', 'id_event'])
 
     return d_assign_calendar
