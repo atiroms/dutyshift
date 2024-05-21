@@ -465,11 +465,13 @@ def convert_result(p_month, p_data, d_assign_date_duty, d_availability,
 # Prepare data of member availability
 ################################################################################
 def prep_availability(p_month, p_data, d_date_duty, d_cal):
-    d_availability = pd.read_csv(os.path.join(p_month, 'availability_src.csv'))
-    d_availability.set_index('id_member', inplace=True)
-    d_availability.drop(['name_jpn_full'], axis = 1, inplace = True)
-    d_availability = d_availability.T
+    #d_availability = pd.read_csv(os.path.join(p_month, 'availability_src.csv'))
+    #d_availability.set_index('id_member', inplace = True)
+    #d_availability.drop(['name_jpn_full'], axis = 1, inplace = True)
+    #d_availability = d_availability.T
     #d_availability = pd.concat([pd.DataFrame({'id_member': d_availability.index}), d_availability], axis = 1)
+    d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
+    d_availability.columns = [int(col) for col in d_availability.columns]
     
     d_availability_ratio = pd.DataFrame(index = d_availability.index, columns = ['total','available','ratio'])
     d_availability_ratio['total'] = d_availability.count(axis = 1)
@@ -485,7 +487,7 @@ def prep_availability(p_month, p_data, d_date_duty, d_cal):
     d_availability = d_availability.loc[d_date_duty['date_duty'],:]
     d_availability = pd.concat([pd.DataFrame({'date_duty': d_availability.index}, index = d_availability.index), d_availability], axis = 1)
     for p_save in [p_month, p_data]:
-        d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = False)
+        #d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = False)
         d_availability_ratio.to_csv(os.path.join(p_save, 'availability_ratio.csv'), index = False)
 
     l_member = [col for col in d_availability.columns.to_list() if col != 'date_duty']

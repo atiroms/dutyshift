@@ -127,7 +127,9 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
 
     # If non-designated member is assigned to ['day', 'night'] for the same date/time,
     # assign one member per date_duty for ['oc_day', 'oc_night']
+
     l_designation = []
+
     for member in l_member:
         l_designation.append(d_member.loc[d_member['id_member'] == member, 'designation'].tolist()[0])
     for duty in ['day', 'night']:

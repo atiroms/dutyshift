@@ -147,11 +147,17 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
             if designation_form != designation_src:
                 print('Inconsistent designation status, ID:', member, designation_form, designation_src)
 
+    #d_availability = pd.read_csv(os.path.join(p_month, 'availability_src.csv'))
+    d_availability.set_index('id_member', inplace = True)
+    d_availability.drop(['name_jpn_full'], axis = 1, inplace = True)
+    d_availability = d_availability.T
+
     d_availability_duty = check_availability_duty(d_member, d_availability)
     d_availability_member = check_availability_member(d_member, d_availability)
 
     for p_save in [p_month, p_data]:
-        d_availability.to_csv(os.path.join(p_save, 'availability_src.csv'), index = False)
+        #d_availability.to_csv(os.path.join(p_save, 'availability_src.csv'), index = False)
+        d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = True)
         d_info.to_csv(os.path.join(p_save, 'info.csv'), index = False)
         d_member.to_csv(os.path.join(p_save, 'member.csv'), index = False)
         d_availability_duty.to_csv(os.path.join(p_save, 'availability_duty.csv'), index = True)
