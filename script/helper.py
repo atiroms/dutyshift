@@ -321,7 +321,8 @@ def extract_assignment(p_month, p_data, year_plan, month_plan, dv_assign, d_memb
     return d_assign, d_assign_date_duty
 
 
-def extract_closeduty(p_month, p_data, dict_dv_closeduty, d_member, dict_closeduty):
+def extract_closeduty(p_month, p_data, dict_dv_closeduty, d_assign_date_duty, d_member, dict_closeduty):
+
     dict_d_closeduty = {}
     for closeduty in dict_dv_closeduty.keys():
         d_closeduty = pd.DataFrame(np.vectorize(value)(dict_dv_closeduty[closeduty]),
@@ -329,19 +330,27 @@ def extract_closeduty(p_month, p_data, dict_dv_closeduty, d_member, dict_closedu
         dict_d_closeduty[closeduty] = d_closeduty
 
     # Closeduty
-    l_closeduty = []
+    l_date_duty_close = []
     for closeduty in dict_d_closeduty.keys():
+        l_duty_close = dict_closeduty[closeduty]['l_duty']
         for member in d_member['id_member'].tolist():
             if member in dict_d_closeduty[closeduty].columns:
                 s_closeduty = dict_d_closeduty[closeduty][member]
                 l_date_closeduty = s_closeduty[s_closeduty > 0].index.tolist()
                 thr_soft = dict_closeduty[closeduty]['thr_soft']
                 for date_start in l_date_closeduty:
-                    date_end = date_start + thr_soft -1
-                    l_closeduty.append([closeduty, member, date_start, date_end])
-    d_closeduty = pd.DataFrame(l_closeduty, columns = ['type_duty', 'id_member', 'date_start', 'date_end'])
-    d_closeduty = pd.merge(d_closeduty, d_member[['id_member', 'name_jpn']], on = 'id_member', how = 'left')
-    d_closeduty = d_closeduty[['type_duty', 'id_member', 'name_jpn', 'date_start', 'date_end']]
+                    date_end = date_start + thr_soft - 1
+                    l_date_duty_close_member = d_assign_date_duty.loc[(d_assign_date_duty['id_member'] == member)
+                                                             & (d_assign_date_duty['date'] >= date_start) & (d_assign_date_duty['date'] <= date_end)
+                                                             & (d_assign_date_duty['duty'].isin(l_duty_close)) & (d_assign_date_duty['duty'].isin(l_duty_close)),'date_duty'].tolist()
+                    l_date_duty_close += l_date_duty_close_member
+                    #l_closeduty.append([closeduty, member, date_start, date_end])
+    #d_closeduty = pd.DataFrame(l_closeduty, columns = ['type_duty', 'id_member', 'date_start', 'date_end'])
+    #d_closeduty = pd.merge(d_closeduty, d_member[['id_member', 'name_jpn']], on = 'id_member', how = 'left')
+    #d_closeduty = d_closeduty[['type_duty', 'id_member', 'name_jpn', 'date_start', 'date_end']]
+    l_date_duty_close = list(set(l_date_duty_close))
+    d_closeduty = d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_close), ['id_member', 'name_jpn', 'date_duty']]
+    d_closeduty['id_member'] = d_closeduty['id_member'].astype('int')
 
     for p_save in [p_month, p_data]:
         d_closeduty.to_csv(os.path.join(p_save, 'closeduty.csv'), index = False)

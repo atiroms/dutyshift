@@ -318,8 +318,11 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
 
     # Solve problem
     prob_assign.solve()
-    v_objective = value(prob_assign.objective)
-    print('Solved: ' + str(LpStatus[prob_assign.status]) + ', ' + str(round(v_objective, 2)))
+    print('Solved: ' + str(LpStatus[prob_assign.status]))
+    print('Total loss: ' + str(round(value(prob_assign.objective), 2)))
+    print('Suboptimality loss: ' + str(round(c_assign_suboptimal * value(v_assign_suboptimal), 2)))
+    print('Count deviation loss: ' + str(round(c_cnt_deviation * value(v_cnt_deviation), 2)))
+    print('Close duty loss: ' + str(round(c_closeduty * value(v_closeduty), 2)))
 
 
     ###############################################################################
@@ -328,14 +331,15 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     d_assign, d_assign_date_duty =\
         extract_assignment(p_month, p_data, year_plan, month_plan, dv_assign, d_member, d_date_duty, dict_score_duty)
 
-    d_closeduty = extract_closeduty(p_month, p_data, dict_dv_closeduty, d_member, dict_closeduty)
-
     d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
         convert_result(p_month, p_data, d_assign_date_duty, d_availability, 
                     d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact)
+    
+    d_closeduty = extract_closeduty(p_month, p_data, dict_dv_closeduty, d_assign_date_duty, d_member, dict_closeduty)
 
-    #print(d_assign_date_print)
     print('Deviation from target:')
     print(d_deviation_summary)
+    print('Close duties:')
+    print(d_closeduty)
 
     return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_score_print, d_closeduty
