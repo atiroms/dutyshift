@@ -75,7 +75,7 @@ def update_calendar(lp_root, year_plan, month_plan, l_scope, dict_time_duty, t_s
     # Add events
     d_date_duty_add = d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_add + l_date_duty_change), :]
     d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
-    d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'))
+    d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
     d_time_duty = pd.DataFrame(dict_time_duty)
 
     if len(d_date_duty_add) > 10: # member-wise addition
@@ -125,7 +125,7 @@ def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availab
                 dt.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
         t_end = (dt.datetime(year = year, month = month, day = date) +\
                 dt.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
-        s_id_member_proxy = d_availability.loc[d_availability['date_duty'] == date_duty,:].reset_index(drop=True).squeeze().iloc[1:]
+        s_id_member_proxy = d_availability.loc[d_availability.index == date_duty,:].reset_index(drop=True).squeeze().iloc[1:]
         l_id_member_proxy = [int(id) for id in s_id_member_proxy.loc[s_id_member_proxy > 0].index.tolist()]
         d_member_proxy = d_member.loc[d_member['id_member'].isin(l_id_member_proxy),['id_member', 'name_jpn_full', 'designation']]
         # Consider designation status for day and night
