@@ -37,10 +37,10 @@ l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_to
 dict_score_class = {'score': ['ampm', 'daynight', 'daynight', 'ampmdaynight', 'ampmdaynight', 'ampmdaynight', 'oc', 'ect'],
                     'class': ['ampm', 'daynight_tot', 'night_em', 'ampm', 'daynight_tot', 'night_em', 'oc_tot', 'ect'],
                     'constant': [0.5, 1, 0.5, 0.5, 1, 0.5, 1, 1]}
-# Optimizing assignment, parameters for avoiding/penalizing close duties
-dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1, 'thr_soft': 5}, # 1: avoid within same day, 2: avoid within 2 continuous days
-                  'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
-                  'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
+## Optimizing assignment, parameters for avoiding/penalizing close duties
+#dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1, 'thr_soft': 5}, # 1: avoid within same day, 2: avoid within 2 continuous days
+#                  'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
+#                  'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
 # Optimizing assignment, parameters for avoiding overlapping duties
 ll_avoid_adjacent = [[['pm', 0], ['night', 0], ['emnight', 0], ['ocnight', 0]],
                      [['night', 0], ['emnight', 0], ['ocnight', 0], ['ect', 1], ['am', 1]]]

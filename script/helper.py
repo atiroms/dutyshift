@@ -228,22 +228,27 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
 
     # Solve problem
     prob_cnt.solve()
-    v_objective = value(prob_cnt.objective)
-    print('Solved: ' + str(LpStatus[prob_cnt.status]) + ', ' + str(round(v_objective, 2)))
-
-    # Extract data
-    d_lim_exact = pd.DataFrame(np.vectorize(value)(dv_lim_exact),
-                               columns = dv_lim_exact.columns, index = dv_lim_exact.index)
-    d_score_current = pd.DataFrame(np.vectorize(value)(dv_score_current),
-                                   columns = dv_score_current.columns, index = dv_score_current.index)
-    d_score_total = pd.DataFrame(np.vectorize(value)(dv_score_total),
-                                 columns = dv_score_total.columns, index = dv_score_total.index)
-    d_sigma_diff_score_current = pd.DataFrame(np.vectorize(value)(dv_sigma_diff_score_current),
-                                              columns = dv_sigma_diff_score_current.columns, index = dv_sigma_diff_score_current.index)
-    d_sigma_diff_score_total = pd.DataFrame(np.vectorize(value)(dv_sigma_diff_score_total),
-                                            columns = dv_sigma_diff_score_total.columns, index = dv_sigma_diff_score_total.index)
-
-    return d_lim_exact, d_score_current, d_score_total, d_sigma_diff_score_current, d_sigma_diff_score_total
+    str_status = str(LpStatus[prob_cnt.status])
+    loss_opt = value(prob_cnt.objective)
+    if str_status == 'Optimal':
+        status_opt = True
+        #print('Solved, ' + str(round(loss_solution, 2)))
+        # Extract data
+        d_lim_exact = pd.DataFrame(np.vectorize(value)(dv_lim_exact),
+                                columns = dv_lim_exact.columns, index = dv_lim_exact.index)
+        d_score_current = pd.DataFrame(np.vectorize(value)(dv_score_current),
+                                    columns = dv_score_current.columns, index = dv_score_current.index)
+        d_score_total = pd.DataFrame(np.vectorize(value)(dv_score_total),
+                                    columns = dv_score_total.columns, index = dv_score_total.index)
+        d_sigma_diff_score_current = pd.DataFrame(np.vectorize(value)(dv_sigma_diff_score_current),
+                                                columns = dv_sigma_diff_score_current.columns, index = dv_sigma_diff_score_current.index)
+        d_sigma_diff_score_total = pd.DataFrame(np.vectorize(value)(dv_sigma_diff_score_total),
+                                                columns = dv_sigma_diff_score_total.columns, index = dv_sigma_diff_score_total.index)
+        return status_opt, loss_opt, d_lim_exact, d_score_current, d_score_total, d_sigma_diff_score_current, d_sigma_diff_score_total
+    else:
+        #print('Failed to solve')
+        status_opt = False
+        return [status_opt] + [None] * 6
 
 
 ################################################################################
@@ -362,7 +367,7 @@ def extract_closeduty(p_month, p_data, dict_dv_closeduty, d_assign_date_duty, d_
 # Convert result
 ################################################################################
 def convert_result(p_month, p_data, d_assign_date_duty, d_availability, 
-                   d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact):
+                   d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact, d_lim_hard):
     # d_assign_date_duty >> d_assign
     d_assign = pd.DataFrame(index = d_availability.index, columns = d_availability.columns)
     for id, row in d_assign_date_duty.iterrows():
@@ -411,24 +416,43 @@ def convert_result(p_month, p_data, d_assign_date_duty, d_availability,
 
     # d_assign_date_duty >> d_deviation, d_deviation_summary
     # Prepare deviation results
-    d_deviation = pd.concat([d_member[['id_member', 'name_jpn']], pd.DataFrame(index = d_member.index, columns = l_class_duty)], axis = 1)
+    #d_deviation = pd.concat([d_member[['id_member', 'name_jpn']], pd.DataFrame(index = d_member.index, columns = l_class_duty)], axis = 1)
+    col_deviation = [col + '_exact' for col in l_class_duty] + [col + '_hard' for col in l_class_duty]
+    d_deviation = pd.concat([d_member[['id_member', 'name_jpn']], pd.DataFrame(index = d_member.index, columns = col_deviation)], axis = 1)
     ll_deviation = []
     for member in d_assign.columns:
         s_assign_class = pd.merge(d_assign_date_duty.loc[d_assign_date_duty['id_member'] == member, :], d_date_duty,
                                   on = 'date_duty', how = 'left').sum(axis = 0)
         l_assign_class = s_assign_class[['class_' + class_duty for class_duty in l_class_duty]].tolist()
         l_assign_class = [int(class_member) for class_member in l_assign_class]
-        l_assign_class_target = d_lim_exact.loc[int(member), l_class_duty].tolist()
-        l_deviation_member = [a - b for a, b in zip(l_assign_class, l_assign_class_target)]
-        d_deviation.loc[d_deviation['id_member'] == int(member), l_class_duty] = l_deviation_member
-        for class_duty, deviation in zip(l_class_duty, l_deviation_member):
-            if deviation > 0 or deviation < 0:
-                ll_deviation.append([int(member), class_duty, int(deviation)])
-    d_deviation[l_class_duty] = d_deviation[l_class_duty].fillna(0).astype(int)
+        l_assign_class_target_exact = d_lim_exact.loc[int(member), l_class_duty].tolist()
+        l_assign_class_target_hard = d_lim_hard.loc[int(member), l_class_duty].tolist()
+        l_deviation_member_exact, l_deviation_member_hard = [], []
+        for value, target_exact, target_hard in zip(l_assign_class, l_assign_class_target_exact, l_assign_class_target_hard):
+            # Deviation from exact target
+            dev_exact = value - target_exact
+            l_deviation_member_exact.append(dev_exact)
+            # Deviation from hard limit (target range)
+            [target_min, target_max] = target_hard
+            if value > target_max:
+                dev_hard = value - target_max
+            elif value < target_min:
+                dev_hard = value - target_min
+            else:
+                dev_hard = 0
+            l_deviation_member_hard.append(dev_hard)
+        d_deviation.loc[d_deviation['id_member'] == int(member), [col + '_exact' for col in l_class_duty]] = l_deviation_member_exact
+        d_deviation.loc[d_deviation['id_member'] == int(member), [col + '_hard' for col in l_class_duty]] = l_deviation_member_hard
+        # Data for summary (only deviant result)
+        for class_duty, dev_exact, dev_hard in zip(l_class_duty, l_deviation_member_exact, l_deviation_member_hard):
+            if dev_exact > 0 or dev_exact < 0:
+                ll_deviation.append([int(member), class_duty, int(dev_exact), int(dev_hard)])
 
-    d_deviation_summary = pd.DataFrame(ll_deviation, columns = ['id_member', 'class_duty', 'deviation'])
+    d_deviation[col_deviation] = d_deviation[col_deviation].fillna(0).astype(int)
+
+    d_deviation_summary = pd.DataFrame(ll_deviation, columns = ['id_member', 'class_duty', 'deviation_exact', 'deviation_hard'])
     d_deviation_summary = pd.merge(d_deviation_summary, d_member[['id_member', 'name_jpn']], on = 'id_member', how = 'left')
-    d_deviation_summary = d_deviation_summary[['id_member', 'name_jpn', 'class_duty', 'deviation']]
+    d_deviation_summary = d_deviation_summary[['id_member', 'name_jpn', 'class_duty', 'deviation_exact', 'deviation_hard']]
 
     # d_assign_date_duty >> d_score_print, d_score_past, d_score_total
     # Score calculation
@@ -459,7 +483,7 @@ def convert_result(p_month, p_data, d_assign_date_duty, d_availability,
 
     for p_save in [p_month, p_data]:
         d_assign.to_csv(os.path.join(p_save, 'assign.csv'), index = True)
-        d_assign_date_print.to_csv(os.path.join(p_save, 'assign_date.csv'), index = False)
+        d_assign_date_print.to_csv(os.path.join(p_save, 'assign_print.csv'), index = False)
         d_assign_member.to_csv(os.path.join(p_save, 'assign_member.csv'), index = False)
         d_deviation.to_csv(os.path.join(p_save, 'deviation.csv'), index = False)
         d_deviation_summary.to_csv(os.path.join(p_save, 'deviation_summary.csv'), index = False)
