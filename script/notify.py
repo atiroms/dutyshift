@@ -109,6 +109,7 @@ def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availab
     d_date_duty = pd.merge(d_date_duty, d_time_duty, on = 'duty', how = 'left')
 
     l_result = []
+    print(d_availability)
     for _, row in d_date_duty.iterrows():
         date_duty = row['date_duty']
         title_duty = row['duty_jpn']
@@ -125,7 +126,14 @@ def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availab
                 dt.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
         t_end = (dt.datetime(year = year, month = month, day = date) +\
                 dt.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
-        s_id_member_proxy = d_availability.loc[d_availability.index == date_duty,:].reset_index(drop=True).squeeze().iloc[1:]
+        s_id_member_proxy = d_availability.loc[d_availability.index == date_duty,:].reset_index(drop = True).squeeze().iloc[1:]
+        print(date_duty)
+        print(d_availability.loc[d_availability.index == date_duty,:])
+        print(d_availability.loc[d_availability.index == date_duty,:].reset_index(drop = True))
+        print(d_availability.loc[d_availability.index == date_duty,:].reset_index(drop = True).squeeze())
+
+        #print(s_id_member_proxy)
+        #print(s_id_member_proxy.index)
         l_id_member_proxy = [int(id) for id in s_id_member_proxy.loc[s_id_member_proxy > 0].index.tolist()]
         d_member_proxy = d_member.loc[d_member['id_member'].isin(l_id_member_proxy),['id_member', 'name_jpn_full', 'designation']]
         # Consider designation status for day and night
