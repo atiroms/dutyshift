@@ -152,6 +152,30 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
     d_availability.drop(['name_jpn_full'], axis = 1, inplace = True)
     d_availability = d_availability.T
 
+    d_availability.columns = [int(col) for col in d_availability.columns]
+    
+    # Ratio of available members
+    d_availability_ratio = pd.DataFrame(index = d_availability.index, columns = ['total','available','ratio'])
+    d_availability_ratio['total'] = d_availability.count(axis = 1)
+    d_availability_ratio['available'] = d_availability.replace(2,1).sum(axis = 1)
+    d_availability_ratio['ratio'] = d_availability_ratio['available'] / d_availability_ratio['total']
+    d_availability_ratio
+
+    # Add ECT shifts availability
+    d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
+    d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
+    d_availability.fillna(0, inplace = True)
+    l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].tolist()
+    d_availability_ect = d_availability.loc[[str(date_ect) + '_am' for date_ect in l_date_ect], :]
+    d_availability_ect.index = ([str(date_ect) + '_ect' for date_ect in l_date_ect])
+    d_availability = pd.concat([d_availability, d_availability_ect], axis = 0)
+    d_availability = d_availability.loc[d_date_duty['date_duty'], :]
+    for p_save in [p_month, p_data]:
+        d_availability_ratio.to_csv(os.path.join(p_save, 'availability_ratio.csv'), index = False)
+    l_member = [col for col in d_availability.columns.to_list() if col != 'date_duty']
+    d_availability = d_availability[l_member]
+
+    # Availability per duty and availability per member
     d_availability_duty = check_availability_duty(d_member, d_availability)
     d_availability_member = check_availability_member(d_member, d_availability)
 

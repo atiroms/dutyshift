@@ -510,7 +510,6 @@ def prep_availability(p_month, p_data, d_date_duty, d_cal):
     d_availability_ratio['total'] = d_availability.count(axis = 1)
     d_availability_ratio['available'] = d_availability.replace(2,1).sum(axis = 1)
     d_availability_ratio['ratio'] = d_availability_ratio['available'] / d_availability_ratio['total']
-    d_availability_ratio
 
     d_availability.fillna(0, inplace = True)
     l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].tolist()
