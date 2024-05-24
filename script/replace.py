@@ -93,6 +93,13 @@ def replace_assignment(lp_root, year_plan, month_plan, l_type_score, l_class_dut
     d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
     d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'), index_col = 0)
     d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'), index_col = 0)
+    for index in d_lim_hard.index:
+        for col in d_lim_hard.columns:
+            src = d_lim_hard.loc[index, col]
+            src_min = float(src[1:-1].split(', ')[0])
+            src_max = float(src[1:-1].split(', ')[1])
+            dst = [src_min, src_max]
+            d_lim_hard.loc[index, col] = dst
 
     for p_save in [p_month, p_data]:
         # TODO: convert d_assign

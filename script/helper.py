@@ -370,7 +370,6 @@ def convert_result(p_month, p_data, d_assign_date_duty, d_availability,
                    d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact, d_lim_hard):
     # d_assign_date_duty >> d_assign
     d_assign = pd.DataFrame(index = d_availability.index, columns = d_availability.columns)
-    print(type(d_assign.columns[0]))
     for id, row in d_assign_date_duty.iterrows():
         date_duty = row['date_duty']
         id_member = row['id_member']
