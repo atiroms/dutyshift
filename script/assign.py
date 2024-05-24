@@ -85,7 +85,11 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
     d_assign_manual = pd.read_csv(os.path.join(p_month, 'assign_manual.csv'))
     d_info = pd.read_csv(os.path.join(p_month, 'info.csv'))
-    d_availability, l_member, d_availability_ratio = prep_availability(p_month, p_data, d_date_duty, d_cal)
+    #d_availability, l_member, d_availability_ratio = prep_availability(p_month, p_data, d_date_duty, d_cal)
+    d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
+    l_member = [int(member) for member in d_availability.columns]
+    d_availability.columns = l_member
+    d_availability_ratio = pd.read_csv(os.path.join(p_month, 'availability_ratio.csv'), index_col = 0)
     d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
     d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_manual_assign, l_date_duty_skip =\
         skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual)

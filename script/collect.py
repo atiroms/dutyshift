@@ -159,7 +159,6 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
     d_availability_ratio['total'] = d_availability.count(axis = 1)
     d_availability_ratio['available'] = d_availability.replace(2,1).sum(axis = 1)
     d_availability_ratio['ratio'] = d_availability_ratio['available'] / d_availability_ratio['total']
-    d_availability_ratio
 
     # Add ECT shifts availability
     d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
@@ -170,8 +169,6 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
     d_availability_ect.index = ([str(date_ect) + '_ect' for date_ect in l_date_ect])
     d_availability = pd.concat([d_availability, d_availability_ect], axis = 0)
     d_availability = d_availability.loc[d_date_duty['date_duty'], :]
-    for p_save in [p_month, p_data]:
-        d_availability_ratio.to_csv(os.path.join(p_save, 'availability_ratio.csv'), index = False)
     l_member = [col for col in d_availability.columns.to_list() if col != 'date_duty']
     d_availability = d_availability[l_member]
 
@@ -182,6 +179,7 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
     for p_save in [p_month, p_data]:
         #d_availability.to_csv(os.path.join(p_save, 'availability_src.csv'), index = False)
         d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = True)
+        d_availability_ratio.to_csv(os.path.join(p_save, 'availability_ratio.csv'), index = True)
         d_info.to_csv(os.path.join(p_save, 'info.csv'), index = False)
         d_member.to_csv(os.path.join(p_save, 'member.csv'), index = False)
         d_availability_duty.to_csv(os.path.join(p_save, 'availability_duty.csv'), index = True)
