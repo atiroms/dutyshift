@@ -6,7 +6,7 @@ from ortoolpy import addbinvars
 from script.helper import *
 
 def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_start,
-                              l_type_score, l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,
+                              l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,
                               l_date_duty_skip_manual, dict_closeduty, ll_avoid_adjacent,
                               l_title_fulltime, l_date_duty_fulltime, type_limit,
                               c_assign_suboptimal, c_cnt_deviation, c_closeduty, dict_score_duty, dict_score_class):
@@ -81,18 +81,17 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     ###############################################################################
     print('=' * 60 + '\nMember assignment optimization\n' + '-' * 60)
     # Prepare data of member availability
-    d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
+    d_date_duty_noskip = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
     d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
     d_assign_manual = pd.read_csv(os.path.join(p_month, 'assign_manual.csv'))
     d_info = pd.read_csv(os.path.join(p_month, 'info.csv'))
-    #d_availability, l_member, d_availability_ratio = prep_availability(p_month, p_data, d_date_duty, d_cal)
-    d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
-    l_member = [int(member) for member in d_availability.columns]
-    d_availability.columns = l_member
+    d_availability_noskip = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
+    l_member = [int(member) for member in d_availability_noskip.columns]
+    d_availability_noskip.columns = l_member
     d_availability_ratio = pd.read_csv(os.path.join(p_month, 'availability_ratio.csv'), index_col = 0)
     d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
     d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_manual_assign, l_date_duty_skip =\
-        skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual)
+        skip_date_duty(d_date_duty_noskip, d_availability_noskip, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual)
     
     print('-' * 60)
 
@@ -347,12 +346,13 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
               + str(round(c_cnt_deviation * value(v_cnt_deviation), 2)) + ' + ' + str(round(c_closeduty * value(v_closeduty), 2)))
         print('(Total = Suboptimality + Count Deviation + Close duty)')
         # Extract data
-        d_assign, d_assign_date_duty =\
-            extract_assignment(p_month, p_data, year_plan, month_plan, dv_assign, d_member, d_date_duty, dict_score_duty)
+        #d_assign, d_assign_date_duty =\
+        d_assign_date_duty =\
+            extract_assignment(p_month, p_data, year_plan, month_plan, dv_assign, d_date_duty_noskip, l_date_duty_skip)
 
         d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
-            convert_result(p_month, p_data, d_assign_date_duty, d_availability, 
-                        d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact, d_lim_hard)
+            convert_assignment(p_month, p_data, d_assign_date_duty, d_availability_noskip, 
+                           d_member, d_date_duty, d_cal, l_class_duty, dict_score_duty, d_lim_exact, d_lim_hard)
         
         d_closeduty = extract_closeduty(p_month, p_data, dict_dv_closeduty, d_assign_date_duty, d_member, dict_closeduty)
 

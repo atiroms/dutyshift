@@ -28,7 +28,7 @@ def check_replacement(lp_root, year_plan, month_plan, sheet_id):
     d_replace['month'] = [int(ymd.split('/')[1]) for ymd in d_replace['ymd']]
     d_replace['date'] = [int(ymd.split('/')[2]) for ymd in d_replace['ymd']]
     d_replace = d_replace[(d_replace['year'] == year_plan) & (d_replace['month'] == month_plan)]
-    d_replace = pd.merge(d_replace, d_member[['name_jpn_full','id_member','name','name_jpn']], on='name_jpn_full', how='left')
+    d_replace = pd.merge(d_replace, d_member[['name_jpn_full','id_member','name','name_jpn']], on = 'name_jpn_full', how = 'left')
     dict_replace = {'午前日直':'am', '午後日直':'pm', '休日日直':'day', '当直':'night', '日直オンコール':'ocday','当直オンコール':'ocnight','ECT当番':'ect'}
     d_replace['duty'] = [dict_replace[duty] for duty in d_replace['duty']]
 
@@ -48,13 +48,17 @@ def check_replacement(lp_root, year_plan, month_plan, sheet_id):
 
     # Delete already replaced data
     for id, row in d_replace_checked.iterrows():
-        member_src = d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member', 'name_jpn']]
-        if row['id_member'] == member_src['id_member'].tolist()[0]: # already replaced
+        id_member_src = d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), 'id_member'].tolist()[0]
+        if row['id_member'] == id_member_src: # already replaced
             d_replace_checked = d_replace_checked.drop(id)
-        elif np.isnan(row['id_member']) and np.isnan(member_src['id_member'].tolist()[0]):
+        elif np.isnan(row['id_member']) and np.isnan(id_member_src):
             d_replace_checked = d_replace_checked.drop(id)
         else:
-            d_replace_checked.loc[id, 'name_jpn_src'] = member_src['name_jpn'].tolist()[0]
+            if np.isnan(id_member_src):
+                name_jpn_src = np.nan
+            else:
+                name_jpn_src = d_member.loc[d_member['id_member'] == id_member_src, 'name_jpn'].tolist()[0]
+            d_replace_checked.loc[id, 'name_jpn_src'] = name_jpn_src
 
     d_replace_checked.index = [i for i in range(len(d_replace_checked))]
 
@@ -70,7 +74,7 @@ def check_replacement(lp_root, year_plan, month_plan, sheet_id):
     return d_replace_checked
 
 
-def replace_assignment(lp_root, year_plan, month_plan, l_type_score, l_class_duty, d_replace_checked = None):
+def replace_assignment(lp_root, year_plan, month_plan, dict_score_duty, l_class_duty, d_replace_checked = None):
     p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = 'rplc')
 
     ###############################################################################
@@ -87,9 +91,9 @@ def replace_assignment(lp_root, year_plan, month_plan, l_type_score, l_class_dut
     # TODO: consider desiganation status difference
     if d_replace_checked is not None:
         for id, row in d_replace_checked.iterrows():
-            d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member','name','name_jpn']] = row[['id_member','name','name_jpn']].tolist()
+            d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member', 'status']] = [row['id_member'], 'assigned']
 
-    d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
+    d_availability_noskip = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
     d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
     d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'), index_col = 0)
     d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'), index_col = 0)
@@ -111,7 +115,7 @@ def replace_assignment(lp_root, year_plan, month_plan, l_type_score, l_class_dut
     d_member['name_jpn_full'] = d_member['name_jpn_full'].str.replace('　',' ')
 
     d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
-        convert_result(p_month, p_data, d_assign_date_duty, d_availability, 
-                       d_member, d_date_duty, d_cal, l_class_duty, l_type_score, d_lim_exact, d_lim_hard)
+        convert_assignment(p_month, p_data, d_assign_date_duty, d_availability_noskip, 
+                        d_member, d_date_duty, d_cal, l_class_duty, dict_score_duty, d_lim_exact, d_lim_hard)
     
     return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print

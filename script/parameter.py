@@ -32,7 +32,7 @@ id_sheet_response = '1zCdtuSHwzYn4idJM6ZZzzLJbQh4cJjf8uL8b4FySVCw'
 # Optimizing assignment count
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em, l_week_em = 2, [] # Wednesday, 1st and 3rd weeks
-l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
+#l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
 dict_score_class = {'score': ['ampm', 'daynight', 'daynight', 'ampmdaynight', 'ampmdaynight', 'ampmdaynight', 'oc', 'ect'],
                     'class': ['ampm', 'daynight_tot', 'night_em', 'ampm', 'daynight_tot', 'night_em', 'oc_tot', 'ect'],
