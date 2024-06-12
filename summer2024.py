@@ -3,7 +3,8 @@
 ###############################################################################
 business_year = 2024
 season = 'summer'
-fname_availability = '2024年度夏季休暇希望調査 (Responses) - Form Responses 1.csv'
+id_sheet_response = '1HhotE0vxzIDn2bSiRziCgwB9eh06rsFjfwV3TaMk5wQ'
+#fname_availability = '2024年度夏季休暇希望調査 (Responses) - Form Responses 1.csv'
 l_scope = ['https://www.googleapis.com/auth/calendar']
 
 ###############################################################################
@@ -49,14 +50,18 @@ else:
 ###############################################################################
 # Load and modify data
 ###############################################################################
-d_availability = pd.read_csv(os.path.join(p_month, fname_availability))
+#d_availability = pd.read_csv(os.path.join(p_month, fname_availability))
+name_sheet = "FormResponses1"
+d_availability = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{id_sheet_response}/gviz/tq?tqx=out:csv&sheet={name_sheet}")
+
 d_availability = d_availability.iloc[:,2:]
 
 l_week = d_availability.columns[1:]
 l_week = [col.split('[')[1].split(' - ')[0] for col in l_week]
 d_availability.columns = ['name_jpn_full'] + l_week
 
-d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
+#d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
+d_member = pd.read_excel(os.path.join(p_month, 'member.xlsx'), sheet_name = 'team')
 d_team = d_member.drop(['name_jpn', 'name_jpn_full'], axis = 1)
 d_team = d_team.replace('-', '')
 l_team = [team for team in sorted(list(set(d_team.iloc[:,1:].values.flatten().tolist()))) if team != '']
@@ -78,6 +83,7 @@ d_availability = d_availability.replace('第２希望', 2)
 d_availability = d_availability.replace('第３希望', 3)
 d_availability = d_availability.replace('第４希望', 4)
 d_availability = d_availability.replace('学会・出張', np.nan)
+d_availability = d_availability.replace('第１希望, 学会・出張', np.nan)
 
 
 ###############################################################################
