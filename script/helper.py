@@ -60,17 +60,19 @@ def read_member(p_root, year_plan, month_plan):
 ################################################################################
 def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual):
     l_date_duty_unavailable = d_availability_ratio.loc[d_availability_ratio['available'] == 0,:].index.tolist()
+    l_date_duty_unavailable_notoc = [date_duty for date_duty in l_date_duty_unavailable if not 'oc' in date_duty]
     l_date_duty_manual_assign = d_assign_manual.loc[~d_assign_manual['id_member'].isna(), 'date_duty'].tolist()
     if len(l_date_duty_unavailable) > 0:
         print('No member available for:', l_date_duty_unavailable)
+        print('of which', l_date_duty_unavailable_notoc, 'are not OC')
     if len(l_date_duty_manual_assign) > 0:
         print('Manually assigned member(s) for:', l_date_duty_manual_assign)
         for date_duty in l_date_duty_manual_assign:
             id_member = d_assign_manual.loc[d_assign_manual['date_duty'] == date_duty, 'id_member'].tolist()[0]
             d_availability.loc[date_duty, id_member] = 1
             print(date_duty, ' manually set to ', id_member)
-    # Skip date_duty for which no one is available, and not manually assigned
-    l_date_duty_skip = [date_duty for date_duty in l_date_duty_unavailable if not date_duty in l_date_duty_manual_assign]
+    # Skip date_duty for which (no one is available, except OC), and not manually assigned
+    l_date_duty_skip = [date_duty for date_duty in l_date_duty_unavailable_notoc if not date_duty in l_date_duty_manual_assign]
     
     # Skip duties in specified date
     l_date_duty = d_date_duty.loc[:, 'date_duty'].tolist()
@@ -91,7 +93,7 @@ def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_m
     
     d_date_duty = d_date_duty.loc[~d_date_duty['date_duty'].isin(l_date_duty_skip),:]
     d_availability = d_availability.loc[~d_availability.index.isin(l_date_duty_skip),:]
-    return d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_manual_assign, l_date_duty_skip
+    return d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_unavailable_notoc, l_date_duty_manual_assign, l_date_duty_skip
 
 
 ################################################################################
@@ -110,7 +112,10 @@ def prep_assign_previous(p_root, year_plan, month_plan):
     d_month = '{year:0>4d}{month:0>2d}'.format(year = year_previous, month = month_previous)
     d_assign_date_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', d_month, 'assign_date_duty.csv'))
 
-    d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] ==1]
+    if 'cnt' in d_assign_date_duty.columns:
+        d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] == 1]
+    elif 'status' in d_assign_date_duty.columns:
+        d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['status'] == 'assigned']
     n_date_duty = d_assign_date_duty.shape[0]
     max_date = d_assign_date_duty['date'].max()
     d_assign_date_duty['date_minus'] = d_assign_date_duty['date'] - max_date
@@ -640,6 +645,10 @@ def split_lim(d_lim, l_class_duty):
 # Calculate past scores
 ################################################################################
 def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start, dict_score_duty):
+
+    d_score_duty = pd.DataFrame(dict_score_duty)
+    l_type_score = [col for col in d_score_duty.columns if col != 'duty']
+
     # Load Past assignments
     l_dir_pastdata = os.listdir(os.path.join(p_root, 'Dropbox/dutyshift'))
     l_dir_pastdata = [dir for dir in l_dir_pastdata if dir.startswith('20')]
@@ -657,15 +666,17 @@ def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start,
             d_assign_date_duty_append = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', dir, 'assign_date_duty.csv'))
             d_assign_date_duty_append['year'] = year_dir
             d_assign_date_duty_append['month'] = month_dir
+            if 'cnt' in d_assign_date_duty_append.columns:
+                d_assign_date_duty_append = d_assign_date_duty_append[d_assign_date_duty_append['cnt'] == 1]
+            elif 'status' in d_assign_date_duty_append.columns:
+                d_assign_date_duty_append = d_assign_date_duty_append[d_assign_date_duty_append['status'] == 'assigned']
+                d_assign_date_duty_append = pd.merge(d_assign_date_duty_append, d_score_duty, how = 'left', on = 'duty')
             ld_assign_date_duty.append(d_assign_date_duty_append)
         d_assign_date_duty = pd.concat(ld_assign_date_duty)
 
-        d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] == 1]
+        #d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] == 1]
 
     # Calculate past scores of each member
-    #d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
-    d_score_duty = pd.DataFrame(dict_score_duty)
-    l_type_score = [col for col in d_score_duty.columns if col != 'duty']
 
     if len(l_dir_pastdata) > 0:
         d_score_past = d_member.copy()

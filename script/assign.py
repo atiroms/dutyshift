@@ -90,7 +90,7 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     d_availability_noskip.columns = l_member
     d_availability_ratio = pd.read_csv(os.path.join(p_month, 'availability_ratio.csv'), index_col = 0)
     d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
-    d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_manual_assign, l_date_duty_skip =\
+    d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_unavailable_notoc, l_date_duty_manual_assign, l_date_duty_skip =\
         skip_date_duty(d_date_duty_noskip, d_availability_noskip, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual)
     
     print('-' * 60)
