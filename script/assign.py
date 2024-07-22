@@ -161,8 +161,7 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     l_fulltime = d_fulltime['fulltime'].tolist()
     #l_fulltime = [(title in ['limterm_instr', 'assist']) for title in l_fulltime]
     for date_duty_fulltime in l_date_duty_fulltime:
-        prob_assign += (lpSum(lpDot(dv_assign.loc[date_duty_fulltime].to_numpy(),
-                                    np.array(l_fulltime))) == 1)
+        prob_assign += (lpSum(lpDot(dv_assign.loc[date_duty_fulltime].to_numpy(), np.array(l_fulltime))) == 1)
 
 
     ###############################################################################
@@ -224,6 +223,17 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
             prob_assign += (lpSum(dv_assign.loc[:, member]) <= 1)
         elif assign_twice == True:
             prob_assign += (lpSum(dv_assign.loc[:, member]) <= 2)
+
+    
+    ###############################################################################
+    # ECT subleader applicability
+    ###############################################################################
+    l_date_duty_ect = [date_duty for date_duty in d_date_duty['date_duty'].to_list() if date_duty.endswith('_ect')]
+    for member in l_member:
+        ect_subleader = d_member.loc[d_member['id_member'] == member, 'ect_subleader'].tolist()[0]
+        if ect_subleader == False:
+            for date_duty in l_date_duty_ect:
+                prob_assign += (dv_assign.loc[date_duty, member] == 0)
 
 
     ###############################################################################

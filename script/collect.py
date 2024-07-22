@@ -123,7 +123,7 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
 
     # Index
     d_availability.index = d_availability['id_member'].tolist()
-    d_info = d_availability[['id_member','name_jpn_full','designation','assign_twice','request']].copy()
+    d_info = d_availability[['id_member','name_jpn_full','designation','assign_twice', 'request']].copy()
     d_availability = d_availability[['id_member','name_jpn_full'] + list(dict_l_availability.keys())]
 
     # Print missing
