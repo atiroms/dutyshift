@@ -2,8 +2,8 @@
 # Parameers
 ###############################################################################
 business_year = 2024
-season = 'summer'
-id_sheet_response = '1HhotE0vxzIDn2bSiRziCgwB9eh06rsFjfwV3TaMk5wQ'
+season = 'winter'
+id_sheet_response = '1JFd5eGxY4ae0YjMoDLATNI5zr7wjlWSVQGeNenq-0Kc'
 #fname_availability = '2024年度夏季休暇希望調査 (Responses) - Form Responses 1.csv'
 l_scope = ['https://www.googleapis.com/auth/calendar']
 
@@ -242,7 +242,7 @@ for _, row in d_assign_member.iterrows():
     email = row['email']
     t_start = dt.datetime(year = row['y_start'], month = row['m_start'], day = row['d_start'], hour = 0, minute = 0).isoformat()
     t_end = dt.datetime(year = row['y_start'], month = row['m_end'], day = row['d_end'], hour = 23, minute = 59).isoformat()
-    description = name_member + '先生東大病院夏季休暇' +\
+    description = name_member + '先生東大病院冬季休暇' +\
                 '\nhttps://github.com/atiroms/dutyshift で自動生成'
     body_event = {'summary': '東大病院夏季休暇',
                   'start': {'dateTime': t_start, 'timeZone': 'Asia/Tokyo'},
