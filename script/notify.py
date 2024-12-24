@@ -210,20 +210,22 @@ def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_du
     l_assign_calendar = []
     for id, row in d_event.iterrows():
         str_ymd = row['start']['dateTime']
-        duty = d_time_duty.loc[d_time_duty['duty_jpn'] == row['summary'], 'duty'].tolist()[0]
-        name_jpn_full = row['description'].split('先生')[0]
-        #email = row['attendees'][0]['email']
-        id_member = d_member.loc[d_member['name_jpn_full'] == name_jpn_full, 'id_member'].tolist()[0]
-        name_jpn = d_member.loc[d_member['name_jpn_full'] == name_jpn_full, 'name_jpn'].tolist()[0]
-        l_assign_calendar.append({'date_duty': str(int(str_ymd[8:10])) + '_' + duty,
-                                'year': int(str_ymd[0:4]),
-                                'month': int(str_ymd[5:7]),
-                                'date': int(str_ymd[8:10]),
-                                'duty': duty,
-                                'id_member': id_member,
-                                'name_jpn': name_jpn,
-                                'id_event': row['id']})
-        
+        #duty = d_time_duty.loc[d_time_duty['duty_jpn'] == row['summary'], 'duty'].tolist()[0]
+        duty = d_time_duty.loc[d_time_duty['duty_jpn'] == row['summary'], 'duty'].tolist()
+        if len(duty) > 0:
+            duty = duty[0]
+            name_jpn_full = row['description'].split('先生')[0]
+            #email = row['attendees'][0]['email']
+            id_member = d_member.loc[d_member['name_jpn_full'] == name_jpn_full, 'id_member'].tolist()[0]
+            name_jpn = d_member.loc[d_member['name_jpn_full'] == name_jpn_full, 'name_jpn'].tolist()[0]
+            l_assign_calendar.append({'date_duty': str(int(str_ymd[8:10])) + '_' + duty,
+                                    'year': int(str_ymd[0:4]),
+                                    'month': int(str_ymd[5:7]),
+                                    'date': int(str_ymd[8:10]),
+                                    'duty': duty,
+                                    'id_member': id_member,
+                                    'name_jpn': name_jpn,
+                                    'id_event': row['id']})        
 
     if len(l_assign_calendar) > 0:
         d_assign_calendar = pd.DataFrame(l_assign_calendar)

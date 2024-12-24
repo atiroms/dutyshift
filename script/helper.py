@@ -58,19 +58,22 @@ def read_member(p_root, year_plan, month_plan):
 ################################################################################
 # Delete date_duty for which no one is available, and not manually assigned
 ################################################################################
-def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual):
+def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual, verbose):
     l_date_duty_unavailable = d_availability_ratio.loc[d_availability_ratio['available'] == 0,:].index.tolist()
     l_date_duty_unavailable_notoc = [date_duty for date_duty in l_date_duty_unavailable if not 'oc' in date_duty]
     l_date_duty_manual_assign = d_assign_manual.loc[~d_assign_manual['id_member'].isna(), 'date_duty'].tolist()
     if len(l_date_duty_unavailable) > 0:
-        print('No member available for:', l_date_duty_unavailable)
-        print('of which', l_date_duty_unavailable_notoc, 'are not OC')
+        if verbose:
+            print('No member available for:', l_date_duty_unavailable)
+            print('of which', l_date_duty_unavailable_notoc, 'are not OC')
     if len(l_date_duty_manual_assign) > 0:
-        print('Manually assigned member(s) for:', l_date_duty_manual_assign)
+        if verbose:
+            print('Manually assigned member(s) for:', l_date_duty_manual_assign)
         for date_duty in l_date_duty_manual_assign:
             id_member = d_assign_manual.loc[d_assign_manual['date_duty'] == date_duty, 'id_member'].tolist()[0]
             d_availability.loc[date_duty, id_member] = 1
-            print(date_duty, ' manually set to ', id_member)
+            if verbose:
+                print(date_duty, ' manually set to ', id_member)
     # Skip date_duty for which (no one is available, except OC), and not manually assigned
     l_date_duty_skip = [date_duty for date_duty in l_date_duty_unavailable_notoc if not date_duty in l_date_duty_manual_assign]
     
@@ -83,13 +86,15 @@ def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_m
         else:
             l_date_duty_skip_spec += [date_duty for date_duty in l_date_duty if date_duty == date_duty_skip_manual]
     if len(l_date_duty_skip_spec) > 0:
-        print('Manually skipped assignment for:', l_date_duty_skip_spec)
+        if verbose:
+            print('Manually skipped assignment for:', l_date_duty_skip_spec)
 
     l_date_duty_skip = list(set(l_date_duty_skip + l_date_duty_skip_spec))
     l_date_duty_skip = [date_duty for date_duty in l_date_duty if date_duty in l_date_duty_skip]
 
     if len(l_date_duty_skip) > 0:
-        print('In total, skipping assignment for:', l_date_duty_skip)
+        if verbose:
+            print('In total, skipping assignment for:', l_date_duty_skip)
     
     d_date_duty = d_date_duty.loc[~d_date_duty['date_duty'].isin(l_date_duty_skip),:]
     d_availability = d_availability.loc[~d_availability.index.isin(l_date_duty_skip),:]
