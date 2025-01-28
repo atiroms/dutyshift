@@ -374,7 +374,7 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     
     # When the problem could not be solved, enter troubleshooting mode
     if str(LpStatus[prob_assign.status]) == 'Infeasible':
-        print('[ERROR] Failed to solve. Entering troubleshooting mode to determin which duty caused the failure。')
+        print('[ERROR] Failed to solve. Entering troubleshooting mode to determine which duty caused the failure.')
         l_date_duty_noskip = d_date_duty['date_duty'].tolist()
         #print(l_date_duty_noskip)
         l_date_duty_suspected = l_date_duty_noskip # This includes all culprit
