@@ -384,7 +384,7 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
             cnt_iteration += 1
             len_test = int(len(l_date_duty_suspected) * 0.8)
             l_date_duty_testing = random.sample(l_date_duty_suspected, len_test)
-            print('[TROUBLESHOOTING] iteration', cnt_iteration, 'test skipping', len_test, 'duties.')
+            print('[TROUBLESHOOTING] iteration', cnt_iteration, 'test randomly skipping', len_test, 'duties.')
             l_date_duty_skip_manual_and_test = list(set(l_date_duty_skip_manual) | set(l_date_duty_testing))
             d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_unavailable_notoc, l_date_duty_manual_assign, l_date_duty_skip =\
                 skip_date_duty(d_date_duty_noskip, d_availability_noskip, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual_and_test, False)
@@ -397,12 +397,11 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
         l_date_duty_reduced = l_date_duty_suspected
         l_date_duty_unassignable = []
         for idx_testing in range(len(l_date_duty_reduced)):
+            # Test if l_date_duty_reduced[idx_testing] should be skipped
             cnt_iteration += 1
             l_date_duty_testing = l_date_duty_unassignable
             if idx_testing < len(l_date_duty_reduced) - 1:
                 l_date_duty_testing = l_date_duty_testing + l_date_duty_reduced[(idx_testing + 1):]
-            len_test = len(l_date_duty_testing)
-            print('[TROUBLESHOOTING] iteration', cnt_iteration, 'test skipping', len_test, 'duties.')
             l_date_duty_skip_manual_and_test = list(set(l_date_duty_skip_manual) | set(l_date_duty_testing))
             d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_unavailable_notoc, l_date_duty_manual_assign, l_date_duty_skip =\
                 skip_date_duty(d_date_duty_noskip, d_availability_noskip, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual_and_test, False)
@@ -410,12 +409,14 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
                 optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_member,l_title_fulltime, l_date_duty_fulltime, l_class_duty,d_lim_hard, d_lim_exact, type_limit, d_info, d_assign_previous, dict_closeduty, d_cal, ll_avoid_adjacent, c_assign_suboptimal, c_cnt_deviation, c_closeduty)
             if str(LpStatus[prob_assign.status]) == 'Optimal':
                 # meaning that l_date_duty_testing includes all culprit
+                print('[TROUBLESHOOTING] iteration', cnt_iteration, 'solvable,', l_date_duty_reduced[idx_testing], 'can be included.')
                 l_date_duty_suspected = l_date_duty_testing
-                prob_assign_last_optimal = prob_assign
+                prob_assign_last_optimal, dv_assign_last_optimal, v_assign_suboptimal_last_optimal, v_cnt_deviation_last_optimal, v_closeduty_last_optimal, dict_dv_closeduty_last_optimal = prob_assign, dv_assign, v_assign_suboptimal, v_cnt_deviation, v_closeduty, dict_dv_closeduty
             else:
+                print('[TROUBLESHOOTING] iteration', cnt_iteration, 'unsolvable,', l_date_duty_reduced[idx_testing], 'needs to be skipped.')
                 l_date_duty_unassignable.append(l_date_duty_reduced[idx_testing])
 
-        prob_assign = prob_assign_last_optimal
+        prob_assign, dv_assign, v_assign_suboptimal, v_cnt_deviation, v_closeduty, dict_dv_closeduty = prob_assign_last_optimal, dv_assign_last_optimal, v_assign_suboptimal_last_optimal, v_cnt_deviation_last_optimal, v_closeduty_last_optimal, dict_dv_closeduty_last_optimal
         print('[DONE TROUBLESHOOTING] unassignable duty[ies]:', l_date_duty_unassignable)
 
 
