@@ -3,7 +3,7 @@
 # Fixed parameters
 ###############################################################################
 # General
-year_start, month_start = 2024, 4
+year_start, month_start = 2025, 4
 lp_root = ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']
 # Form
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
