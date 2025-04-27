@@ -91,7 +91,10 @@ def replace_assignment(lp_root, year_plan, month_plan, dict_score_duty, l_class_
     # TODO: consider desiganation status difference
     if d_replace_checked is not None:
         for id, row in d_replace_checked.iterrows():
-            d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member', 'status']] = [row['id_member'], 'assigned']
+            if np.isnan(row['id_member']):
+                d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member', 'status']] = [row['id_member'], 'unnecessary']
+            else:
+                d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member', 'status']] = [row['id_member'], 'assigned']
 
     d_availability_noskip = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
     d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
