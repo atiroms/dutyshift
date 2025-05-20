@@ -1,31 +1,18 @@
 # test reading Google spreadsheet using Google API
 
-import os.path
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 import pandas as pd
+from script.helper import *
 
-
-p_root = '/Users/smrt'
+# Parameters
+year_plan, month_plan, l_holiday  = 2025, 6, []
+lp_root = ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']
 l_scope = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 
-# Handle Credentials and token
-p_token = os.path.join(p_root, 'Dropbox/dutyshift/config/credentials/token.json')
-p_cred = os.path.join(p_root, 'Dropbox/dutyshift/config/credentials/credentials.json')
-
-flow = InstalledAppFlow.from_client_secrets_file(p_cred, l_scope)
-creds = flow.run_local_server(port = 0)
-#print('credentials.json used.')
-# Save the credentials for the next run
-with open(p_token, 'w') as token:
-    token.write(creds.to_json())
-
-#service = build('calendar', 'v3', credentials = creds)
+# Prepare credentials and service
+p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = None, make_data_dir = None)
+creds = prep_api_creds(p_root, l_scope)
 service = build('sheets', 'v4', credentials = creds)
-
 
 # Call the Sheets API
 # Replace with your actual spreadsheet ID
@@ -41,4 +28,3 @@ result = service.spreadsheets().values().get(
 values = result.get('values', [])
 
 d_replacement = pd.DataFrame(values)
-
