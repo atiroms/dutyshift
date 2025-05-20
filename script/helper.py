@@ -7,6 +7,162 @@ import numpy as np, pandas as pd
 from math import ceil
 from pulp import *
 from ortoolpy import addvars
+from google_auth_oauthlib.flow import InstalledAppFlow
+
+
+################################################################################
+# Update grid question of Google form
+################################################################################
+
+def generate_request_delete_item(id_form, service, l_itemid):
+    form = service.forms().get(formId = id_form).execute()
+    l_position = []
+
+    for id_item in l_itemid:
+        # Determine the position index of the grid item in the form
+        position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item)
+        l_position.append(position_item)
+    l_position = reversed(sorted(l_position))
+
+    l_request = []
+    for position_item in l_position:
+        # Use updateItem to replace the questions array on the questionGroupItem
+        l_request.append({
+            "deleteItem": {
+                "location": {"index": position_item}
+            }
+        })
+        
+    return l_request
+
+def generate_request_update_question(id_form, service, dict_dateduty_form, dict_itemid_form):
+    form = service.forms().get(formId = id_form).execute()
+    l_request = []
+
+    l_itemid_missing = [dict_itemid_form[key] for key in dict_itemid_form.keys() if key not in dict_dateduty_form.keys()]
+
+    for key, l_dateduty_form in dict_dateduty_form.items():
+        id_item = dict_itemid_form[key]
+        # Determine the position index of the grid item in the form
+        position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item)
+        # Build the new questionGroupItem payload: one question per row label
+        new_questions = [{"rowQuestion": {"title": val}} for val in l_dateduty_form]
+        # Use updateItem to replace the questions array on the questionGroupItem
+        l_request.append({
+                "updateItem": {
+                    "location": {"index": position_item},
+                    "item": {
+                        "itemId": id_item,
+                        "questionGroupItem": {
+                            "questions": new_questions
+                        }
+                    },
+                    "updateMask": "questionGroupItem.questions"
+                }
+            })
+        
+    return l_request, l_itemid_missing
+
+
+def update_question_row(id_form, service, id_item, row_new):
+    form = service.forms().get(formId = id_form).execute()
+    # Build the new questionGroupItem payload: one question per row label
+    new_questions = [{"rowQuestion": {"title": val}} for val in row_new]
+    # Determine the position index of the grid item in the form
+    index_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item)
+    # Use updateItem to replace the questions array on the questionGroupItem
+    requests = [
+        {
+            "updateItem": {
+                "location": {"index": index_item},
+                "item": {
+                    "itemId": id_item,
+                    "questionGroupItem": {
+                        "questions": new_questions
+                    }
+                },
+                "updateMask": "questionGroupItem.questions"
+            }
+        }
+    ]
+
+    # execute the update
+    result = service.forms().batchUpdate(
+			formId=id_form,
+			body={"requests": requests}
+		).execute()
+
+
+################################################################################
+# Create Google drive folder/path
+################################################################################
+
+def create_gdrive_folder(service, id_folder_parent, name_folder_child):
+    # Check if a folder with the same name already exists:
+    q = (
+        f"'{id_folder_parent}' in parents "
+        f"and name = '{name_folder_child}' "
+        "and mimeType = 'application/vnd.google-apps.folder' "
+        "and trashed = false"
+    )
+    resp = service.files().list(
+        q = q,
+        spaces = 'drive',
+        fields = 'files(id, name)'
+    ).execute()
+    folder_old = resp.get('files', [])
+    if folder_old:
+        # Folder with the same name already exists
+        new = False
+        id_folder_child = folder_old[0]['id']
+    else:
+        new = True
+        folder_metadata = {
+            'name': name_folder_child,                             # The folder name
+            'mimeType': 'application/vnd.google-apps.folder',    # This tells Drive to make it a folder
+            'parents': [id_folder_parent],
+        }
+        folder_new = service.files().create(
+            body = folder_metadata,
+            fields='id,name'
+        ).execute()
+        id_folder_child = folder_new['id']
+
+    return {'new': new, 'id_folder_child': id_folder_child}
+
+def create_gdrive_path(service, path):
+    l_folder = path.split('/')
+    l_folder = [folder for folder in l_folder if folder != '']
+    root = service.files().get(
+        fileId='root',
+        fields='id'
+    ).execute()
+    id_folder_parent = root.get('id')
+    l_id_folder = [id_folder_parent]
+
+    for folder in l_folder:
+        result_folder = create_gdrive_folder(service, id_folder_parent, folder)
+        id_folder_parent = result_folder['id_folder_child']
+        l_id_folder.append(id_folder_parent)
+    return l_id_folder
+
+
+
+################################################################################
+# Prepare Google API credentials
+################################################################################
+def prep_api_creds(p_root, l_scope):
+    # Handle Credentials and token
+    p_token = os.path.join(p_root, 'Dropbox/dutyshift/config/credentials/token.json')
+    p_cred = os.path.join(p_root, 'Dropbox/dutyshift/config/credentials/credentials.json')
+    flow = InstalledAppFlow.from_client_secrets_file(p_cred, l_scope)
+    creds = flow.run_local_server(port = 0)
+
+    # Save the credentials for the next run
+    with open(p_token, 'w') as token:
+        token.write(creds.to_json())
+    
+    return creds
 
 
 ################################################################################

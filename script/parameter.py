@@ -21,11 +21,19 @@ dict_title_duty = {'assoc':            ['ocday', 'ocnight'],
                    'assist_leader':    ['am', 'pm', 'day', 'night', 'ocday', 'ocnight'],
                    'assist_subleader': ['am', 'pm', 'day', 'night'],
                    'limtermclin':      ['am', 'pm', 'day', 'night'],
-                   'stud':             ['day', 'night'],
-                   'assist_child':     ['am', 'pm']}
+                   'stud':             ['day', 'night']}
+                   #'assist_child':     ['am', 'pm']}
 dict_class_duty = {'class': ['ampm', 'ampm', 'daynight_tot', 'daynight_tot', 'daynight_tot', 'night_em', 'night_wd', 'night_wd', 'daynight_hd', 'daynight_hd', 'oc_tot', 'oc_tot', 'oc_day', 'oc_night', 'ect'],
                    'date':  ['all', 'all', 'all', 'all', 'all', 'all', 'wd', 'all', 'all', 'hd', 'all', 'all', 'all', 'all', 'all'],
                    'duty':  ['am', 'pm', 'day', 'night', 'emnight', 'emnight', 'night', 'emnight', 'day', 'night', 'ocday', 'ocnight', 'ocday', 'ocnight', 'ect']}
+id_template_form   = '1TPqbvxc4Sgj6qhMkSE0eCciFxEaOsgNQIduu29SUwZA'
+dict_itemid_form = {'assoc_holiday': '3fd28d79', 'assoc_others': '03f37999',
+                    'instr_holiday': '49978020', 'instr_others': '015bf8cf',
+                    'assist_leader_holiday': '6f8a4c28', 'assist_leader_others': '5a3e91e3',
+                    'assist_subleader_holiday': '3f06625b', 'assist_subleader_others': '5301996a',
+                    'limtermclin_holiday': '02401b89', 'limtermclin_others': '0e55b20f',
+                    'stud_holiday': '48b9378b', 'stud_others': '32b66da2'}
+
 # Data collection
 #address_response = "https://docs.google.com/spreadsheets/d/1zCdtuSHwzYn4idJM6ZZzzLJbQh4cJjf8uL8b4FySVCw/edit?resourcekey#gid=1443213949"
 id_sheet_response = '1zCdtuSHwzYn4idJM6ZZzzLJbQh4cJjf8uL8b4FySVCw'
