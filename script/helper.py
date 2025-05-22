@@ -8,6 +8,82 @@ from math import ceil
 from pulp import *
 from ortoolpy import addvars
 from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+
+
+################################################################################
+# Read availability response from Google forms
+################################################################################
+def read_availability(lp_root, year_plan, month_plan):
+    l_scope = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/forms.body']
+
+    # Prepare credentials and service
+    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = None, make_data_dir = None)
+    creds = prep_api_creds(p_root, l_scope)
+    service_drive = build('drive', 'v3', credentials = creds)
+    service_forms = build('forms', 'v1', credentials = creds)
+
+    # Check if form exists
+    path_form = '/dutyshift/result/' + str(year_plan) + '/' + str(month_plan).zfill(2) + '/form_' +  str(year_plan) + str(month_plan).zfill(2)
+    id_form = check_form_exists(service_drive, path_form)
+
+    # Fetch the form metadata (to map questionId → question title)
+    form = service_forms.forms().get(formId = id_form).execute()
+    # Build a mapping of questionId → title
+    qid2title = {}
+    for item in form.get('items', []):
+        if 'questionItem' in item:
+            q = item['questionItem']['question']
+            qid = q.get('questionId')
+            title = item.get('title','')
+            if qid:
+                qid2title[qid] = title
+        elif 'questionGroupItem' in item:
+            questions = item['questionGroupItem']['questions']
+            title = item.get('title','')
+            for q in questions:
+                qid = q.get('questionId')
+                title_2 = q['rowQuestion'].get('title', '')
+                if qid:
+                    qid2title[qid] = title + '[' + title_2 + ']'
+
+    # Pull all responses
+    l_response = []
+    l_timestamp = []
+    page_token = None
+    while True:
+        resp = service_forms.forms().responses().list(
+            formId = id_form,
+            pageToken = page_token,
+            pageSize = 100  # up to 5000 max
+        ).execute()
+        for r in resp.get('responses', []):
+            timestamp = r['lastSubmittedTime']
+            # each answer is keyed by questionId
+            ans = {}
+            for qid, answer in r['answers'].items():
+                # textAnswers vs choiceAnswers:
+                if 'textAnswers' in answer:
+                    # concatenate multiple text answers if any
+                    vals = [t['value'] for t in answer['textAnswers']['answers']]
+                    ans[qid] = ' | '.join(vals)
+                elif 'choiceAnswers' in answer:
+                    ans[qid] = answer['choiceAnswers']
+                else:
+                    # other types (e.g. fileUpload), fallback to raw
+                    ans[qid] = str(answer)
+            l_response.append(ans)
+            l_timestamp.append(timestamp)
+        page_token = resp.get('nextPageToken')
+        if not page_token:
+            break
+
+    # Build DataFrame
+    d_availability_src = pd.concat([pd.DataFrame(columns = qid2title.keys()), pd.DataFrame.from_records(l_response)], axis = 0)
+    d_availability_src.columns = qid2title.values()
+    d_availability_src = pd.concat([pd.DataFrame({'Timestamp': l_timestamp}), d_availability_src], axis = 1)
+
+    return d_availability_src
 
 
 ################################################################################
@@ -64,40 +140,57 @@ def generate_request_update_question(id_form, service, dict_dateduty_form, dict_
     return l_request, l_itemid_missing
 
 
-def update_question_row(id_form, service, id_item, row_new):
-    form = service.forms().get(formId = id_form).execute()
-    # Build the new questionGroupItem payload: one question per row label
-    new_questions = [{"rowQuestion": {"title": val}} for val in row_new]
-    # Determine the position index of the grid item in the form
-    index_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item)
-    # Use updateItem to replace the questions array on the questionGroupItem
-    requests = [
-        {
-            "updateItem": {
-                "location": {"index": index_item},
-                "item": {
-                    "itemId": id_item,
-                    "questionGroupItem": {
-                        "questions": new_questions
-                    }
-                },
-                "updateMask": "questionGroupItem.questions"
-            }
-        }
-    ]
-
-    # execute the update
-    result = service.forms().batchUpdate(
-			formId=id_form,
-			body={"requests": requests}
-		).execute()
-
-
 ################################################################################
-# Create Google drive folder/path
+# Check, create Google drive folder/path
 ################################################################################
+def check_form_exists(service, path_form):
+    path_folder = '/'.join(path_form.split('/')[:-1])
+    name_form = path_form.split('/')[-1]
+    result_folder = check_gdrive_path(service, path_folder)
+    if result_folder['exist']:
+        id_folder = result_folder['l_id_folder'][-1]
+        resp = service.files().list(
+            q = (
+                f"'{id_folder}' in parents "
+                f"and name = '{name_form}' "
+                "and mimeType = 'application/vnd.google-apps.form' "
+                "and trashed = false"
+            ),
+            fields = 'files(id, name)',
+            pageSize = 1
+        ).execute()
+        if len(resp.get('files', [])) > 0:
+            return resp.get('files', [])[0]['id']
+        else:
+            print('Form does not exist', name_form)
+            return False
+    else:
+        return False
 
-def create_gdrive_folder(service, id_folder_parent, name_folder_child):
+def check_gdrive_path(service, path):
+    l_folder = path.split('/')
+    l_folder = [folder for folder in l_folder if folder != '']
+    root = service.files().get(
+        fileId='root',
+        fields='id'
+    ).execute()
+    id_folder_parent = root.get('id')
+    l_id_folder = [id_folder_parent]
+
+    exist = True
+    for folder in l_folder:
+        result = check_gdrive_folder(service, id_folder_parent, folder)
+        if result['exist']:
+            id_folder_parent = result['id_folder_child']
+            l_id_folder.append(id_folder_parent)
+        else:
+            print('Missing path', path)
+            exist = False
+            break
+
+    return {'exist': exist, 'l_id_folder': l_id_folder}
+
+def check_gdrive_folder(service, id_folder_parent, name_folder_child):
     # Check if a folder with the same name already exists:
     q = (
         f"'{id_folder_parent}' in parents "
@@ -113,10 +206,21 @@ def create_gdrive_folder(service, id_folder_parent, name_folder_child):
     folder_old = resp.get('files', [])
     if folder_old:
         # Folder with the same name already exists
-        new = False
+        exist = True
         id_folder_child = folder_old[0]['id']
     else:
+        exist = False
+        id_folder_child = None
+
+    return {'exist': exist, 'id_folder_child': id_folder_child}
+
+def create_gdrive_folder(service, id_folder_parent, name_folder_child):
+    result = check_gdrive_folder(service, id_folder_parent, name_folder_child)
+    if result['exist']:
+        new = False
+    else:
         new = True
+        id_folder_child = result['id_folder_child']
         folder_metadata = {
             'name': name_folder_child,                             # The folder name
             'mimeType': 'application/vnd.google-apps.folder',    # This tells Drive to make it a folder
