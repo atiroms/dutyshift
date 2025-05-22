@@ -34,21 +34,13 @@ dict_itemid_form = {'assoc_holiday': '3fd28d79', 'assoc_others': '03f37999',
                     'limtermclin_holiday': '02401b89', 'limtermclin_others': '0e55b20f',
                     'stud_holiday': '48b9378b', 'stud_others': '32b66da2'}
 
-# Data collection
-#address_response = "https://docs.google.com/spreadsheets/d/1zCdtuSHwzYn4idJM6ZZzzLJbQh4cJjf8uL8b4FySVCw/edit?resourcekey#gid=1443213949"
-id_sheet_response = '1zCdtuSHwzYn4idJM6ZZzzLJbQh4cJjf8uL8b4FySVCw'
 # Optimizing assignment count
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em, l_week_em = 2, [] # Wednesday, 1st and 3rd weeks
-#l_type_score = ['ampm','daynight','ampmdaynight','oc','ect']
 l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
 dict_score_class = {'score': ['ampm', 'daynight', 'daynight', 'ampmdaynight', 'ampmdaynight', 'ampmdaynight', 'oc', 'ect'],
                     'class': ['ampm', 'daynight_tot', 'night_em', 'ampm', 'daynight_tot', 'night_em', 'oc_tot', 'ect'],
                     'constant': [0.5, 1, 0.5, 0.5, 1, 0.5, 1, 1]}
-## Optimizing assignment, parameters for avoiding/penalizing close duties
-#dict_closeduty = {'daynight': {'l_duty': ['day', 'ocday', 'night', 'emnight', 'ocnight'], 'thr_hard': 1, 'thr_soft': 5}, # 1: avoid within same day, 2: avoid within 2 continuous days
-#                  'ect':      {'l_duty': ['ect'],                                         'thr_hard': 1, 'thr_soft': 4},
-#                  'ampm':     {'l_duty': ['am', 'pm'],                                    'thr_hard': 1, 'thr_soft': 5}}
 # Optimizing assignment, parameters for avoiding overlapping duties
 ll_avoid_adjacent = [[['pm', 0], ['night', 0], ['emnight', 0], ['ocnight', 0]],
                      [['night', 0], ['emnight', 0], ['ocnight', 0], ['ect', 1], ['am', 1]]]

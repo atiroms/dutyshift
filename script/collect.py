@@ -4,16 +4,11 @@ import os, datetime
 from script.helper import *
 from script.check import *
 
-def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict_jpnday, dict_duty_jpn):
-
+def collect_availability(lp_root, year_plan, month_plan, dict_jpnday, dict_duty_jpn):
     p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = 'clct')
 
     # Read data
-    #sheet_id = address_response.split('/')[5]
-    #name_sheet = "FormResponses1"
-    #d_availability_src = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{id_sheet_response}/gviz/tq?tqx=out:csv&sheet={name_sheet}")
     d_availability_src = read_availability(lp_root, year_plan, month_plan)
-    #print(d_availability_src)
     d_member = read_member(p_root, year_plan, month_plan)
 
     # Check missing members
