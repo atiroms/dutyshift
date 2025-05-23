@@ -4,8 +4,6 @@ import os
 from script.helper import *
 
 def check_availability_duty(d_member, d_availability):
-    #d_availability.index = d_availability['date_duty']
-    #d_availability = d_availability.iloc[:,1:]
     d_availability = d_availability.T
 
     d_availability_duty = pd.DataFrame(index = d_availability.columns.tolist())
@@ -34,18 +32,16 @@ def check_availability_duty(d_member, d_availability):
     return d_availability_duty
 
 def check_availability_member(d_member, d_availability):
-    #d_availability.index = d_availability['date_duty']
-    #d_availability = d_availability.iloc[:,1:]
 
     l_availability_member = []
 
-    for id_member in d_member['id_member'].tolist():
+    for id_member, name_jpn_full in zip(d_member['id_member'].tolist(), d_member['name_jpn'].tolist()):
         if id_member in d_availability.columns.tolist():
             l_date_duty_available = d_availability.loc[d_availability[id_member] > 0,:].index.tolist()
             str_date_duty_available = ', '.join(l_date_duty_available)
 
-            l_availability_member.append([id_member, str_date_duty_available])
+            l_availability_member.append([id_member, name_jpn_full, str_date_duty_available])
 
-    d_availability_member = pd.DataFrame(l_availability_member, columns = ['id_member', 'l_date_duty'])
+    d_availability_member = pd.DataFrame(l_availability_member, columns = ['id_member', 'name_jpn', 'l_date_duty'])
 
     return d_availability_member

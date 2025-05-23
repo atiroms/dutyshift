@@ -151,7 +151,7 @@ def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availab
             str_member_proxy == 'なし'
 
         description = name_member + '先生ご担当\n代理候補(敬称略): ' + str_member_proxy +\
-                    '\n変更申請: https://forms.gle/xeginsTSrxm1TSz8A' +\
+                    '\n変更申請: https://forms.gle/oxvdt8CNkW6iPPFm6' +\
                     '\nhttps://github.com/atiroms/dutyshift で自動生成'
 
         body_event = {'summary': title_duty,

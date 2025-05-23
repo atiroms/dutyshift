@@ -268,9 +268,6 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
 
     return  prob_assign, dv_assign, v_assign_suboptimal, v_cnt_deviation, v_closeduty, dict_dv_closeduty
 
- 
-    
-
 
 def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_start,
                               l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,
@@ -290,8 +287,6 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     # Prepare data of member specs and assignment limits
     d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
         = prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start, dict_score_duty)
-    
-    #print(d_score_past)
 
     # TODO: equilize 3 continous holidays assignment count
     #d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
@@ -374,7 +369,12 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     
     # When the problem could not be solved, enter troubleshooting mode
     if str(LpStatus[prob_assign.status]) == 'Infeasible':
-        print('[ERROR] Failed to solve. Entering troubleshooting mode to determine which duty caused the failure.')
+        if type_limit == 'hard':
+            print('[ERROR] Failed to solve. Changing type_limit from "hard" to "soft"')
+            type_limit = 'soft'
+        else:
+            print('[ERROR] Failed to solve.')
+        print('[TROUBLESHOOTING] Entering troubleshooting mode to determine which duty caused the failure.')
         l_date_duty_noskip = d_date_duty['date_duty'].tolist()
         #print(l_date_duty_noskip)
         l_date_duty_suspected = l_date_duty_noskip # This includes all culprit

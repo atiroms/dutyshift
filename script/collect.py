@@ -122,10 +122,10 @@ def collect_availability(lp_root, year_plan, month_plan, dict_jpnday, dict_duty_
     l_id_member = sorted(list(set(d_availability['id_member'].tolist())))
     l_d_availability = []
     for id_member in l_id_member:
-        d_availability_member = d_availability[d_availability['id_member'] == id_member]
-        d_availability_member = d_availability_member.sort_values(by = ['unixtime'], ascending = False)
-        d_availability_member = d_availability_member.iloc[0]
-        l_d_availability.append(d_availability_member)
+        d_availability_temp = d_availability[d_availability['id_member'] == id_member]
+        d_availability_temp = d_availability_temp.sort_values(by = ['unixtime'], ascending = False)
+        d_availability_temp = d_availability_temp.iloc[0]
+        l_d_availability.append(d_availability_temp)
     d_availability = pd.DataFrame(l_d_availability)
 
     # Index
