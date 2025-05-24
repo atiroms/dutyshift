@@ -9,7 +9,6 @@ lp_root = ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
 dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'emnight': '救急当直', 'ocnight': '当直OC'}
 dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
-#dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'ocnight': '当直OC'}
 dict_score_duty = {'duty':         ['am', 'pm', 'day', 'night', 'emnight', 'ocday', 'ocnight', 'ect'],
                    'ampm':         [0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
                    'daynight':     [0.0, 0.0, 1.0, 1.0, 1.5, 0.0, 0.0, 0.0],
@@ -46,11 +45,12 @@ ll_avoid_adjacent = [[['pm', 0], ['night', 0], ['emnight', 0], ['ocnight', 0]],
                      [['night', 0], ['emnight', 0], ['ocnight', 0], ['ect', 1], ['am', 1]]]
 l_title_fulltime = ['assist'] # ['limterm_instr', 'assist', 'limterm_clin']
 # Notification
+id_calendar = 'ht4svlr03krt7jcqho5guou32c@group.calendar.google.com'
 t_sleep = 600.0
 dict_time_duty = {'duty': ['am', 'pm', 'day', 'night', 'emnight', 'ocday', 'ocnight', 'ect'],
                   'duty_jpn': ['午前日直', '午後日直', '日直', '当直', '救急当直', '日直OC', '当直OC', 'ECT当番'],
                   'start': ['08:30', '12:30', '08:30', '17:15', '17:15', '08:30', '17:15', '07:30'],
-                  'end': ['12:30', '17:15', '17:15', '32:30', '32:30', '17:15', '32:30', '11:00']}
+                  'end':   ['12:30', '17:15', '17:15', '32:30', '32:30', '17:15', '32:30', '11:00']}
 # Parameters for replacement
-sheet_id = "1glzf0fM1jyAZffFE7l7SHE26m3M4QBI5AAOsdSlmHxE"
-l_scope = ['https://www.googleapis.com/auth/calendar']
+#sheet_id = "1glzf0fM1jyAZffFE7l7SHE26m3M4QBI5AAOsdSlmHxE"
+#l_scope = ['https://www.googleapis.com/auth/calendar']

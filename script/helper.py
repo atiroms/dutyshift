@@ -12,19 +12,16 @@ from googleapiclient.discovery import build
 
 
 ################################################################################
-# Read availability response from Google forms
+# Read response from Google forms
 ################################################################################
-def read_availability(lp_root, year_plan, month_plan):
-    l_scope = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/forms.body']
-
+def read_form_response(p_root, path_form):
     # Prepare credentials and service
-    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = None, make_data_dir = None)
+    l_scope = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/forms.body']
     creds = prep_api_creds(p_root, l_scope)
     service_drive = build('drive', 'v3', credentials = creds)
     service_forms = build('forms', 'v1', credentials = creds)
 
     # Check if form exists
-    path_form = '/dutyshift/result/' + str(year_plan) + '/' + str(month_plan).zfill(2) + '/form_' +  str(year_plan) + str(month_plan).zfill(2)
     id_form = check_form_exists(service_drive, path_form)
 
     # Fetch the form metadata (to map questionId → question title)
@@ -79,11 +76,11 @@ def read_availability(lp_root, year_plan, month_plan):
             break
 
     # Build DataFrame
-    d_availability_src = pd.concat([pd.DataFrame(columns = qid2title.keys()), pd.DataFrame.from_records(l_response)], axis = 0)
-    d_availability_src.columns = qid2title.values()
-    d_availability_src = pd.concat([pd.DataFrame({'Timestamp': l_timestamp}), d_availability_src], axis = 1)
+    d_response = pd.concat([pd.DataFrame(columns = qid2title.keys()), pd.DataFrame.from_records(l_response)], axis = 0)
+    d_response.columns = qid2title.values()
+    d_response = pd.concat([pd.DataFrame({'Timestamp': l_timestamp}), d_response], axis = 1)
 
-    return d_availability_src
+    return d_response
 
 
 ################################################################################

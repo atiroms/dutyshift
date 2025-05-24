@@ -5,7 +5,7 @@ from script.helper import *
 #from script.notify import *
 
 
-def check_replacement(lp_root, year_plan, month_plan, sheet_id):
+def check_replacement(lp_root, year_plan, month_plan):
     p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
 
 
@@ -16,17 +16,17 @@ def check_replacement(lp_root, year_plan, month_plan, sheet_id):
     d_member['name_jpn_full'] = d_member['name_jpn_full'].str.replace('　',' ')
     d_assign_date_duty = pd.read_csv(os.path.join(p_month, 'assign_date_duty.csv'))
 
-    #f_answer = os.listdir(os.path.join(p_month, 'src'))
-    #f_answer = [f for f in f_answer if '当直交代申請' in f][0]
-    #d_replace = pd.read_csv(os.path.join(p_month, 'src',f_answer))
-    sheet_name = "response"
-    d_replace = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}")
+
+    #sheet_name = "response"
+    #d_replace = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}")
+    path_form = '/dutyshift/result/replacement/replacement'
+    d_replace = read_form_response(p_root, path_form)
 
     d_replace = d_replace[['交代する日付','交代する業務','交代後の担当者（敬称略）']]
     d_replace = d_replace.rename(columns={'交代する日付':'ymd','交代する業務':'duty','交代後の担当者（敬称略）':'name_jpn_full'})
-    d_replace['year'] = [int(ymd.split('/')[0]) for ymd in d_replace['ymd']]
-    d_replace['month'] = [int(ymd.split('/')[1]) for ymd in d_replace['ymd']]
-    d_replace['date'] = [int(ymd.split('/')[2]) for ymd in d_replace['ymd']]
+    d_replace['year'] = [int(ymd.split('-')[0]) for ymd in d_replace['ymd']]
+    d_replace['month'] = [int(ymd.split('-')[1]) for ymd in d_replace['ymd']]
+    d_replace['date'] = [int(ymd.split('-')[2]) for ymd in d_replace['ymd']]
     d_replace = d_replace[(d_replace['year'] == year_plan) & (d_replace['month'] == month_plan)]
     d_replace = pd.merge(d_replace, d_member[['name_jpn_full','id_member','name','name_jpn']], on = 'name_jpn_full', how = 'left')
     dict_replace = {'午前日直':'am', '午後日直':'pm', '休日日直':'day', '当直':'night', '日直オンコール':'ocday','当直オンコール':'ocnight','ECT当番':'ect'}

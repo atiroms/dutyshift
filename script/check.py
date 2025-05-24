@@ -1,6 +1,6 @@
 
 import pandas as pd
-import os
+#import os
 from script.helper import *
 
 def check_availability_duty(d_member, d_availability):

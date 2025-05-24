@@ -4,13 +4,14 @@ import os
 from time import sleep
 from script.helper import *
 
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
+#from google.auth.transport.requests import Request
+#from google.oauth2.credentials import Credentials
+#from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+#from googleapiclient.errors import HttpError
 
 
+'''
 def access_calendar(p_root, l_scope):
     # Handle Credentials and token
     p_token = os.path.join(p_root, 'Dropbox/dutyshift/config/credentials/token.json')
@@ -33,7 +34,7 @@ def access_calendar(p_root, l_scope):
         #print('Read Calendar ID: ', id_calendar_duty)
 
     return service, id_calendar
-
+'''
 
 def compare_event(d_assign_date_duty, d_event_exist):
     l_date_duty_assigned = d_assign_date_duty.loc[~np.isnan(d_assign_date_duty['id_member']), 'date_duty'].tolist()
@@ -53,12 +54,15 @@ def compare_event(d_assign_date_duty, d_event_exist):
     return l_date_duty_delete, l_date_duty_change, l_date_duty_add
 
 
-def update_calendar(lp_root, year_plan, month_plan, l_scope, dict_time_duty, t_sleep = 0.0):
+def update_calendar(lp_root, year_plan, month_plan, id_calendar, dict_time_duty, t_sleep = 0.0):
     p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
     d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
 
     # Access calendar
-    service_calendar, id_calendar = access_calendar(p_root, l_scope)
+    #service_calendar, id_calendar = access_calendar(p_root, l_scope)
+    l_scope = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/calendar']
+    creds = prep_api_creds(p_root, l_scope)
+    service_calendar = build('calendar', 'v3', credentials = creds)
 
     # Read events on G calendar
     d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, dict_time_duty)
