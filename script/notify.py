@@ -109,6 +109,8 @@ def update_calendar(lp_root, year_plan, month_plan, id_calendar, dict_time_duty,
 
 def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availability):
 
+    #d_member['id_member'] = d_member.index
+    d_member = d_member.reset_index()
     d_date_duty = pd.merge(d_date_duty, d_member[['id_member','name_jpn_full','email']], on = 'id_member', how = 'left')
     d_date_duty = pd.merge(d_date_duty, d_time_duty, on = 'duty', how = 'left')
 
