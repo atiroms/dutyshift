@@ -56,7 +56,8 @@ def compare_event(d_assign_date_duty, d_event_exist):
 
 def update_calendar(lp_root, year_plan, month_plan, id_calendar, dict_time_duty, t_sleep = 0.0):
     p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
-    d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
+    #d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
+    d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
 
     # Access calendar
     #service_calendar, id_calendar = access_calendar(p_root, l_scope)
@@ -78,7 +79,8 @@ def update_calendar(lp_root, year_plan, month_plan, id_calendar, dict_time_duty,
 
     # Add events
     d_date_duty_add = d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_add + l_date_duty_change), :]
-    d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
+    #d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
+    d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
     d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
     d_time_duty = pd.DataFrame(dict_time_duty)
 
@@ -110,7 +112,7 @@ def update_calendar(lp_root, year_plan, month_plan, id_calendar, dict_time_duty,
 def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availability):
 
     #d_member['id_member'] = d_member.index
-    d_member = d_member.reset_index()
+    #d_member = d_member.reset_index()
     d_date_duty = pd.merge(d_date_duty, d_member[['id_member','name_jpn_full','email']], on = 'id_member', how = 'left')
     d_date_duty = pd.merge(d_date_duty, d_time_duty, on = 'duty', how = 'left')
 
@@ -190,6 +192,7 @@ def delete_duty(service_calendar, id_calendar, l_date_duty_delete, d_event_exist
 
 
 def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_duty):
+    #d_member = d_member.reset_index()
 
     if month == 12:
         year_end = year + 1
