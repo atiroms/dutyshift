@@ -215,6 +215,7 @@ def create_gdrive_folder(service, id_folder_parent, name_folder_child):
     result = check_gdrive_folder(service, id_folder_parent, name_folder_child)
     if result['exist']:
         new = False
+        id_folder_child = None
     else:
         new = True
         id_folder_child = result['id_folder_child']
@@ -281,7 +282,10 @@ def prep_dirs(lp_root, year_plan, month_plan, prefix_dir, make_data_dir = True):
         p_script = os.path.join(p_root,'GitHub/dutyshift')
         os.chdir(p_script)
         # Set paths and directories
-        d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
+        if type(month_plan) == str:
+            d_month = '{year:0>4d}'.format(year = year_plan) + month_plan
+        else:
+            d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
         p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
 
         if make_data_dir:
