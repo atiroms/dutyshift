@@ -4,14 +4,12 @@ import os, datetime
 from script.helper import *
 from script.check import *
 
-def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict_jpnday, dict_duty_jpn):
-
+def collect_availability(lp_root, year_plan, month_plan, dict_jpnday, dict_duty_jpn):
     p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = 'clct')
 
     # Read data
-    #sheet_id = address_response.split('/')[5]
-    name_sheet = "FormResponses1"
-    d_availability_src = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{id_sheet_response}/gviz/tq?tqx=out:csv&sheet={name_sheet}")
+    path_form = '/dutyshift/result/' + str(year_plan) + '/' + str(month_plan).zfill(2) + '/form_' +  str(year_plan) + str(month_plan).zfill(2)
+    d_availability_src = read_form_response(p_root, path_form)
     d_member = read_member(p_root, year_plan, month_plan)
 
     # Check missing members
@@ -31,12 +29,12 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
     for key_day, item_day in dict_jpnday.items():
         for key_duty, item_duty in dict_duty_jpn.items():
             col_dayduty = item_day + '　' + item_duty
-            l_col_dayduty = [col for col in l_col if ('[' + col_dayduty + ']') in col]
+            l_col_dayduty = [idx_col for idx_col, col in enumerate(l_col) if ('[' + col_dayduty + ']') in col]
             if len(l_col_dayduty) > 0:
                 l_availability = [np.nan] * d_availability_src.shape[0]
-                for col in l_col_dayduty: # Iterate over columns of specific date_duty in columns of d_availability_src
-                    l_availbility_src = d_availability_src[col].tolist()
-                    for idx, availability_src in enumerate(l_availbility_src):
+                for idx_col in l_col_dayduty:
+                    l_availability_src = d_availability_src.iloc[:, idx_col].tolist()
+                    for idx, availability_src in enumerate(l_availability_src):
                         if availability_src == '不可':
                             l_availability[idx] = 0
                         elif availability_src == '可':
@@ -48,10 +46,11 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
 
     # Apply weekly pattern to list of date_duty
     dict_l_availability = {}
-    for idx, row in d_cal_duty.iterrows(): # Iterate over date_duty's
+    for _, row in d_cal_duty.iterrows(): # Iterate over date_duty's
         title_dateduty = row['title_dateduty']
         dateduty = str(row['date']) + '_' + row['duty']
-        l_col_dateduty = [col for col in l_col if ('[' + title_dateduty + ']') in col]
+        #l_col_dateduty = [idx_col for col in l_col if ('[' + title_dateduty + ']') in col]
+        l_col_dateduty = [idx_col for idx_col, col in enumerate(l_col) if ('[' + title_dateduty + ']') in col]
         day = row['wday']
         duty = row['duty']
         holiday_wday = row['holiday_wday']
@@ -61,9 +60,9 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
         else:
             l_availability = [np.nan] * d_availability_src.shape[0]
         # Apply irregular pattern
-        for col in l_col_dateduty: # Iterate over columns of specific date_duty in columns of d_availability_src
-            l_availbility_src = d_availability_src[col].tolist()
-            for idx, availability_src in enumerate(l_availbility_src):
+        for idx_col in l_col_dateduty: # Iterate over columns of specific date_duty in columns of d_availability_src
+            l_availability_src = d_availability_src.iloc[:, idx_col].tolist()
+            for idx, availability_src in enumerate(l_availability_src):
                 if availability_src == '不可':
                     l_availability[idx] = 0
                 elif availability_src == '可':
@@ -73,17 +72,15 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
         dict_l_availability[dateduty] = l_availability
 
     d_availability = pd.DataFrame(dict_l_availability)
-    #d_availability = d_availability.fillna(0)
 
     d_availability_head = d_availability_src[['お名前（敬称略）', 'Timestamp']].copy()
     d_availability_head.columns = ['name_jpn_full', 'timestamp']
-    #d_availability_head = pd.merge(d_availability_head, d_member[['name_jpn_full', 'id_member']], on = 'name_jpn_full')
-    d_availability_head['unixtime'] = d_availability_head['timestamp'].apply(lambda x: datetime.datetime.strptime(x, '%m/%d/%Y %H:%M:%S').timestamp())
-
+    d_availability_head['unixtime'] = d_availability_head['timestamp'].apply(lambda x: datetime.datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ').timestamp())
+    
     # Designation
     l_designation = [np.nan] * d_availability_src.shape[0]
-    for col in [col for col in l_col if '指定医' in col]:
-        l_designation_src = d_availability_src[col].tolist()
+    for idx_col in [idx_col for idx_col, col in enumerate(l_col) if '指定医' in col]:
+        l_designation_src = d_availability_src.iloc[:, idx_col].tolist()
         for idx, designation_src in enumerate(l_designation_src):
             if designation_src == '指定医':
                 l_designation[idx] = True
@@ -115,10 +112,10 @@ def collect_availability(lp_root, year_plan, month_plan, id_sheet_response, dict
     l_id_member = sorted(list(set(d_availability['id_member'].tolist())))
     l_d_availability = []
     for id_member in l_id_member:
-        d_availability_member = d_availability[d_availability['id_member'] == id_member]
-        d_availability_member = d_availability_member.sort_values(by = ['unixtime'], ascending = False)
-        d_availability_member = d_availability_member.iloc[0]
-        l_d_availability.append(d_availability_member)
+        d_availability_temp = d_availability[d_availability['id_member'] == id_member]
+        d_availability_temp = d_availability_temp.sort_values(by = ['unixtime'], ascending = False)
+        d_availability_temp = d_availability_temp.iloc[0]
+        l_d_availability.append(d_availability_temp)
     d_availability = pd.DataFrame(l_d_availability)
 
     # Index
