@@ -215,7 +215,7 @@ def create_gdrive_folder(service, id_folder_parent, name_folder_child):
     result = check_gdrive_folder(service, id_folder_parent, name_folder_child)
     if result['exist']:
         new = False
-        id_folder_child = None
+        id_folder_child = result['id_folder_child']
     else:
         new = True
         id_folder_child = result['id_folder_child']
