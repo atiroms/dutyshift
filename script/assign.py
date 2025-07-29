@@ -273,7 +273,8 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
                               l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,
                               l_date_duty_skip_manual, dict_closeduty, ll_avoid_adjacent,
                               l_title_fulltime, l_date_duty_fulltime, type_limit,
-                              c_assign_suboptimal, c_cnt_deviation, c_closeduty, dict_score_duty, dict_score_class):
+                              c_assign_suboptimal, c_cnt_deviation, c_closeduty,
+                              dict_score_duty, dict_score_class, dict_class_duty):
     
     p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = 'asgn')
 
@@ -444,9 +445,11 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
         print(d_deviation_summary)
         print('-' * 60 + '\nClose duties:\n' + '-' * 60)
         print(d_closeduty)
+        print('-' * 60 + '\nCandidate replacement:\n' + '-' * 60)
+        print_candidate_replacement(p_month, dict_class_duty, d_deviation_summary, d_assign_date_duty, d_assign_member, d_closeduty)
         print('-' * 60)
 
-        return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_score_print, d_closeduty
+        return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_score_print, d_closeduty, d_deviation_summary, d_assign_date_duty
     else:
         print('Failed to solve')
 
