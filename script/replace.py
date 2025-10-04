@@ -22,6 +22,7 @@ def check_replacement(lp_root, year_plan, month_plan):
     path_form = '/dutyshift/result/replacement/replacement'
     d_replace = read_form_response(p_root, path_form)
 
+    d_replace = d_replace.sort_values(by = 'Timestamp')
     d_replace = d_replace[['交代する日付','交代する業務','交代後の担当者（敬称略）']]
     d_replace = d_replace.rename(columns={'交代する日付':'ymd','交代する業務':'duty','交代後の担当者（敬称略）':'name_jpn_full'})
     d_replace['year'] = [int(ymd.split('-')[0]) for ymd in d_replace['ymd']]
