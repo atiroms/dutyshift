@@ -64,11 +64,12 @@ def print_candidate_replacement(p_month, dict_class_duty, d_deviation_summary, d
         l_result = []
         for i0, col0 in d_closeduty_temp.iterrows():
             date_duty = col0['date_duty']
-            l_member_proxy = d_availability_duty.loc[date_duty, 'l_member'].split(', ')
-            l_member_proxy_jpn = d_availability_duty.loc[date_duty, 'l_member_jpn'].split(', ')
-            l_member_proxy = [i2 + '_' + name for i2, name in zip(l_member_proxy, l_member_proxy_jpn) if int(i2) != int(id_member)]
-            str_member_proxy = ', '.join(l_member_proxy)
-            l_result.append([date_duty, str_member_proxy])
+            if type(d_availability_duty.loc[date_duty, 'l_member']) == str:
+                l_member_proxy = d_availability_duty.loc[date_duty, 'l_member'].split(', ')
+                l_member_proxy_jpn = d_availability_duty.loc[date_duty, 'l_member_jpn'].split(', ')
+                l_member_proxy = [i2 + '_' + name for i2, name in zip(l_member_proxy, l_member_proxy_jpn) if int(i2) != int(id_member)]
+                str_member_proxy = ', '.join(l_member_proxy)
+                l_result.append([date_duty, str_member_proxy])
         ll_result.append([str_member, l_result])
 
     for l_result in ll_result:

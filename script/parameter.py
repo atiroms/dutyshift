@@ -43,7 +43,8 @@ dict_score_class = {'score': ['ampm', 'daynight', 'daynight', 'ampmdaynight', 'a
 # Optimizing assignment, parameters for avoiding overlapping duties
 ll_avoid_adjacent = [[['pm', 0], ['night', 0], ['emnight', 0], ['ocnight', 0]],
                      [['night', 0], ['emnight', 0], ['ocnight', 0], ['ect', 1], ['am', 1]]]
-l_title_fulltime = ['assist'] # ['limterm_instr', 'assist', 'limterm_clin']
+#l_title_fulltime = ['assist'] # ['limterm_instr', 'assist', 'limtermclin']
+l_title_fulltime = ['assist', 'limtermclin'] # ['limterm_instr', 'assist', 'limtermclin']
 # Notification
 id_calendar = 'ht4svlr03krt7jcqho5guou32c@group.calendar.google.com'
 t_sleep = 600.0

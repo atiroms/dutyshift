@@ -77,7 +77,8 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
     l_fulltime = d_fulltime['fulltime'].tolist()
     #l_fulltime = [(title in ['limterm_instr', 'assist']) for title in l_fulltime]
     for date_duty_fulltime in l_date_duty_fulltime:
-        prob_assign += (lpSum(lpDot(dv_assign.loc[date_duty_fulltime].to_numpy(), np.array(l_fulltime))) == 1)
+        if date_duty_fulltime in dv_assign.index:
+            prob_assign += (lpSum(lpDot(dv_assign.loc[date_duty_fulltime].to_numpy(), np.array(l_fulltime))) == 1)
 
 
     ###############################################################################
