@@ -4,7 +4,7 @@
 ###############################################################################
 # General
 year_start, month_start = 2025, 4
-lp_root = ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt']
+lp_root = ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt', 'C:/Users/atiro']
 # Form
 dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
 dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'emnight': '救急当直', 'ocnight': '当直OC'}
