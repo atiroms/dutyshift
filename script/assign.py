@@ -303,7 +303,6 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
                        l_type_score = ['ampm', 'daynight', 'ampmdaynight', 'ect'],
                        l_class_duty = ['ampm', 'daynight_tot', 'night_em', 'ect'])
 
-
     # Optimize assignment counts of OC
     ln_daynight = d_lim_exact_notoc['daynight_tot'].tolist()
     #l_designation = d_member.loc[d_member['id_member'].isin(l_member), 'designation'].tolist()
