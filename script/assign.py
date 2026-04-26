@@ -289,6 +289,7 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     # Prepare data of member specs and assignment limits
     d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
         = prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start, dict_score_duty)
+    l_member = d_member.index.tolist()
 
     # TODO: equilize 3 continous holidays assignment count
     #d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
@@ -349,8 +350,11 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     d_assign_manual = pd.read_csv(os.path.join(p_month, 'assign_manual.csv'))
     d_info = pd.read_csv(os.path.join(p_month, 'info.csv'))
     d_availability_noskip = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
-    l_member = [int(member) for member in d_availability_noskip.columns]
-    d_availability_noskip.columns = l_member
+    #l_member = [int(member) for member in d_availability_noskip.columns]
+    #d_availability_noskip.columns = l_member
+    #print([int(member) for member in d_availability_noskip.columns])
+    d_availability_noskip.columns = [int(member) for member in d_availability_noskip.columns]
+    d_availability_noskip = d_availability_noskip[l_member]
     d_availability_ratio = pd.read_csv(os.path.join(p_month, 'availability_ratio.csv'), index_col = 0)
     d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
     d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_unavailable_notoc, l_date_duty_manual_assign, l_date_duty_skip =\
