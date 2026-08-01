@@ -584,7 +584,7 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
                                                 columns = dv_sigma_diff_score_total.columns, index = dv_sigma_diff_score_total.index)
         return status_opt, loss_opt, d_lim_exact, d_score_current, d_score_total, d_sigma_diff_score_current, d_sigma_diff_score_total
     else:
-        #print('Failed to solve')
+        print('Failed to solve assignment count optimization')
         status_opt = False
         return [status_opt] + [None] * 6
 
@@ -1023,7 +1023,7 @@ def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start,
         d_score_past = d_score_past[['id_member'] + l_type_score]
     else:
         d_score_past = pd.DataFrame(0, index = range(len(d_member)), columns = ['id_member'] + l_type_score)
-        d_score_past['id_member'] = d_member['id_member']
+        d_score_past['id_member'] = d_member['id_member'].tolist()
     return d_score_past
 
 

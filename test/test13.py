@@ -5,13 +5,15 @@ import os
 
 
 #p_data = '/Users/smrt/Library/CloudStorage/Dropbox/dutyshift/202404'
-p_data = '/Users/smrt/Library/CloudStorage/Dropbox/dutyshift/202504'
+#p_data = '/Users/smrt/Library/CloudStorage/Dropbox/dutyshift/202504'
+p_data = '/Users/smrt/Library/CloudStorage/Dropbox/dutyshift/202604'
 
 d_availability_src = pd.read_csv(os.path.join(p_data, 'availability.csv'))
 
-l_member_ow = [46, 47, 48, 23, 49, 50, 51, 52]
+#l_member_ow = [46, 47, 48, 23, 49, 50, 51, 52]
 #l_member_ow = [46, 49, 50, 51, 52]
-l_date_ow = [i for i in range(1, 8)]
+l_member_ow = [27, 21, 54, 55, 56, 57, 59, 60]
+l_date_ow = [i for i in range(1, 13)]
 
 #l_member_ow = [20]
 #l_date_ow = [i for i in range(1, 8)]
