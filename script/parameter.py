@@ -2,12 +2,29 @@
 ###############################################################################
 # Fixed parameters
 ###############################################################################
+import numpy as np, pandas as pd
+
 # General
 year_start, month_start = 2026, 4
 lp_root = ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt', 'C:/Users/atiro']
+
 # Form
-dict_duty = {'ect': 0, 'am': 1, 'pm': 2, 'day': 3, 'ocday': 4, 'night': 5, 'emnight':6, 'ocnight': 7}
-dict_duty_jpn = {'am': '午前日直', 'pm': '午後日直', 'day': '日直', 'ocday': '日直OC', 'night': '当直', 'emnight': '救急当直', 'ocnight': '当直OC'}
+# Duty master table: single source of truth for duty sort order, Japanese label, and clock
+# times. dict_duty / dict_duty_jpn / dict_time_duty below are derived views, kept so existing
+# call sites (script/form.py, script/collect.py, script/notify.py) don't need to change.
+_dict_duty_info = {'duty':     ['ect', 'am', 'pm', 'day', 'ocday', 'night', 'emnight', 'ocnight'],
+                   'order':    [0, 1, 2, 3, 4, 5, 6, 7],
+                   'duty_jpn': ['ECT当番', '午前日直', '午後日直', '日直', '日直OC', '当直', '救急当直', '当直OC'],
+                   'start':    ['07:30', '08:30', '12:30', '08:30', '08:30', '17:15', '17:15', '17:15'],
+                   'end':      ['11:00', '12:30', '17:15', '17:15', '17:15', '32:30', '32:30', '32:30']}
+dict_duty = dict(zip(_dict_duty_info['duty'], _dict_duty_info['order']))
+# ECT has no dedicated availability question on the Google Form -- its availability is instead
+# inferred from the 'am' question on ECT days (see script/collect.py). Excluding 'ect' here is
+# what makes script/form.py skip generating a form question/column for it, so keep the exclusion.
+dict_duty_jpn = {duty: jpn for duty, jpn in zip(_dict_duty_info['duty'], _dict_duty_info['duty_jpn']) if duty != 'ect'}
+dict_time_duty = {'duty': _dict_duty_info['duty'], 'duty_jpn': _dict_duty_info['duty_jpn'],
+                  'start': _dict_duty_info['start'], 'end': _dict_duty_info['end']}
+
 dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
 dict_score_duty = {'duty':         ['am', 'pm', 'day', 'night', 'emnight', 'ocday', 'ocnight', 'ect'],
                    'ampm':         [0.5, 0.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -36,10 +53,13 @@ dict_itemid_form = {'assoc_holiday': '3fd28d79', 'assoc_others': '03f37999',
 # Optimizing assignment count
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em, l_week_em = 2, [] # Wednesday, 1st and 3rd weeks
-l_class_duty = ['ampm','daynight_tot','night_em','night_wd','daynight_hd','oc_tot','oc_day','oc_night','ect']
-dict_score_class = {'score': ['ampm', 'daynight', 'daynight', 'ampmdaynight', 'ampmdaynight', 'ampmdaynight', 'oc', 'ect'],
-                    'class': ['ampm', 'daynight_tot', 'night_em', 'ampm', 'daynight_tot', 'night_em', 'oc_tot', 'ect'],
-                    'constant': [0.5, 1, 0.5, 0.5, 1, 0.5, 1, 1]}
+
+# Unique class_duty names, in first-appearance order of dict_class_duty (order matters for
+# output column ordering, e.g. in member.xlsx / lim_*.csv). Derived rather than hand-listed a
+# second time -- script/helper.py::date_duty2class already had a commented-out line doing the
+# same thing (`sorted(list(set(d_class_duty['class'].tolist())))`), just not order-preserving.
+l_class_duty = list(dict.fromkeys(dict_class_duty['class']))
+
 # Optimizing assignment, parameters for avoiding overlapping duties
 ll_avoid_adjacent = [[['pm', 0], ['night', 0], ['emnight', 0], ['ocnight', 0]],
                      [['night', 0], ['emnight', 0], ['ocnight', 0], ['ect', 1], ['am', 1]]]
@@ -48,10 +68,54 @@ l_title_fulltime = ['assist', 'limtermclin'] # ['limterm_instr', 'assist', 'limt
 # Notification
 id_calendar = 'ht4svlr03krt7jcqho5guou32c@group.calendar.google.com'
 t_sleep = 600.0
-dict_time_duty = {'duty': ['am', 'pm', 'day', 'night', 'emnight', 'ocday', 'ocnight', 'ect'],
-                  'duty_jpn': ['午前日直', '午後日直', '日直', '当直', '救急当直', '日直OC', '当直OC', 'ECT当番'],
-                  'start': ['08:30', '12:30', '08:30', '17:15', '17:15', '08:30', '17:15', '07:30'],
-                  'end':   ['12:30', '17:15', '17:15', '32:30', '32:30', '17:15', '32:30', '11:00']}
+
+# Score weight per class_duty, per score axis. This is the same underlying weighting as
+# dict_score_duty (per-duty weights), just projected onto class_duty groups because the
+# count-optimization stage (script/helper.py::optimize_count) only knows target *counts* per
+# class_duty, not which specific duty a doctor will end up with.
+#
+# The 'constant' column used to be hand-solved and hand-maintained separately from
+# dict_score_duty, with nothing tying the two together -- so an edit to one could silently
+# desync assignment-count fairness (stage 1) from actual assignment scoring (stage 2). It's now
+# derived from dict_score_duty + dict_class_duty below, with a consistency check that raises if
+# the decomposition ever stops being exact.
+def _derive_score_class_constants(dict_score_duty, dict_class_duty, ll_score_class):
+    """For each (score_axis, class_duty) pair in ll_score_class, solve the constant such that
+    summing constants over the classes each duty belongs to reproduces dict_score_duty's
+    per-duty weight for that axis. Only dict_class_duty rows with date == 'all' participate:
+    weekday/holiday-qualified classes (night_wd, daynight_hd, ...) exist purely for per-doctor
+    count limits and never carry score weight.
+    """
+    d_score_duty = pd.DataFrame(dict_score_duty).set_index('duty')
+    d_class_duty_all = pd.DataFrame(dict_class_duty)
+    d_class_duty_all = d_class_duty_all[d_class_duty_all['date'] == 'all']
+
+    l_constant = []
+    for score in dict.fromkeys(score for score, _ in ll_score_class):
+        l_class = [class_duty for s, class_duty in ll_score_class if s == score]
+        l_duty = sorted(set(d_class_duty_all.loc[d_class_duty_all['class'].isin(l_class), 'duty']))
+        m_incidence = np.array([[duty in set(d_class_duty_all.loc[d_class_duty_all['class'] == class_duty, 'duty'])
+                                  for class_duty in l_class] for duty in l_duty], dtype = float)
+        v_target = d_score_duty.loc[l_duty, score].to_numpy(dtype = float)
+        v_constant, _, _, _ = np.linalg.lstsq(m_incidence, v_target, rcond = None)
+        v_constant = np.round(v_constant, 6)
+        if not np.allclose(m_incidence @ v_constant, v_target):
+            raise ValueError(
+                "dict_class_duty can't exactly reproduce dict_score_duty['" + score + "'] via classes " +
+                str(l_class) + " -- dict_score_duty and dict_class_duty have drifted out of sync, or " +
+                "the (score, class) structure in _ll_score_class needs updating to match.")
+        l_constant.extend(v_constant.tolist())
+    return l_constant
+
+_ll_score_class = [('ampm', 'ampm'),
+                   ('daynight', 'daynight_tot'), ('daynight', 'night_em'),
+                   ('ampmdaynight', 'ampm'), ('ampmdaynight', 'daynight_tot'), ('ampmdaynight', 'night_em'),
+                   ('oc', 'oc_tot'),
+                   ('ect', 'ect')]
+dict_score_class = {'score': [score for score, _ in _ll_score_class],
+                    'class': [class_duty for _, class_duty in _ll_score_class],
+                    'constant': _derive_score_class_constants(dict_score_duty, dict_class_duty, _ll_score_class)}
+
 # Parameters for replacement
 #sheet_id = "1glzf0fM1jyAZffFE7l7SHE26m3M4QBI5AAOsdSlmHxE"
 #l_scope = ['https://www.googleapis.com/auth/calendar']

@@ -69,6 +69,13 @@ hardcoded machine-path list (`lp_root` in `script/parameter.py`). Nothing under
   unconstrained.
 - Holidays are passed per-run as a plain list of day-of-month integers (`l_holiday`); weekends
   are always holidays automatically.
+- `script/parameter.py`'s duty-related tables have single sources of truth, not independent
+  hand-typed copies: `dict_duty`/`dict_duty_jpn`/`dict_time_duty` are all derived from one
+  `_dict_duty_info` table; `l_class_duty` is derived from `dict_class_duty`; `dict_score_class`
+  (per-`class_duty` score weights, used by `optimize_count`) is derived from `dict_score_duty`
+  (per-duty score weights) via `_derive_score_class_constants`, which raises `ValueError` if the
+  two can no longer be reconciled. **To change scoring weights, edit `dict_score_duty`, not
+  `dict_score_class`** — the latter is computed, not a knob.
 
 ## Testing
 
