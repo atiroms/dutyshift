@@ -8,7 +8,9 @@ Guidance for Claude Code when working in this repository.
 creates a Google Form to collect doctor availability, solves a two-stage mixed-integer linear
 program (PuLP/CBC) to decide who works which shift, publishes the result to a shared Google
 Calendar, and handles post-publication shift-swap requests. It's operated as a single Jupyter
-notebook re-run once per month, not a deployed service.
+notebook re-run once per month, not a deployed service. The notebook is a single cell that
+displays one combined `ipywidgets` panel — common parameters on top, one `Tab` per pipeline
+stage below — rather than hand-edited code across multiple cells.
 
 For a full deep-dive (data model, MILP formulation, module-by-module walkthrough, known issues),
 see [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md).
@@ -26,16 +28,37 @@ must be installed manually. Core libraries actually imported by the code:
 - `pulp`, `ortoolpy` — the MILP optimizer (PuLP modeling + CBC solver)
 - `pandas`, `numpy` — all data handling
 - `google-api-python-client`, `google-auth-oauthlib` — Google Forms/Drive/Calendar APIs
+- `ipywidgets` — the GUI layer (`script/gui.py`); runs under classic Jupyter Notebook, which
+  must be running an actual `ipykernel` for widget `Button`/`Output` capture to work — running
+  cells via `nbconvert --execute` or a plain script only checks that panels *build*, not that
+  clicks/output-capture work end to end.
 
 ## How it runs
 
-There is no CLI or `main.py`. The pipeline is `main.ipynb`, executed cell by cell:
-1. Set `year_plan, month_plan, l_holiday` (cell 0) — the only per-month edit.
-2. `script/form.py::prepare_form` — create the availability Google Form.
-3. `script/collect.py::collect_availability` — parse form responses.
-4. `script/assign.py::optimize_count_and_assign` — run the two-stage MILP.
-5. `script/notify.py::update_calendar` — publish to Google Calendar.
-6. `script/replace.py::check_replacement` / `replace_assignment` — handle shift-swap requests.
+There is no CLI or `main.py`. `main.ipynb` is one cell:
+```python
+state = AppState()
+display(build_app(state))
+```
+`build_app` (`script/gui.py`) combines every stage into one panel — common parameters
+(year/month dropdowns, holiday/ECT-cancel multi-selects) pinned on top, one `Tab` below per
+stage:
+1. **1. Create Form** — `script/form.py::prepare_form`, creates the availability Google Form.
+2. **2. Collect** — `script/collect.py::collect_availability`, parses form responses.
+3. **3. Assign** — `script/assign.py::optimize_count_and_assign`, runs the two-stage MILP. Its
+   hyperparameters (score-deviation weights, close-duty thresholds, `type_limit`, etc.) are
+   editable widgets in a collapsed "Advanced solver parameters" accordion, defaulting to the
+   values that used to be hardcoded in the old cell 3.
+4. **4. Notify** — `script/notify.py::update_calendar`, publishes to Google Calendar.
+5. **5. Check Replace** / **6. Apply Replace** — `script/replace.py::check_replacement` /
+   `replace_assignment`, handle shift-swap requests. `check_replacement`'s result is held on
+   `state.d_replace_checked` (the only value that flows between tabs in memory) and consumed by
+   the apply-replacement tab.
+
+Each tab only wires widgets to these unchanged `script/*.py` functions — the pipeline logic
+itself did not change. Every `build_*_panel(state)` function (and `build_app` itself) can still
+be called/`display()`-ed directly from a plain script/notebook cell, exactly like the pre-GUI
+code, if needed for debugging just one stage.
 
 All runtime data (`config/member.xlsx` doctor roster, per-month generated CSVs, Google OAuth
 credentials) lives outside this repo in a Dropbox-synced folder, path auto-detected from a
@@ -46,7 +69,8 @@ hardcoded machine-path list (`lp_root` in `script/parameter.py`). Nothing under
 
 | File | Role |
 |---|---|
-| `main.ipynb` | Entry point; the monthly pipeline, cell by cell. |
+| `main.ipynb` | Entry point; single cell, displays `script/gui.py::build_app(state)`. |
+| `script/gui.py` | `ipywidgets` GUI layer: `AppState` (shared widgets + cross-panel state), one `build_*_panel()` function per pipeline stage, and `build_app()` combining them into the single panel `main.ipynb` displays. Wires widgets to the functions below; contains no pipeline logic itself. |
 | `script/parameter.py` | Fixed config: duty types, scoring weights, per-title duty eligibility, Google resource IDs. Edited rarely. |
 | `script/helper.py` | Shared building blocks: calendar prep, roster loading/parsing, the Stage-1 count-optimization MILP (`optimize_count`), result extraction/CSV export. |
 | `script/assign.py` | The Stage-2 assignment MILP (`optimize_assign`) and orchestration (`optimize_count_and_assign`), including infeasibility recovery. Contains a stale unused duplicate, `optimize_count_and_assign_old`. |

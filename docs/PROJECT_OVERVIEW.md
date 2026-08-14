@@ -23,8 +23,8 @@ University of Tokyo Hospital). Each month it:
    Form.
 
 It is a personal automation tool (the author is also the operator), not a packaged/deployed
-application — there's no server, database, or UI beyond Jupyter + Google's own UIs (Forms,
-Calendar).
+application — there's no server or database. The UI is Jupyter (via `ipywidgets` panels, one
+per stage) plus Google's own UIs (Forms, Calendar).
 
 ## Tech stack
 
@@ -39,7 +39,11 @@ Pure Python, driven interactively from a single Jupyter notebook.
 - **google-api-python-client / google-auth-oauthlib** — Google Forms API (create/read the
   availability and replacement-request surveys), Google Drive API (create/manage the per-month
   folder the form lives in), Google Calendar API (publish/diff the final schedule).
-- Standard library: `os`, `datetime`, `calendar`, `math.ceil`, `random`, `time.sleep`.
+- **ipywidgets** — the GUI layer (`script/gui.py`): dropdowns/buttons/output panels wired to
+  the pipeline functions below. Requires a live Jupyter kernel (classic Notebook or JupyterLab)
+  to actually capture button clicks and stage output — building the widgets themselves works
+  anywhere ipywidgets is importable, but the interactive parts don't.
+- Standard library: `os`, `datetime`, `calendar`, `math.ceil`, `random`, `time.sleep`, `traceback`.
 
 **Gap:** there is no `requirements.txt`, `pyproject.toml`, or lockfile anywhere in the repo.
 Dependencies must be inferred from imports and installed manually.
@@ -48,7 +52,7 @@ Dependencies must be inferred from imports and installed manually.
 
 | Path | What it is |
 |---|---|
-| `main.ipynb` | The single live entry point. Hand-edited and re-run every month. |
+| `main.ipynb` | The single live entry point. An `ipywidgets` panel per stage, re-run every month; no code editing needed for a normal month. |
 | `script/` | The Python package with all pipeline logic (see below). |
 | `test/test01.py` … `test19.py` | Ad hoc, undocumented developer scratch scripts — not an automated test suite (no pytest/unittest, no assertions framework). |
 | `README.md` | One paragraph: project purpose + CC BY-NC 4.0 license note. |
@@ -64,50 +68,61 @@ git.
 
 ## Pipeline walkthrough
 
-`main.ipynb` has 7 cells, each a stage of the monthly pipeline. Cell outputs are cleared before
-commit, so the notebook file itself carries no historical run output — only code.
+`main.ipynb` is a single cell: it sets up an `AppState` and `display()`s one combined panel,
+`script/gui.py::build_app(state)`, covering the whole monthly pipeline. That panel is common
+parameters pinned on top, above a `Tab` with one tab per stage — so opening the notebook and
+running its one cell is enough to see the entire workflow, rather than running 7 cells in
+order. Cell output is cleared before commit, so the notebook file itself carries no historical
+run output — only code. Every panel only wires widgets to the underlying `script/*.py` function
+below it — none of the pipeline logic lives in `script/gui.py` itself; `build_app` and each
+`build_*_panel` function can still be `display()`-ed individually (e.g. in a scratch cell) if
+useful for debugging just one stage.
 
-**Cell 0 — Common parameters** (the only cell whose *content* changes every month):
-```python
-year_plan, month_plan, l_holiday = 2026, 8, [11]
-l_date_ect_cancel = []
-from script.parameter import *
-```
-`year_plan`/`month_plan` select the month to schedule; `l_holiday` is a plain list of
-day-of-month integers for any weekday that should be treated as a holiday (weekends are always
-holidays automatically — see [Data model](#data-model)). `l_date_ect_cancel` lists dates where
-the ECT rotation is skipped (e.g. cancelled for a conference). Every past month's tuple is kept
-as dead code in a triple-quoted comment block above the active line — see
-[Known issues](#known-issues--improvement-ideas). `from script.parameter import *` loads the
-fixed, rarely-changing configuration (duty types, scoring weights, per-title duty eligibility,
-Google resource IDs) from `script/parameter.py`.
+**Common parameters** (`build_common_params_panel`, pinned above the tabs): Year/Month
+dropdowns plus Holiday/ECT-cancel multi-selects, the latter two rebuilt from
+`calendar.monthrange` whenever year or month changes. These replace what used to be a
+hand-edited `year_plan, month_plan, l_holiday = ...` tuple; a comment block preserving every
+past month's tuple (back to 2024-06) is kept in the notebook cell above the GUI code purely as a
+historical record — weekends are always holidays automatically regardless of the selection (see
+[Data model](#data-model)). Populates the `AppState` (`state`) that every tab reads
+`year_plan`/`month_plan`/`l_holiday`/`l_date_ect_cancel` from at click time, plus the one value
+that genuinely flows between tabs in memory, `d_replace_checked` (see "5. Check Replace" →
+"6. Apply Replace" below). `script/gui.py` itself does `from script.parameter import *` etc.,
+loading the fixed, rarely-changing configuration (duty types, scoring weights, per-title duty
+eligibility, Google resource IDs) from `script/parameter.py`.
 
-**Cell 1 — Create Google form** (`script/form.py::prepare_form`): builds the month's calendar
-and duty-slot structure, then creates (from a template) a Google Form asking each doctor their
-availability, printing the form's response URL for distribution.
+**Tab "1. Create Form"** (`build_form_panel` → `script/form.py::prepare_form`): builds the
+month's calendar and duty-slot structure, then creates (from a template) a Google Form asking
+each doctor their availability, printing the form's response URL for distribution into the
+tab's output area.
 
-**Cell 2 — Collect Google form response** (`script/collect.py::collect_availability`): reads
+**Tab "2. Collect"** (`build_collect_panel` → `script/collect.py::collect_availability`): reads
 form responses plus the member roster, builds an availability matrix, flags doctors who haven't
 responded or whose "designated physician" status doesn't match the roster, and prints any
 free-text requests doctors left in the form.
 
-**Cell 3 — Optimize assignment count and assign members** (`script/assign.py`): the core stage.
-Solver-tuning hyperparameters are defined directly in this cell (weights for score-deviation
-penalties, closeness thresholds, objective-term weights, manual overrides) — see
-[Optimization engine](#optimization-engine). Calls
-`optimize_count_and_assign(...)`, which runs two chained MILP solves.
+**Tab "3. Assign"** (`build_assign_panel` → `script/assign.py`): the core stage. Solver-tuning
+hyperparameters (weights for score-deviation penalties, closeness thresholds, objective-term
+weights, `type_limit`, manual overrides/skips) are editable widgets grouped into a collapsed
+"Advanced solver parameters" accordion, defaulting to the values that used to be hardcoded here
+— see [Optimization engine](#optimization-engine). The "Run Optimization" button calls
+`optimize_count_and_assign(...)`, which runs two chained MILP solves; expect a long output log
+(the function itself prints ~40 progress lines, plus PuLP/CBC's own solver log).
 
-**Cell 4 — Notify Google calendar** (`script/notify.py::update_calendar`): diffs the new
+**Tab "4. Notify"** (`build_notify_panel` → `script/notify.py::update_calendar`): diffs the new
 schedule against existing events on the shared Google Calendar and adds/deletes/updates events
 (one per duty per doctor), including substitute-candidate info and a link to the shift-swap
 request form in each event's description.
 
-**Cell 5 — Collect replacement application** (`script/replace.py::check_replacement`): reads a
-second, separate Google Form used for shift-swap requests and prints a proposed
-before → after diff.
+**Tab "5. Check Replace"** (`build_replace_check_panel` →
+`script/replace.py::check_replacement`): reads a second, separate Google Form used for
+shift-swap requests, prints a proposed before → after diff, and stores the result on
+`state.d_replace_checked` for the next tab.
 
-**Cell 6 — Apply checked replacement plan** (`script/replace.py::replace_assignment`):
-re-applies the swap to the assignment tables and regenerates the summary/score outputs.
+**Tab "6. Apply Replace"** (`build_replace_apply_panel` →
+`script/replace.py::replace_assignment`): re-applies the swap to the assignment tables and
+regenerates the summary/score outputs, using `state.d_replace_checked` from the previous tab
+(prints a friendly reminder instead of erroring if that tab hasn't been run yet).
 
 ### `script/` module map
 
@@ -121,6 +136,7 @@ re-applies the swap to the assignment tables and regenerates the summary/score o
 | `script/notify.py` | 244 | Google Calendar integration: `access_calendar`, `update_calendar`, `add_duty`, `delete_duty`, `list_duty`, `compare_event`. |
 | `script/replace.py` | 125 | Shift-swap flow: `check_replacement`, `replace_assignment`. |
 | `script/check.py` | 47 | Small sanity-check helpers: `check_availability_duty`, `check_availability_member`. |
+| `script/gui.py` | — | `ipywidgets` GUI layer: `AppState`, one `build_*_panel()` function per stage above, and `build_app()` combining them into the single panel `main.ipynb` displays (params on top, stages as `Tab`s). No pipeline logic of its own. |
 
 ## Data model
 
@@ -210,8 +226,9 @@ Decides the actual date-by-date, doctor-by-doctor assignment given Stage 1's tar
 **Objective** (minimized): a weighted sum
 `c_assign_suboptimal * v_assign_suboptimal + c_cnt_deviation * v_cnt_deviation + c_closeduty * v_closeduty`
 — i.e. (a) count of available-but-not-preferred assignments, (b) total deviation from
-target/hard-limit counts, (c) total closeness violations. Weights are set per-run in
-`main.ipynb` cell 3 (current values: `0.00001, 0.1, 0.00001`).
+target/hard-limit counts, (c) total closeness violations. Weights are set per-run via the
+"Advanced solver parameters" widgets in the "3. Assign" tab (`script/gui.py::build_assign_panel`),
+defaulting to `0.00001, 0.1, 0.00001`.
 
 **Infeasibility recovery** — `optimize_count_and_assign` wraps both stages: if a solve comes
 back `Infeasible`, it retries with hard limits relaxed to soft, then runs a randomized
@@ -250,12 +267,14 @@ month) also lives here, not in git.
 
 ## Operational cadence
 
-The notebook is re-run once per month. Git history is dominated by small commits — often
-literally titled `param` — that append one new `(year_plan, month_plan, l_holiday)` tuple to
-the growing commented-out history block in `main.ipynb` cell 0. Prior to the current
-consolidated design, each irregular scheduling period (New Year, Golden Week, summer/winter
-vacation weeks) had its own self-contained notebook; these are now archived under `arch/` once
-their period has passed, and are out of scope for this document.
+The notebook is re-run once per month. Historically, git history was dominated by small commits
+— often literally titled `param` — that appended one new `(year_plan, month_plan, l_holiday)`
+tuple to the growing commented-out history block in `main.ipynb` cell 0; since year/month/
+holidays are now set via the GUI's dropdowns rather than editing that tuple, a normal month no
+longer requires a code commit at all. Prior to the current consolidated design, each irregular
+scheduling period (New Year, Golden Week, summer/winter vacation weeks) had its own
+self-contained notebook; these are now archived under `arch/` once their period has passed, and
+are out of scope for this document.
 
 ## Known issues / improvement ideas
 
@@ -265,14 +284,17 @@ a judgment of the project.
 - **Hardcoded, machine-specific paths.** `lp_root` in `script/parameter.py` is a literal list of
   the author's personal machine paths. `prep_dirs` picks whichever exists — brittle, and not
   portable to a new machine or collaborator without editing source.
-- **Monthly params accumulate as dead code.** `main.ipynb` cell 0 keeps every past month's
-  `(year, month, holidays)` tuple as a commented-out line inside a growing triple-quoted string,
-  rather than in a config file or table. This is also the *only* thing that changes about the
-  notebook month to month.
-- **Ad hoc solver-tuning presets.** Alternate values for `dict_c_diff_score_total`,
-  `dict_closeduty`, and `c_assign_suboptimal, c_cnt_deviation, c_closeduty` are kept as
-  commented-out sibling lines in cell 3 rather than named, documented presets — suggesting
-  frequent trial-and-error re-tuning with no record of what was tried or why.
+- **~~Monthly params accumulate as dead code~~ (resolved).** Year/month/holidays are now set via
+  dropdowns/multi-selects (`script/gui.py::build_common_params_panel`) instead of editing a
+  Python tuple each month; the old commented-out per-month history block is kept in cell 0
+  purely as an inert historical record, not something that grows via further hand-edits.
+- **Ad hoc solver-tuning presets — partially addressed.** The Cell 3 hyperparameters
+  (`dict_c_diff_score_current`/`_total`, `dict_closeduty` thresholds, objective weights,
+  `type_limit`, fulltime/skip overrides) are now editable widgets with sensible defaults instead
+  of commented-out sibling code lines, so trying an alternate value no longer means editing
+  Python. What's still missing: no way to save/name/reload a particular combination of values,
+  and no record of what was actually used for a past month beyond the CSV outputs it produced —
+  a "save this configuration" / "load last month's configuration" feature would close that gap.
 - **Stale duplicate function.** `script/assign.py` (835 lines total) contains both
   `optimize_count_and_assign` (lines 273–464, ~190 lines) and an apparently unused
   `optimize_count_and_assign_old` (lines 465–835, ~370 lines) — a near copy, roughly double the
