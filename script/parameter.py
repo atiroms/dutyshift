@@ -6,7 +6,11 @@ import numpy as np, pandas as pd
 
 # General
 year_start, month_start = 2026, 4
-lp_root = ['/home/atiroms/Documents','D:/atiro','D:/NICT_WS','/Users/smrt', 'C:/Users/atiro']
+# lp_root (a hardcoded list of every machine's personal Dropbox-folder path) used to live here.
+# It's gone: data now lives on Google Drive, resolved by name (see script/drive_io.py), which is
+# identical from every machine/account with access -- there's no per-machine path to configure.
+# The one remaining machine-specific value (where local OAuth credential files live) is in each
+# machine's own config.local.json (see config.local.example.json), not in this versioned file.
 
 # Form
 # Duty master table: single source of truth for duty sort order, Japanese label, and clock

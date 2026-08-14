@@ -13,9 +13,10 @@
 # This module only wires widgets to the existing script/*.py functions -- it does not change
 # any pipeline logic. AppState carries the one thing that genuinely has to flow between panels
 # in memory (d_replace_checked, produced by the "check replacement" panel and consumed by the
-# "apply replacement" panel); every other stage re-reads its inputs from disk via prep_dirs, so
-# panels only need state.year_plan / state.month_plan / state.l_holiday / state.l_date_ect_cancel
-# at click time.
+# "apply replacement" panel); every other stage re-reads its inputs from Google Drive via
+# script/drive_io.py (state.config, loaded once at AppState() construction time), so panels only
+# need state.year_plan / state.month_plan / state.l_holiday / state.l_date_ect_cancel at click
+# time.
 ###############################################################################
 
 import calendar, datetime, traceback
@@ -23,6 +24,7 @@ import ipywidgets as widgets
 from IPython.display import display
 
 from script.parameter import *
+from script.drive_io import load_config
 from script.form import *
 from script.collect import *
 from script.assign import *
@@ -38,9 +40,14 @@ _STYLE = {'description_width': 'initial'}
 class AppState:
     """Holds the widgets built by build_common_params_panel() plus d_replace_checked, the one
     value that has to flow in memory from the 'check replacement' panel to the 'apply
-    replacement' panel. Construct once per notebook session, pass to every build_*_panel()."""
+    replacement' panel. Construct once per notebook session, pass to every build_*_panel().
+
+    Also loads config.local.json once (self.config) -- failing fast and visibly here, at
+    AppState() construction time, rather than deep inside some button's on_click handler if
+    config.local.json is missing or malformed."""
 
     def __init__(self):
+        self.config = load_config()
         self.w_year = None
         self.w_month = None
         self.w_holiday = None
@@ -122,7 +129,7 @@ def build_form_panel(state):
 
     def on_click(_):
         def run():
-            prepare_form(lp_root, state.year_plan, state.month_plan, state.l_holiday, state.l_date_ect_cancel,
+            prepare_form(state.config, state.year_plan, state.month_plan, state.l_holiday, state.l_date_ect_cancel,
                          l_day_ect, day_em, l_week_em, l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn,
                          dict_title_duty, dict_class_duty, id_template_form, dict_itemid_form)
         _run_in_output(output, run)
@@ -140,7 +147,7 @@ def build_collect_panel(state):
 
     def on_click(_):
         def run():
-            collect_availability(lp_root, state.year_plan, state.month_plan, dict_jpnday, dict_duty_jpn)
+            collect_availability(state.config, state.year_plan, state.month_plan, dict_jpnday, dict_duty_jpn)
         _run_in_output(output, run)
     button.on_click(on_click)
 
@@ -214,7 +221,7 @@ def build_assign_panel(state):
                               for group in dict_closeduty_default}
             l_date_duty_fulltime = [s.strip() for s in w_fulltime.value.split(',') if s.strip()]
             l_date_duty_skip_manual = [s.strip() for s in w_skip.value.split(',') if s.strip()]
-            optimize_count_and_assign(lp_root, state.year_plan, state.month_plan, year_start, month_start,
+            optimize_count_and_assign(state.config, state.year_plan, state.month_plan, year_start, month_start,
                                       l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,
                                       l_date_duty_skip_manual, dict_closeduty, ll_avoid_adjacent,
                                       l_title_fulltime, l_date_duty_fulltime, w_type_limit.value,
@@ -235,7 +242,7 @@ def build_notify_panel(state):
 
     def on_click(_):
         def run():
-            update_calendar(lp_root, state.year_plan, state.month_plan, id_calendar, dict_time_duty, t_sleep)
+            update_calendar(state.config, state.year_plan, state.month_plan, id_calendar, dict_time_duty, t_sleep)
         _run_in_output(output, run)
     button.on_click(on_click)
 
@@ -251,7 +258,7 @@ def build_replace_check_panel(state):
 
     def on_click(_):
         def run():
-            state.d_replace_checked = check_replacement(lp_root, state.year_plan, state.month_plan)
+            state.d_replace_checked = check_replacement(state.config, state.year_plan, state.month_plan)
             display(state.d_replace_checked)
         _run_in_output(output, run)
     button.on_click(on_click)
@@ -271,7 +278,7 @@ def build_replace_apply_panel(state):
             if state.d_replace_checked is None:
                 print("Run 'Check Replacement Requests' first.")
                 return
-            replace_assignment(lp_root, state.year_plan, state.month_plan, dict_score_duty, l_class_duty,
+            replace_assignment(state.config, state.year_plan, state.month_plan, dict_score_duty, l_class_duty,
                                state.d_replace_checked)
         _run_in_output(output, run)
     button.on_click(on_click)

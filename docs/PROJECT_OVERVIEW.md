@@ -38,7 +38,8 @@ Pure Python, driven interactively from a single Jupyter notebook.
   keyed by `date_duty` (row) and/or member ID (column).
 - **google-api-python-client / google-auth-oauthlib** — Google Forms API (create/read the
   availability and replacement-request surveys), Google Drive API (create/manage the per-month
-  folder the form lives in), Google Calendar API (publish/diff the final schedule).
+  folder the form lives in, **and the primary data store** — see [Data storage](#data-storage)),
+  Google Calendar API (publish/diff the final schedule).
 - **ipywidgets** — the GUI layer (`script/gui.py`): dropdowns/buttons/output panels wired to
   the pipeline functions below. Requires a live Jupyter kernel (classic Notebook or JupyterLab)
   to actually capture button clicks and stage output — building the widgets themselves works
@@ -57,14 +58,15 @@ Dependencies must be inferred from imports and installed manually.
 | `test/test01.py` … `test19.py` | Ad hoc, undocumented developer scratch scripts — not an automated test suite (no pytest/unittest, no assertions framework). |
 | `README.md` | One paragraph: project purpose + CC BY-NC 4.0 license note. |
 | `LICENSE` | Creative Commons Attribution-NonCommercial 4.0 license text. |
-| `.gitignore` | Ignores `__pycache__`, `.vscode`, `.DS_Store`. |
+| `.gitignore` | Ignores `__pycache__`, `.vscode`, `.DS_Store`, and the local, non-versioned `config.local.json` + `config/` credentials directory. |
+| `config.local.example.json` | Checked-in template for each machine's `config.local.json` (never committed itself) — holds only where that machine's OAuth credential files live. |
 | `arch/` | **Excluded from this doc** — archived/obsolete per-season notebooks and old code. |
 | `refs/` | **Excluded from this doc** — archived/obsolete reference material. |
 
-All *runtime data* — the doctor roster, per-month generated CSVs, and Google OAuth credentials
-— lives **outside this repo**, in a Dropbox-synced folder resolved at runtime (see
-[Data storage](#data-storage) below). Nothing under `Dropbox/dutyshift/...` is checked into
-git.
+All *runtime data* — the doctor roster and per-month generated CSVs — lives **outside this
+repo**, in a `dutyshift` folder on **Google Drive**, accessed directly via the Drive API (see
+[Data storage](#data-storage) below). There is no local file mirror and no per-machine path to
+configure; nothing under it is checked into git.
 
 ## Pipeline walkthrough
 
@@ -128,15 +130,16 @@ regenerates the summary/score outputs, using `state.d_replace_checked` from the 
 
 | Module | Lines | Role |
 |---|---|---|
-| `script/parameter.py` | 56 | Fixed, rarely-edited config: duty type ↔ label maps, scoring weights, per-title duty eligibility, class_duty aggregation rules, Google Form/Calendar IDs, duty clock times, machine-path list. |
-| `script/helper.py` | 1057 | Shared building blocks: directory/credential resolution (`prep_dirs`, `prep_api_creds`), calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), the count-optimization MILP (`optimize_count`), result extraction/scoring/CSV export (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`). |
-| `script/assign.py` | 835 | The assignment MILP (`optimize_assign`) and the orchestration function that runs both optimization stages and handles infeasibility (`optimize_count_and_assign`), plus a stale duplicate `optimize_count_and_assign_old`. |
-| `script/form.py` | 81 | `prepare_form` — builds the availability-survey Google Form for the month. |
-| `script/collect.py` | 184 | `collect_availability` — parses Google Form responses into an availability matrix. |
-| `script/notify.py` | 244 | Google Calendar integration: `access_calendar`, `update_calendar`, `add_duty`, `delete_duty`, `list_duty`, `compare_event`. |
-| `script/replace.py` | 125 | Shift-swap flow: `check_replacement`, `replace_assignment`. |
-| `script/check.py` | 47 | Small sanity-check helpers: `check_availability_duty`, `check_availability_member`. |
-| `script/gui.py` | — | `ipywidgets` GUI layer: `AppState`, one `build_*_panel()` function per stage above, and `build_app()` combining them into the single panel `main.ipynb` displays (params on top, stages as `Tab`s). No pipeline logic of its own. |
+| `script/parameter.py` | 125 | Fixed, rarely-edited config: duty type ↔ label maps, scoring weights, per-title duty eligibility, class_duty aggregation rules, Google Form/Calendar IDs, duty clock times. |
+| `script/drive_io.py` | 393 | Google Drive-backed data I/O: OAuth credential caching/reuse (`get_credentials`, `get_services`), Drive folder resolution/creation (`resolve_folder_id`, `DriveFolderCache`, plus the moved-from-`helper.py` `check_gdrive_path`/`create_gdrive_path`/etc.), `read_csv`/`write_csv`/`read_excel`/`list_month_folders`, and `prep_drive_paths` (the `(p_root, p_month, p_data)` → Drive-folder-id replacement for the old local-path resolver `prep_dirs`). |
+| `script/helper.py` | 882 | Shared building blocks: calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), the count-optimization MILP (`optimize_count`), result extraction/scoring (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`) — all reading/writing via `script/drive_io.py`. |
+| `script/assign.py` | 841 | The assignment MILP (`optimize_assign`) and the orchestration function that runs both optimization stages and handles infeasibility (`optimize_count_and_assign`), plus a stale duplicate `optimize_count_and_assign_old` (now also uncallable — it still references the removed `prep_dirs`, intentionally left unmigrated). |
+| `script/form.py` | 75 | `prepare_form` — builds the availability-survey Google Form for the month. |
+| `script/collect.py` | 188 | `collect_availability` — parses Google Form responses into an availability matrix. |
+| `script/notify.py` | 209 | Google Calendar integration: `update_calendar`, `add_duty`, `delete_duty`, `list_duty`, `compare_event`. |
+| `script/replace.py` | 129 | Shift-swap flow: `check_replacement`, `replace_assignment`. |
+| `script/check.py` | 47 | Small sanity-check helpers: `check_availability_duty`, `check_availability_member`. No Drive I/O. |
+| `script/gui.py` | — | `ipywidgets` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), one `build_*_panel()` function per stage above, and `build_app()` combining them into the single panel `main.ipynb` displays (params on top, stages as `Tab`s). No pipeline logic of its own. |
 
 ## Data model
 
@@ -240,30 +243,55 @@ report which specific duty slots can't be filled under the current constraints.
 - **Google Forms** — one form per month for availability collection (cloned from a template,
   `id_template_form`), plus a separate standing form for shift-swap requests. Response parsing
   in `script/collect.py` matches on exact Japanese question-text substrings.
-- **Google Drive** — used to create/locate the per-month folder that houses each month's form.
+- **Google Drive** — creates/locates the per-month folder that houses each month's form **and**
+  is the primary data store for the whole pipeline (see [Data storage](#data-storage)) — every
+  CSV read/write goes through `script/drive_io.py`, not a local filesystem.
 - **Google Calendar** — the final schedule is published as one event per duty per doctor
   (`id_calendar` in `parameter.py`); `update_calendar` diffs against existing events so re-runs
   only add/remove/update what changed.
-- **OAuth credentials** — `token.json`/`credentials.json`, referenced via
-  `Dropbox/dutyshift/config/credentials/`, loaded by `helper.py::prep_api_creds`.
+- **OAuth credentials** — per-user `InstalledAppFlow`, via `script/drive_io.py::get_credentials`.
+  Unlike the pre-migration code, an existing `token.json` is loaded and refreshed before falling
+  back to a fresh interactive browser consent — a normal run doesn't need a browser at all once
+  a token exists. Credential/token file *locations* come from each machine's local
+  `config.local.json` (see [Data storage](#data-storage)); the credentials themselves are never
+  synced to Drive or committed to git.
 
 ## Data storage
 
-Nothing under `Dropbox/dutyshift/` is in this git repo. The path root is auto-detected by
-`script/helper.py::prep_dirs` from a hardcoded candidate list,
-`lp_root = ['/home/atiroms/Documents', 'D:/atiro', 'D:/NICT_WS', '/Users/smrt', 'C:/Users/atiro']`
-(`script/parameter.py`) — whichever path exists on the machine currently running the notebook is
-used. Layout: `<p_root>/Dropbox/dutyshift/<YYYYMM>/...`, with a `result/<prefix>_<timestamp>/`
-subfolder holding a timestamped snapshot of every pipeline run (prefixes: `form_`, `clct_`,
-`asgn_`, `rplc_`).
+Nothing under the Drive `dutyshift` folder is in this git repo, and — since the migration off
+Dropbox — there is no local file mirror of it either: every read/write goes through the Drive
+API (`script/drive_io.py`), resolved **by name** from `root`, not by any per-machine path. This
+is what eliminates the old `lp_root` hardcoded-machine-path-list problem outright rather than
+relocating it: a Drive folder name resolves identically from every machine/account with access.
+
+Layout: `dutyshift/config/member.xlsx` (roster); `dutyshift/result/<year>/<month, zero-padded>/`
+(live per-month data, e.g. `dutyshift/result/2026/08/` — matching where `script/form.py` has
+always created that month's Google Form, so the data and the form live side by side; this is
+also literally where the operator's own Drive already had past months' data, so it's treated as
+the canonical convention rather than something to normalize away); nested beneath it,
+`.../result/<prefix>_<timestamp>/` (a snapshot of every pipeline run, prefixes `form_`, `clct_`,
+`asgn_`, `rplc_` — the system's only audit trail); `dutyshift/result/replacement/replacement`
+(the one standing, non-monthly shift-swap-request form — a sibling of the year folders under
+`dutyshift/result/`, not itself year/month-specific).
+`script/drive_io.py::month_folder_path(year, month)` is the single source of truth for the
+`dutyshift/result/<year>/<month>/` shape — `list_month_folders` walks that two-level hierarchy
+(explicitly skipping non-year siblings like `replacement`) to enumerate past months for
+cumulative scoring (`past_score`) and month-boundary continuity (`prep_assign_previous`).
 
 Representative files per month: `calendar.csv`, `date_duty.csv`, `assign_manual.csv`,
 `member.csv`, `lim_hard.csv`/`lim_soft.csv`/`lim_exact.csv`, `availability.csv`,
 `availability_ratio.csv`, `info.csv`, `assign_date_duty.csv`, `assign.csv`,
 `assign_print.csv` (the human-readable roster with Japanese columns: 日付, 午前日直, 午後日直,
 当直, 日直OC, 当直OC, ECT), `deviation.csv`/`deviation_summary.csv`, `score_current.csv`,
-`score_total.csv`, `closeduty.csv`. The single Excel input `config/member.xlsx` (one sheet per
-month) also lives here, not in git.
+`score_total.csv`, `closeduty.csv`.
+
+**Local, per-machine config**: `config.local.json` (gitignored; `config.local.example.json` is
+the checked-in template) holds only `credentials_path`/`token_path` — where *that machine's*
+OAuth credential files live. `AppState()` (`script/gui.py`) loads it once via
+`drive_io.load_config()`, failing fast and visibly if it's missing, rather than deep inside a
+button click. Every pipeline entry point (`prepare_form`, `collect_availability`,
+`optimize_count_and_assign`, `update_calendar`, `check_replacement`, `replace_assignment`) takes
+this loaded config as its first argument, replacing the old `lp_root` parameter.
 
 ## Operational cadence
 
@@ -281,9 +309,15 @@ are out of scope for this document.
 These are observations from reading the code, offered as a starting point for discussion — not
 a judgment of the project.
 
-- **Hardcoded, machine-specific paths.** `lp_root` in `script/parameter.py` is a literal list of
-  the author's personal machine paths. `prep_dirs` picks whichever exists — brittle, and not
-  portable to a new machine or collaborator without editing source.
+- **~~Hardcoded, machine-specific paths~~ (resolved).** Data storage moved from a
+  Dropbox-synced local folder (resolved by guessing which of a hardcoded `lp_root` list of
+  personal machine paths existed) to direct Google Drive API access (`script/drive_io.py`),
+  resolved by folder *name*, not path — identical from every machine/account with access. The
+  one remaining machine-specific value (local OAuth credential file locations) lives in each
+  machine's own gitignored `config.local.json`, never in versioned source. `prep_dirs`'s second,
+  separate hardcoded assumption (`<p_root>/GitHub/dutyshift` as the repo checkout location, plus
+  a process-wide `os.chdir`) is also gone — nothing needs it once there's no local data path to
+  resolve.
 - **~~Monthly params accumulate as dead code~~ (resolved).** Year/month/holidays are now set via
   dropdowns/multi-selects (`script/gui.py::build_common_params_panel`) instead of editing a
   Python tuple each month; the old commented-out per-month history block is kept in cell 0

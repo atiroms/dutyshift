@@ -2,21 +2,20 @@
 ###############################################################################
 # Libraries
 ###############################################################################
-import datetime, calendar, os
+import datetime, calendar
 import numpy as np, pandas as pd
 from math import ceil
 from pulp import *
 from ortoolpy import addvars
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+from script.drive_io import *
 
 
 ###############################################################################
 # Print candidate replacement
 ###############################################################################
-def print_candidate_replacement(p_month, dict_class_duty, d_deviation_summary, d_assign_date_duty, d_assign_member, d_closeduty):
-    d_availability_member = pd.read_csv(os.path.join(p_month, 'availability_member.csv'))
-    d_availability_duty = pd.read_csv(os.path.join(p_month, 'availability_duty.csv'), index_col = 0)
+def print_candidate_replacement(service_drive, id_month, dict_class_duty, d_deviation_summary, d_assign_date_duty, d_assign_member, d_closeduty):
+    d_availability_member = read_csv(service_drive, id_month, 'availability_member.csv')
+    d_availability_duty = read_csv(service_drive, id_month, 'availability_duty.csv', index_col = 0)
     d_class_duty = pd.DataFrame(dict_class_duty)
     ll_result = []
     for i0, col0 in d_deviation_summary.iterrows():
@@ -81,12 +80,9 @@ def print_candidate_replacement(p_month, dict_class_duty, d_deviation_summary, d
 ################################################################################
 # Read response from Google forms
 ################################################################################
-def read_form_response(p_root, path_form):
-    # Prepare credentials and service
-    l_scope = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/forms.body']
-    creds = prep_api_creds(p_root, l_scope)
-    service_drive = build('drive', 'v3', credentials = creds)
-    service_forms = build('forms', 'v1', credentials = creds)
+def read_form_response(services, path_form):
+    service_drive = services.drive
+    service_forms = services.forms
 
     # Check if form exists
     id_form = check_form_exists(service_drive, path_form)
@@ -172,7 +168,7 @@ def generate_request_delete_item(id_form, service, l_itemid):
                 "location": {"index": position_item}
             }
         })
-        
+
     return l_request
 
 def generate_request_update_question(id_form, service, dict_dateduty_form, dict_itemid_form):
@@ -200,187 +196,8 @@ def generate_request_update_question(id_form, service, dict_dateduty_form, dict_
                     "updateMask": "questionGroupItem.questions"
                 }
             })
-        
+
     return l_request, l_itemid_missing
-
-
-################################################################################
-# Check, create Google drive folder/path
-################################################################################
-def check_form_exists(service, path_form):
-    path_folder = '/'.join(path_form.split('/')[:-1])
-    name_form = path_form.split('/')[-1]
-    result_folder = check_gdrive_path(service, path_folder)
-    if result_folder['exist']:
-        id_folder = result_folder['l_id_folder'][-1]
-        resp = service.files().list(
-            q = (
-                f"'{id_folder}' in parents "
-                f"and name = '{name_form}' "
-                "and mimeType = 'application/vnd.google-apps.form' "
-                "and trashed = false"
-            ),
-            fields = 'files(id, name)',
-            pageSize = 1
-        ).execute()
-        if len(resp.get('files', [])) > 0:
-            return resp.get('files', [])[0]['id']
-        else:
-            print('Form does not exist', name_form)
-            return False
-    else:
-        return False
-
-def check_gdrive_path(service, path):
-    l_folder = path.split('/')
-    l_folder = [folder for folder in l_folder if folder != '']
-    root = service.files().get(
-        fileId='root',
-        fields='id'
-    ).execute()
-    id_folder_parent = root.get('id')
-    l_id_folder = [id_folder_parent]
-
-    exist = True
-    for folder in l_folder:
-        result = check_gdrive_folder(service, id_folder_parent, folder)
-        if result['exist']:
-            id_folder_parent = result['id_folder_child']
-            l_id_folder.append(id_folder_parent)
-        else:
-            print('Missing path', path)
-            exist = False
-            break
-
-    return {'exist': exist, 'l_id_folder': l_id_folder}
-
-def check_gdrive_folder(service, id_folder_parent, name_folder_child):
-    # Check if a folder with the same name already exists:
-    q = (
-        f"'{id_folder_parent}' in parents "
-        f"and name = '{name_folder_child}' "
-        "and mimeType = 'application/vnd.google-apps.folder' "
-        "and trashed = false"
-    )
-    resp = service.files().list(
-        q = q,
-        spaces = 'drive',
-        fields = 'files(id, name)'
-    ).execute()
-    folder_old = resp.get('files', [])
-    if folder_old:
-        # Folder with the same name already exists
-        exist = True
-        id_folder_child = folder_old[0]['id']
-    else:
-        exist = False
-        id_folder_child = None
-
-    return {'exist': exist, 'id_folder_child': id_folder_child}
-
-def create_gdrive_folder(service, id_folder_parent, name_folder_child):
-    result = check_gdrive_folder(service, id_folder_parent, name_folder_child)
-    if result['exist']:
-        new = False
-        id_folder_child = result['id_folder_child']
-    else:
-        new = True
-        id_folder_child = result['id_folder_child']
-        folder_metadata = {
-            'name': name_folder_child,                             # The folder name
-            'mimeType': 'application/vnd.google-apps.folder',    # This tells Drive to make it a folder
-            'parents': [id_folder_parent],
-        }
-        folder_new = service.files().create(
-            body = folder_metadata,
-            fields='id,name'
-        ).execute()
-        id_folder_child = folder_new['id']
-
-    return {'new': new, 'id_folder_child': id_folder_child}
-
-def create_gdrive_path(service, path):
-    l_folder = path.split('/')
-    l_folder = [folder for folder in l_folder if folder != '']
-    root = service.files().get(
-        fileId='root',
-        fields='id'
-    ).execute()
-    id_folder_parent = root.get('id')
-    l_id_folder = [id_folder_parent]
-
-    for folder in l_folder:
-        result_folder = create_gdrive_folder(service, id_folder_parent, folder)
-        id_folder_parent = result_folder['id_folder_child']
-        l_id_folder.append(id_folder_parent)
-    return l_id_folder
-
-
-
-################################################################################
-# Prepare Google API credentials
-################################################################################
-def prep_api_creds(p_root, l_scope):
-    # Handle Credentials and token
-    p_token = os.path.join(p_root, 'Dropbox/dutyshift/config/credentials/token.json')
-    p_cred = os.path.join(p_root, 'Dropbox/dutyshift/config/credentials/credentials.json')
-    flow = InstalledAppFlow.from_client_secrets_file(p_cred, l_scope)
-    creds = flow.run_local_server(port = 0)
-
-    # Save the credentials for the next run
-    with open(p_token, 'w') as token:
-        token.write(creds.to_json())
-    
-    return creds
-
-
-################################################################################
-# Prepare data directories
-################################################################################
-def prep_dirs(lp_root, year_plan, month_plan, prefix_dir, make_data_dir = True):
-    p_root = None
-    for p_r in lp_root:
-        if os.path.isdir(p_r):
-            p_root = p_r
-
-    if p_root is None:
-        print('No root directory.')
-    else:
-        p_script = os.path.join(p_root,'GitHub/dutyshift')
-        os.chdir(p_script)
-        # Set paths and directories
-        if type(month_plan) == str:
-            d_month = '{year:0>4d}'.format(year = year_plan) + month_plan
-        else:
-            d_month = '{year:0>4d}{month:0>2d}'.format(year = year_plan, month = month_plan)
-        p_month = os.path.join(p_root, 'Dropbox/dutyshift', d_month)
-
-        if make_data_dir:
-            d_data = prefix_dir + '_' + datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            p_result = os.path.join(p_month, 'result')
-            p_data = os.path.join(p_result, d_data)
-            for p_dir in [p_result, p_data]:
-                if not os.path.exists(p_dir):
-                    os.makedirs(p_dir)
-        else:
-            p_data = None
-
-    return p_root, p_month, p_data 
-
-
-################################################################################
-# Read config/member.xlsx file
-################################################################################
-def read_member(p_root, year_plan, month_plan):
-    name_sheet = 'member_' + str(year_plan).zfill(4) + str(month_plan).zfill(2)
-    d_member_src = pd.read_excel(os.path.join(p_root, "Dropbox/dutyshift/config/member.xlsx"), sheet_name = name_sheet)
-    d_member = d_member_src.iloc[3:,:]
-    d_member.columns = d_member_src.iloc[2,:].tolist()
-    d_member.index = [i for i in range(len(d_member))]
-    d_member = d_member.copy()
-    d_member.loc[:, 'name_jpn_full'] = d_member.loc[:, 'name_jpn_full'].str.replace('　',' ')
-
-    return d_member
 
 
 ################################################################################
@@ -404,7 +221,7 @@ def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_m
                 print(date_duty, ' manually set to ', id_member)
     # Skip date_duty for which (no one is available, except OC), and not manually assigned
     l_date_duty_skip = [date_duty for date_duty in l_date_duty_unavailable_notoc if not date_duty in l_date_duty_manual_assign]
-    
+
     # Skip duties in specified date
     l_date_duty = d_date_duty.loc[:, 'date_duty'].tolist()
     l_date_duty_skip_spec = []
@@ -423,27 +240,40 @@ def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_m
     if len(l_date_duty_skip) > 0:
         if verbose:
             print('In total, skipping assignment for:', l_date_duty_skip)
-    
+
     d_date_duty = d_date_duty.loc[~d_date_duty['date_duty'].isin(l_date_duty_skip),:]
     d_availability = d_availability.loc[~d_availability.index.isin(l_date_duty_skip),:]
     return d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_unavailable_notoc, l_date_duty_manual_assign, l_date_duty_skip
 
 
 ################################################################################
+# Read config/member.xlsx file
+################################################################################
+def read_member(service_drive, id_config, year_plan, month_plan):
+    name_sheet = 'member_' + str(year_plan).zfill(4) + str(month_plan).zfill(2)
+    d_member_src = read_excel(service_drive, id_config, 'member.xlsx', sheet_name = name_sheet)
+    d_member = d_member_src.iloc[3:,:]
+    d_member.columns = d_member_src.iloc[2,:].tolist()
+    d_member.index = [i for i in range(len(d_member))]
+    d_member = d_member.copy()
+    d_member.loc[:, 'name_jpn_full'] = d_member.loc[:, 'name_jpn_full'].str.replace('　',' ')
+
+    return d_member
+
+
+################################################################################
 # Load previous month assignment
 ################################################################################
-def prep_assign_previous(p_root, year_plan, month_plan):
-    l_dir_pastdata = os.listdir(os.path.join(p_root, 'Dropbox/dutyshift'))
-    l_dir_pastdata = [dir for dir in l_dir_pastdata if dir.startswith('20')]
-    l_dir_pastdata = [dir for dir in l_dir_pastdata if len(dir) == 6]
+def prep_assign_previous(dp, year_plan, month_plan):
+    l_dir_pastdata = list_month_folders(dp.service_drive, dp.id_root)
     l_dir_pastdata = sorted(l_dir_pastdata)
     dir_current = str(year_plan) + str(month_plan).zfill(2)
     dir_previous = l_dir_pastdata[l_dir_pastdata.index(dir_current) - 1]
     year_previous = int(dir_previous[:4])
     month_previous = int(dir_previous[4:6])
-        
-    d_month = '{year:0>4d}{month:0>2d}'.format(year = year_previous, month = month_previous)
-    d_assign_date_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', d_month, 'assign_date_duty.csv'))
+
+    id_month_previous = dp.cache.get_or_create(dp.service_drive, month_folder_path(year_previous, month_previous))
+    d_assign_date_duty = read_csv(dp.service_drive, id_month_previous, 'assign_date_duty.csv')
 
     if 'cnt' in d_assign_date_duty.columns:
         d_assign_date_duty = d_assign_date_duty[d_assign_date_duty['cnt'] == 1]
@@ -464,7 +294,7 @@ def prep_assign_previous(p_root, year_plan, month_plan):
         date_duty = row['date_duty_minus']
         id_member = row['id_member']
         d_assign.loc[date_duty, id_member] = 1
-        
+
     return d_assign
 
 
@@ -532,11 +362,11 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
     # Sum of inter-member differences of current + past month score
     dv_sigma_diff_score_total = pd.DataFrame(np.array(addvars(n_grp_max, len(l_type_score))),
                                              index = range(n_grp_max), columns = l_type_score)
-    dict_dv_diff_score_current = {}                    
+    dict_dv_diff_score_current = {}
     dict_dv_diff_score_total = {}
     for type_score in l_type_score:
-        dict_dv_diff_score_current[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
-        dict_dv_diff_score_total[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)                        
+        dict_dv_diff_score_current[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)
+        dict_dv_diff_score_total[type_score] = pd.DataFrame(np.array(addvars(len(l_member),len(l_member))), index = l_member, columns = l_member)
 
     for type_score in l_type_score:
         l_grp = [x for x in d_grp_score[type_score].unique() if x is not pd.NA]
@@ -592,14 +422,14 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
 ################################################################################
 # Prepare data of member specs and assignment limits
 ################################################################################
-def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start, dict_score_duty):
+def prep_member2(dp, l_class_duty, year_plan, month_plan, year_start, month_start, dict_score_duty):
     l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn',
                     'designation_jpn','ect_asgn_jpn','name','title_short',
                     'designation', 'team', 'ect_leader', 'ect_subleader', 'active']
 
     # Load source member and assignment limit of the month
-    #d_src = pd.read_csv(os.path.join(p_month, 'src', 'member.csv'))
-    d_src = read_member(p_root, year_plan, month_plan)
+    id_config = dp.cache.get_or_create(dp.service_drive, 'dutyshift/config')
+    d_src = read_member(dp.service_drive, id_config, year_plan, month_plan)
     d_src = d_src.loc[d_src['active'], ]
     l_col_member = [col for col in l_col_member if col in d_src.columns]
     d_member = d_src[l_col_member]
@@ -607,7 +437,7 @@ def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, y
     d_lim.index = d_member['id_member'].tolist()
 
     # Calculate past scores
-    d_score_past = past_score(p_root, d_member, year_plan, month_plan, year_start, month_start, dict_score_duty)
+    d_score_past = past_score(dp, d_member, year_plan, month_plan, year_start, month_start, dict_score_duty)
 
     # Split assignment limit data into hard and soft
     d_lim_hard, d_lim_soft = split_lim(d_lim, l_class_duty)
@@ -620,12 +450,12 @@ def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, y
     d_grp_score = d_grp_score.astype('Int64')
 
     # Save data
-    for p_save in [p_month, p_data]:
-        d_member.to_csv(os.path.join(p_save, 'member.csv'), index = True)
-        d_score_past.to_csv(os.path.join(p_save, 'score_past.csv'), index = True)
-        d_lim_hard.to_csv(os.path.join(p_save, 'lim_hard.csv'), index = True)
-        d_lim_soft.to_csv(os.path.join(p_save, 'lim_soft.csv'), index = True)
-        d_grp_score.to_csv(os.path.join(p_save, 'grp_score.csv'), index = True)
+    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+        write_csv(dp.service_drive, id_folder, 'member.csv', d_member, index = True)
+        write_csv(dp.service_drive, id_folder, 'score_past.csv', d_score_past, index = True)
+        write_csv(dp.service_drive, id_folder, 'lim_hard.csv', d_lim_hard, index = True)
+        write_csv(dp.service_drive, id_folder, 'lim_soft.csv', d_lim_soft, index = True)
+        write_csv(dp.service_drive, id_folder, 'grp_score.csv', d_grp_score, index = True)
 
     return d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score
 
@@ -633,8 +463,7 @@ def prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, y
 ################################################################################
 # Extract data from optimized variables
 ################################################################################
-#def extract_assignment(p_month, p_data, year_plan, month_plan, dv_assign, d_member, d_date_duty_noskip, dict_score_duty):
-def extract_assignment(p_month, p_data, year_plan, month_plan, dv_assign, d_date_duty_noskip, l_date_duty_skip):
+def extract_assignment(dp, year_plan, month_plan, dv_assign, d_date_duty_noskip, l_date_duty_skip):
     # Convert variables to fixed values
     d_assign = pd.DataFrame(np.vectorize(value)(dv_assign),
                             index = dv_assign.index, columns = dv_assign.columns).astype(bool)
@@ -654,13 +483,13 @@ def extract_assignment(p_month, p_data, year_plan, month_plan, dv_assign, d_date
     d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_skip), 'status'] = 'skipped'
     d_assign_date_duty = d_assign_date_duty.loc[:,['date_duty', 'year', 'month', 'date', 'duty', 'id_member', 'status']]
 
-    for p_save in [p_month, p_data]:
-        d_assign_date_duty.to_csv(os.path.join(p_save, 'assign_date_duty.csv'), index = False)
+    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+        write_csv(dp.service_drive, id_folder, 'assign_date_duty.csv', d_assign_date_duty, index = False)
 
     return d_assign_date_duty
 
 
-def extract_closeduty(p_month, p_data, dict_dv_closeduty, d_assign_date_duty, d_member, dict_closeduty):
+def extract_closeduty(dp, dict_dv_closeduty, d_assign_date_duty, d_member, dict_closeduty):
 
     dict_d_closeduty = {}
     for closeduty in dict_dv_closeduty.keys():
@@ -693,8 +522,8 @@ def extract_closeduty(p_month, p_data, dict_dv_closeduty, d_assign_date_duty, d_
     d_closeduty['id_member'] = d_closeduty['id_member'].astype('int')
     d_closeduty = d_closeduty[['id_member', 'name_jpn', 'date_duty']]
 
-    for p_save in [p_month, p_data]:
-        d_closeduty.to_csv(os.path.join(p_save, 'closeduty.csv'), index = False)
+    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+        write_csv(dp.service_drive, id_folder, 'closeduty.csv', d_closeduty, index = False)
 
     return d_closeduty
 
@@ -702,7 +531,7 @@ def extract_closeduty(p_month, p_data, dict_dv_closeduty, d_assign_date_duty, d_
 ################################################################################
 # Convert assignment result
 ################################################################################
-def convert_assignment(p_month, p_data, d_assign_date_duty, d_availability_noskip, 
+def convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
                    d_member, d_date_duty, d_cal, l_class_duty, dict_score_duty, d_lim_exact, d_lim_hard):
     # d_assign_date_duty >> d_assign
     d_assign = pd.DataFrame(index = d_availability_noskip.index, columns = d_availability_noskip.columns)
@@ -741,7 +570,7 @@ def convert_assignment(p_month, p_data, d_assign_date_duty, d_availability_noski
 
     # d_assign, d_availability >> d_assign_member
     # Assignments with member as row
-    d_assign_optimal = pd.DataFrame((d_availability_noskip == 2) & d_assign, columns = d_assign.columns, index = d_assign.index)                         
+    d_assign_optimal = pd.DataFrame((d_availability_noskip == 2) & d_assign, columns = d_assign.columns, index = d_assign.index)
     d_assign_suboptimal = pd.DataFrame((d_availability_noskip == 1) & d_assign, columns = d_assign.columns, index = d_assign.index)
     #d_assign_error = pd.DataFrame((d_availability == 0) & d_assign, columns = l_member, index = d_assign.index)
     d_assign_member = pd.DataFrame({'id_member': [int(id) for id in d_assign.columns.tolist()],
@@ -809,7 +638,7 @@ def convert_assignment(p_month, p_data, d_assign_date_duty, d_availability_noski
     d_score_current.index = d_score_current['id_member'].tolist()
     d_score_current = d_score_current[['id_member'] + l_type_score]
 
-    d_score_past = pd.read_csv(os.path.join(p_month, 'score_past.csv'), index_col = 0)
+    d_score_past = read_csv(dp.service_drive, dp.id_month, 'score_past.csv', index_col = 0)
     d_score_past = d_score_past.loc[~np.isnan(d_score_past['id_member']), :]
     d_score_past.index = d_score_past['id_member'].tolist()
 
@@ -825,15 +654,15 @@ def convert_assignment(p_month, p_data, d_assign_date_duty, d_availability_noski
     d_score_print = pd.merge(d_score_print, d_score_total, on = 'id_member', how = 'left')
     d_score_print.columns = ['id_member', 'name_jpn'] + ['score_' + col for col in l_type_score] + ['score_sigma_' + col for col in l_type_score]
 
-    for p_save in [p_month, p_data]:
-        d_assign.to_csv(os.path.join(p_save, 'assign.csv'), index = True)
-        d_assign_date_print.to_csv(os.path.join(p_save, 'assign_print.csv'), index = False)
-        d_assign_member.to_csv(os.path.join(p_save, 'assign_member.csv'), index = False)
-        d_deviation.to_csv(os.path.join(p_save, 'deviation.csv'), index = False)
-        d_deviation_summary.to_csv(os.path.join(p_save, 'deviation_summary.csv'), index = False)
-        d_score_current.to_csv(os.path.join(p_save, 'score_current.csv'), index = False)
-        d_score_total.to_csv(os.path.join(p_save, 'score_total.csv'), index = False)
-        d_score_print.to_csv(os.path.join(p_save, 'score_print.csv'), index = False)
+    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+        write_csv(dp.service_drive, id_folder, 'assign.csv', d_assign, index = True)
+        write_csv(dp.service_drive, id_folder, 'assign_print.csv', d_assign_date_print, index = False)
+        write_csv(dp.service_drive, id_folder, 'assign_member.csv', d_assign_member, index = False)
+        write_csv(dp.service_drive, id_folder, 'deviation.csv', d_deviation, index = False)
+        write_csv(dp.service_drive, id_folder, 'deviation_summary.csv', d_deviation_summary, index = False)
+        write_csv(dp.service_drive, id_folder, 'score_current.csv', d_score_current, index = False)
+        write_csv(dp.service_drive, id_folder, 'score_total.csv', d_score_total, index = False)
+        write_csv(dp.service_drive, id_folder, 'score_print.csv', d_score_print, index = False)
 
     return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print
 
@@ -850,7 +679,7 @@ def prep_availability(p_month, p_data, d_date_duty, d_cal):
     #d_availability = pd.concat([pd.DataFrame({'id_member': d_availability.index}), d_availability], axis = 1)
     d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
     d_availability.columns = [int(col) for col in d_availability.columns]
-    
+
     d_availability_ratio = pd.DataFrame(index = d_availability.index, columns = ['total','available','ratio'])
     d_availability_ratio['total'] = d_availability.count(axis = 1)
     d_availability_ratio['available'] = d_availability.replace(2,1).sum(axis = 1)
@@ -876,7 +705,7 @@ def prep_availability(p_month, p_data, d_date_duty, d_cal):
 ################################################################################
 # Prepare calendar of the month
 ################################################################################
-def prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
+def prep_calendar(dp, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
                   year_plan, month_plan, dict_score_duty, dict_class_duty):
     dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
 
@@ -917,23 +746,22 @@ def prep_calendar(p_root, p_month, p_data, l_class_duty, l_holiday, l_day_ect, l
     d_date_duty.index = range(len(d_date_duty))
 
     # Calculate scores
-    #d_score_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_duty.csv'))
     d_score_duty = pd.DataFrame(dict_score_duty)
     d_score_duty.columns = [d_score_duty.columns.tolist()[0]] + ['score_' + col for col in d_score_duty.columns.tolist()[1:]]
     d_date_duty = pd.merge(d_date_duty, d_score_duty, on = 'duty', how = 'left')
 
     # Calculate class of duty
-    d_date_duty, s_cnt_class_duty = date_duty2class(p_root, d_date_duty, l_class_duty, dict_class_duty)
+    d_date_duty, s_cnt_class_duty = date_duty2class(d_date_duty, l_class_duty, dict_class_duty)
 
     d_assign_manual = pd.DataFrame({'date_duty': d_date_duty['date_duty'].to_list(), 'id_member': None})
 
     # Save data
-    for p_save in [p_month, p_data]:
-        d_cal.to_csv(os.path.join(p_save, 'calendar.csv'), index = False)
-        d_date_duty.to_csv(os.path.join(p_save, 'date_duty.csv'), index = False)
-        d_assign_manual.to_csv(os.path.join(p_save, 'assign_manual.csv'), index = False)
-        s_cnt_duty.to_csv(os.path.join(p_save, 'cnt_duty.csv'), index = False)
-        s_cnt_class_duty.to_csv(os.path.join(p_save, 'cnt_class_duty.csv'), index = True)
+    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+        write_csv(dp.service_drive, id_folder, 'calendar.csv', d_cal, index = False)
+        write_csv(dp.service_drive, id_folder, 'date_duty.csv', d_date_duty, index = False)
+        write_csv(dp.service_drive, id_folder, 'assign_manual.csv', d_assign_manual, index = False)
+        write_csv(dp.service_drive, id_folder, 'cnt_duty.csv', s_cnt_duty, index = False)
+        write_csv(dp.service_drive, id_folder, 'cnt_class_duty.csv', s_cnt_class_duty, index = True)
 
     return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty
 
@@ -978,15 +806,13 @@ def split_lim(d_lim, l_class_duty):
 ################################################################################
 # Calculate past scores
 ################################################################################
-def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start, dict_score_duty):
+def past_score(dp, d_member, year_plan, month_plan, year_start, month_start, dict_score_duty):
 
     d_score_duty = pd.DataFrame(dict_score_duty)
     l_type_score = [col for col in d_score_duty.columns if col != 'duty']
 
     # Load Past assignments
-    l_dir_pastdata = os.listdir(os.path.join(p_root, 'Dropbox/dutyshift'))
-    l_dir_pastdata = [dir for dir in l_dir_pastdata if dir.startswith('20')]
-    l_dir_pastdata = [dir for dir in l_dir_pastdata if len(dir) == 6]
+    l_dir_pastdata = list_month_folders(dp.service_drive, dp.id_root)
     ym_start = (year_start * 100) + month_start
     ym_plan = (year_plan * 100) + month_plan
     l_dir_pastdata = [dir for dir in l_dir_pastdata if int(dir) >= ym_start]
@@ -997,7 +823,8 @@ def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start,
         for dir in l_dir_pastdata:
             year_dir = int(dir[:4])
             month_dir = int(dir[4:6])
-            d_assign_date_duty_append = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift', dir, 'assign_date_duty.csv'))
+            id_month_dir = dp.cache.get_or_create(dp.service_drive, month_folder_path(year_dir, month_dir))
+            d_assign_date_duty_append = read_csv(dp.service_drive, id_month_dir, 'assign_date_duty.csv')
             d_assign_date_duty_append['year'] = year_dir
             d_assign_date_duty_append['month'] = month_dir
             if 'cnt' in d_assign_date_duty_append.columns:
@@ -1030,11 +857,8 @@ def past_score(p_root, d_member, year_plan, month_plan, year_start, month_start,
 ################################################################################
 # Convert date_duty to class
 ################################################################################
-def date_duty2class(p_root, d_date_duty, l_class_duty, dict_class_duty):
-    # Load class data
-    #d_class_duty = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/class_duty.csv'))
+def date_duty2class(d_date_duty, l_class_duty, dict_class_duty):
     d_class_duty = pd.DataFrame(dict_class_duty)
-    #l_class_duty = sorted(list(set(d_class_duty['class'].tolist())))
     d_date_duty[['class_' + class_duty for class_duty in  l_class_duty]] = False
 
     for class_duty in l_class_duty:

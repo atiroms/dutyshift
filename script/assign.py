@@ -1,9 +1,10 @@
 
 import numpy as np, pandas as pd
-import os, random
+import random
 from pulp import *
 from ortoolpy import addbinvars
 from script.helper import *
+from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, SCOPE_DRIVE_FORMS
 
 def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_member,
                     l_title_fulltime, l_date_duty_fulltime, l_class_duty,
@@ -141,7 +142,7 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
         elif assign_twice == True:
             prob_assign += (lpSum(dv_assign.loc[:, member]) <= 2)
 
-    
+
     ###############################################################################
     # ECT subleader applicability
     ###############################################################################
@@ -193,7 +194,7 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
         l_duty = dict_closeduty[closeduty]['l_duty']
         l_date_start = [d for d in range(-thr_interval_soft + 2, 1)] + d_cal['date'].tolist()
         # Variable dataframe of count of assignments within continuous date_duty's staring from date_start, per member, per closeduty
-        dict_dv_closeduty[closeduty] = pd.DataFrame(np.array(addvars(len(l_date_start),len(l_member))), index = l_date_start, columns = l_member)                        
+        dict_dv_closeduty[closeduty] = pd.DataFrame(np.array(addvars(len(l_date_start),len(l_member))), index = l_date_start, columns = l_member)
         for date_start in l_date_start:
             # Create list of continuous date_duty's
             l_date_duty_cont = []
@@ -257,7 +258,7 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
                     + c_cnt_deviation * v_cnt_deviation
                     + c_closeduty * v_closeduty)
 
-            
+
     ###############################################################################
     # Solve problem
     ###############################################################################
@@ -270,29 +271,29 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
     return  prob_assign, dv_assign, v_assign_suboptimal, v_cnt_deviation, v_closeduty, dict_dv_closeduty
 
 
-def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_start,
+def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_start,
                               l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,
                               l_date_duty_skip_manual, dict_closeduty, ll_avoid_adjacent,
                               l_title_fulltime, l_date_duty_fulltime, type_limit,
                               c_assign_suboptimal, c_cnt_deviation, c_closeduty,
                               dict_score_duty, dict_score_class, dict_class_duty):
-    
-    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = 'asgn')
+
+    services = get_services(config, SCOPE_DRIVE_FORMS)
+    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir = 'asgn')
 
     ###############################################################################
     # Optimize exact assignment count
     ###############################################################################
     print('=' * 60 + '\nAssignment count optimization\n' + '-' * 60)
 
-    s_cnt_class_duty = pd.read_csv(os.path.join(p_month, 'cnt_class_duty.csv'), index_col = 0).squeeze(1)
+    s_cnt_class_duty = read_csv(services.drive, dp.id_month, 'cnt_class_duty.csv', index_col = 0).squeeze(1)
 
     # Prepare data of member specs and assignment limits
     d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
-        = prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start, dict_score_duty)
+        = prep_member2(dp, l_class_duty, year_plan, month_plan, year_start, month_start, dict_score_duty)
     l_member = d_member.index.tolist()
 
     # TODO: equilize 3 continous holidays assignment count
-    #d_score_class = pd.read_csv(os.path.join(p_root, 'Dropbox/dutyshift/config/score_class.csv'))
     d_score_class = pd.DataFrame(dict_score_class)
 
     # Optimize assignment counts except OC
@@ -334,10 +335,10 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
         print('Failed assignment count optimization')
 
     # Save data
-    for p_save in [p_month, p_data]:
-        d_lim_exact.to_csv(os.path.join(p_save, 'lim_exact.csv'), index = True)
-        d_score_current.to_csv(os.path.join(p_save, 'score_current_plan.csv'), index = True)
-        d_score_total.to_csv(os.path.join(p_save, 'score_total_plan.csv'), index = True)
+    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+        write_csv(services.drive, id_folder, 'lim_exact.csv', d_lim_exact, index = True)
+        write_csv(services.drive, id_folder, 'score_current_plan.csv', d_score_current, index = True)
+        write_csv(services.drive, id_folder, 'score_total_plan.csv', d_score_total, index = True)
 
 
     ###############################################################################
@@ -345,18 +346,18 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     ###############################################################################
     print('=' * 60 + '\nMember assignment optimization\n' + '-' * 60)
     # Prepare data of member availability
-    d_date_duty_noskip = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
-    d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
-    d_assign_manual = pd.read_csv(os.path.join(p_month, 'assign_manual.csv'))
-    d_info = pd.read_csv(os.path.join(p_month, 'info.csv'))
-    d_availability_noskip = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
+    d_date_duty_noskip = read_csv(services.drive, dp.id_month, 'date_duty.csv')
+    d_cal = read_csv(services.drive, dp.id_month, 'calendar.csv')
+    d_assign_manual = read_csv(services.drive, dp.id_month, 'assign_manual.csv')
+    d_info = read_csv(services.drive, dp.id_month, 'info.csv')
+    d_availability_noskip = read_csv(services.drive, dp.id_month, 'availability.csv', index_col = 0)
     #l_member = [int(member) for member in d_availability_noskip.columns]
     #d_availability_noskip.columns = l_member
     #print([int(member) for member in d_availability_noskip.columns])
     d_availability_noskip.columns = [int(member) for member in d_availability_noskip.columns]
     d_availability_noskip = d_availability_noskip[l_member]
-    d_availability_ratio = pd.read_csv(os.path.join(p_month, 'availability_ratio.csv'), index_col = 0)
-    d_assign_previous = prep_assign_previous(p_root, year_plan, month_plan)
+    d_availability_ratio = read_csv(services.drive, dp.id_month, 'availability_ratio.csv', index_col = 0)
+    d_assign_previous = prep_assign_previous(dp, year_plan, month_plan)
     d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_unavailable_notoc, l_date_duty_manual_assign, l_date_duty_skip =\
         skip_date_duty(d_date_duty_noskip, d_availability_noskip, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual, True)
     print('-' * 60)
@@ -371,7 +372,7 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
                     d_lim_hard, d_lim_exact, type_limit, d_info, d_assign_previous,
                     dict_closeduty, d_cal, ll_avoid_adjacent,
                     c_assign_suboptimal, c_cnt_deviation, c_closeduty)
-    
+
     # When the problem could not be solved, enter troubleshooting mode
     if str(LpStatus[prob_assign.status]) == 'Infeasible':
         if type_limit == 'hard':
@@ -383,7 +384,7 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
         l_date_duty_noskip = d_date_duty['date_duty'].tolist()
         #print(l_date_duty_noskip)
         l_date_duty_suspected = l_date_duty_noskip # This includes all culprit
-        
+
         cnt_iteration = 0
         while len(l_date_duty_suspected) > 10:
             cnt_iteration += 1
@@ -429,7 +430,7 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
     # Result output
     ###############################################################################
     print('=' * 60 + '\nResult\n' + '-' * 60)
-    
+
     if str(LpStatus[prob_assign.status]) == 'Optimal':
         print('Done, losses: ' + str(round(value(prob_assign.objective), 2)) + ' = ' + str(round(c_assign_suboptimal * value(v_assign_suboptimal), 2)) + ' + '
               + str(round(c_cnt_deviation * value(v_cnt_deviation), 2)) + ' + ' + str(round(c_closeduty * value(v_closeduty), 2)))
@@ -437,20 +438,20 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
         # Extract data
         #d_assign, d_assign_date_duty =\
         d_assign_date_duty =\
-            extract_assignment(p_month, p_data, year_plan, month_plan, dv_assign, d_date_duty_noskip, l_date_duty_skip)
+            extract_assignment(dp, year_plan, month_plan, dv_assign, d_date_duty_noskip, l_date_duty_skip)
 
         d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
-            convert_assignment(p_month, p_data, d_assign_date_duty, d_availability_noskip, 
+            convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
                            d_member, d_date_duty, d_cal, l_class_duty, dict_score_duty, d_lim_exact, d_lim_hard)
-        
-        d_closeduty = extract_closeduty(p_month, p_data, dict_dv_closeduty, d_assign_date_duty, d_member, dict_closeduty)
+
+        d_closeduty = extract_closeduty(dp, dict_dv_closeduty, d_assign_date_duty, d_member, dict_closeduty)
 
         print('-' * 60 + '\nDeviation from target:\n' + '-' * 60)
         print(d_deviation_summary)
         print('-' * 60 + '\nClose duties:\n' + '-' * 60)
         print(d_closeduty)
         print('-' * 60 + '\nCandidate replacement:\n' + '-' * 60)
-        print_candidate_replacement(p_month, dict_class_duty, d_deviation_summary, d_assign_date_duty, d_assign_member, d_closeduty)
+        print_candidate_replacement(services.drive, dp.id_month, dict_class_duty, d_deviation_summary, d_assign_date_duty, d_assign_member, d_closeduty)
         print('-' * 60)
 
         return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_score_print, d_closeduty, d_deviation_summary, d_assign_date_duty
@@ -459,15 +460,20 @@ def optimize_count_and_assign(lp_root, year_plan, month_plan, year_start, month_
 
         return [None] * 6
 
-    
 
 
+
+# NOTE: optimize_count_and_assign_old is dead code (unused duplicate of optimize_count_and_assign
+# above, see CLAUDE.md) and was intentionally NOT migrated to the Drive-backed I/O layer as part
+# of this migration -- it still calls the removed script/helper.py::prep_dirs and is therefore no
+# longer callable. Left in place rather than deleted, to keep this diff scoped to the Drive
+# migration; removal is a separate, purely cosmetic cleanup.
 def optimize_count_and_assign_old(lp_root, year_plan, month_plan, year_start, month_start,
                               l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,
                               l_date_duty_skip_manual, dict_closeduty, ll_avoid_adjacent,
                               l_title_fulltime, l_date_duty_fulltime, type_limit,
                               c_assign_suboptimal, c_cnt_deviation, c_closeduty, dict_score_duty, dict_score_class):
-    
+
     p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = 'asgn')
 
     ###############################################################################
@@ -480,7 +486,7 @@ def optimize_count_and_assign_old(lp_root, year_plan, month_plan, year_start, mo
     # Prepare data of member specs and assignment limits
     d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
         = prep_member2(p_root, p_month, p_data, l_class_duty, year_plan, month_plan, year_start, month_start, dict_score_duty)
-    
+
     #print(d_score_past)
 
     # TODO: equilize 3 continous holidays assignment count
@@ -680,7 +686,7 @@ def optimize_count_and_assign_old(lp_root, year_plan, month_plan, year_start, mo
         elif assign_twice == True:
             prob_assign += (lpSum(dv_assign.loc[:, member]) <= 2)
 
-    
+
     ###############################################################################
     # ECT subleader applicability
     ###############################################################################
@@ -732,7 +738,7 @@ def optimize_count_and_assign_old(lp_root, year_plan, month_plan, year_start, mo
         l_duty = dict_closeduty[closeduty]['l_duty']
         l_date_start = [d for d in range(-thr_interval_soft + 2, 1)] + d_cal['date'].tolist()
         # Variable dataframe of count of assignments within continuous date_duty's staring from date_start, per member, per closeduty
-        dict_dv_closeduty[closeduty] = pd.DataFrame(np.array(addvars(len(l_date_start),len(l_member))), index = l_date_start, columns = l_member)                        
+        dict_dv_closeduty[closeduty] = pd.DataFrame(np.array(addvars(len(l_date_start),len(l_member))), index = l_date_start, columns = l_member)
         for date_start in l_date_start:
             # Create list of continuous date_duty's
             l_date_duty_cont = []
@@ -796,7 +802,7 @@ def optimize_count_and_assign_old(lp_root, year_plan, month_plan, year_start, mo
                     + c_cnt_deviation * v_cnt_deviation
                     + c_closeduty * v_closeduty)
 
-            
+
     ###############################################################################
     # Solve problem
     ###############################################################################
@@ -817,9 +823,9 @@ def optimize_count_and_assign_old(lp_root, year_plan, month_plan, year_start, mo
             extract_assignment(p_month, p_data, year_plan, month_plan, dv_assign, d_date_duty_noskip, l_date_duty_skip)
 
         d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
-            convert_assignment(p_month, p_data, d_assign_date_duty, d_availability_noskip, 
+            convert_assignment(p_month, p_data, d_assign_date_duty, d_availability_noskip,
                            d_member, d_date_duty, d_cal, l_class_duty, dict_score_duty, d_lim_exact, d_lim_hard)
-        
+
         d_closeduty = extract_closeduty(p_month, p_data, dict_dv_closeduty, d_assign_date_duty, d_member, dict_closeduty)
 
         print('-' * 60 + '\nDeviation from target:\n' + '-' * 60)
@@ -833,4 +839,3 @@ def optimize_count_and_assign_old(lp_root, year_plan, month_plan, year_start, mo
         print('Failed to solve')
 
         return [None] * 6
-    

@@ -1,16 +1,21 @@
 
 import numpy as np, pandas as pd
-import os, datetime
+import datetime
 from script.helper import *
 from script.check import *
+from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, SCOPE_DRIVE_FORMS
 
-def collect_availability(lp_root, year_plan, month_plan, dict_jpnday, dict_duty_jpn):
-    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = 'clct')
+def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_jpn):
+    services = get_services(config, SCOPE_DRIVE_FORMS)
+    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir = 'clct')
 
     # Read data
-    path_form = '/dutyshift/result/' + str(year_plan) + '/' + str(month_plan).zfill(2) + '/form_' +  str(year_plan) + str(month_plan).zfill(2)
-    d_availability_src = read_form_response(p_root, path_form)
-    d_member = read_member(p_root, year_plan, month_plan)
+    # Matches the "dutyshift/result/<year>/<month>/form_<yyyymm>" convention prepare_form
+    # creates the form under.
+    path_form = '/dutyshift/result/' + str(year_plan) + '/' + str(month_plan).zfill(2) + '/form_' + str(year_plan) + str(month_plan).zfill(2)
+    d_availability_src = read_form_response(services, path_form)
+    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    d_member = read_member(services.drive, id_config, year_plan, month_plan)
 
     # Check missing members
     l_member_ans = list(set(d_availability_src['お名前（敬称略）'].tolist()))
@@ -21,7 +26,7 @@ def collect_availability(lp_root, year_plan, month_plan, dict_jpnday, dict_duty_
     str_mail_missing = ', '.join(l_mail_missing)
 
     # Format answer
-    d_cal_duty = pd.read_csv(os.path.join(p_month, 'duty.csv'))
+    d_cal_duty = read_csv(services.drive, dp.id_month, 'duty.csv')
     l_col = d_availability_src.columns.tolist()
 
     # Collect weekly pattern
@@ -76,7 +81,7 @@ def collect_availability(lp_root, year_plan, month_plan, dict_jpnday, dict_duty_
     d_availability_head = d_availability_src[['お名前（敬称略）', 'Timestamp']].copy()
     d_availability_head.columns = ['name_jpn_full', 'timestamp']
     d_availability_head['unixtime'] = d_availability_head['timestamp'].apply(lambda x: datetime.datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ').timestamp())
-    
+
     # Designation
     l_designation = [np.nan] * d_availability_src.shape[0]
     for idx_col in [idx_col for idx_col, col in enumerate(l_col) if '指定医' in col]:
@@ -144,13 +149,12 @@ def collect_availability(lp_root, year_plan, month_plan, dict_jpnday, dict_duty_
             if designation_form != designation_src:
                 print('Inconsistent designation status, ID:', member, designation_form, designation_src)
 
-    #d_availability = pd.read_csv(os.path.join(p_month, 'availability_src.csv'))
     d_availability.set_index('id_member', inplace = True)
     d_availability.drop(['name_jpn_full'], axis = 1, inplace = True)
     d_availability = d_availability.T
 
     d_availability.columns = [int(col) for col in d_availability.columns]
-    
+
     # Ratio of available members
     d_availability_ratio = pd.DataFrame(index = d_availability.index, columns = ['total','available','ratio'])
     d_availability_ratio['total'] = d_availability.count(axis = 1)
@@ -158,8 +162,8 @@ def collect_availability(lp_root, year_plan, month_plan, dict_jpnday, dict_duty_
     d_availability_ratio['ratio'] = d_availability_ratio['available'] / d_availability_ratio['total']
 
     # Add ECT shifts availability
-    d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
-    d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
+    d_date_duty = read_csv(services.drive, dp.id_month, 'date_duty.csv')
+    d_cal = read_csv(services.drive, dp.id_month, 'calendar.csv')
     d_availability.fillna(0, inplace = True)
     l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].tolist()
     d_availability_ect = d_availability.loc[[str(date_ect) + '_am' for date_ect in l_date_ect], :]
@@ -173,13 +177,12 @@ def collect_availability(lp_root, year_plan, month_plan, dict_jpnday, dict_duty_
     d_availability_duty = check_availability_duty(d_member, d_availability)
     d_availability_member = check_availability_member(d_member, d_availability)
 
-    for p_save in [p_month, p_data]:
-        #d_availability.to_csv(os.path.join(p_save, 'availability_src.csv'), index = False)
-        d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = True)
-        d_availability_ratio.to_csv(os.path.join(p_save, 'availability_ratio.csv'), index = True)
-        d_info.to_csv(os.path.join(p_save, 'info.csv'), index = False)
-        d_member.to_csv(os.path.join(p_save, 'member.csv'), index = False)
-        d_availability_duty.to_csv(os.path.join(p_save, 'availability_duty.csv'), index = True)
-        d_availability_member.to_csv(os.path.join(p_save, 'availability_member.csv'), index = False)
+    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+        write_csv(services.drive, id_folder, 'availability.csv', d_availability, index = True)
+        write_csv(services.drive, id_folder, 'availability_ratio.csv', d_availability_ratio, index = True)
+        write_csv(services.drive, id_folder, 'info.csv', d_info, index = False)
+        write_csv(services.drive, id_folder, 'member.csv', d_member, index = False)
+        write_csv(services.drive, id_folder, 'availability_duty.csv', d_availability_duty, index = True)
+        write_csv(services.drive, id_folder, 'availability_member.csv', d_availability_member, index = False)
 
     return str_member_missing, str_mail_missing, d_availability, d_info, d_member

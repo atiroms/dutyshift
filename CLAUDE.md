@@ -27,7 +27,10 @@ Pure Python + Jupyter. No `requirements.txt`/`pyproject.toml`/lockfile exists �
 must be installed manually. Core libraries actually imported by the code:
 - `pulp`, `ortoolpy` — the MILP optimizer (PuLP modeling + CBC solver)
 - `pandas`, `numpy` — all data handling
-- `google-api-python-client`, `google-auth-oauthlib` — Google Forms/Drive/Calendar APIs
+- `google-api-python-client`, `google-auth-oauthlib` — Google Forms/Drive/Calendar APIs. Drive
+  is also the **data store**: doctor roster, per-month CSVs, and the Google Form itself all live
+  in a `dutyshift` Drive folder, accessed directly via the API (`script/drive_io.py`) — there is
+  no local file mirror.
 - `ipywidgets` — the GUI layer (`script/gui.py`); runs under classic Jupyter Notebook, which
   must be running an actual `ipykernel` for widget `Button`/`Output` capture to work — running
   cells via `nbconvert --execute` or a plain script only checks that panels *build*, not that
@@ -60,19 +63,24 @@ itself did not change. Every `build_*_panel(state)` function (and `build_app` it
 be called/`display()`-ed directly from a plain script/notebook cell, exactly like the pre-GUI
 code, if needed for debugging just one stage.
 
-All runtime data (`config/member.xlsx` doctor roster, per-month generated CSVs, Google OAuth
-credentials) lives outside this repo in a Dropbox-synced folder, path auto-detected from a
-hardcoded machine-path list (`lp_root` in `script/parameter.py`). Nothing under
-`Dropbox/dutyshift/...` is version-controlled here.
+All runtime data (`config/member.xlsx` doctor roster, per-month generated CSVs) lives in a
+`dutyshift` folder on **Google Drive**, read/written directly via the Drive API
+(`script/drive_io.py`) — no local file mirror, no per-machine path guessing. The only thing
+still local per machine is `config.local.json` (gitignored; copy
+`config.local.example.json` to create it), which holds where that machine's OAuth
+`credentials.json`/`token.json` files live. `AppState()` (`script/gui.py`) loads it once, up
+front, and every pipeline entry point takes it as its first argument (`config`, replacing the
+old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled here.
 
 ## Key files
 
 | File | Role |
 |---|---|
 | `main.ipynb` | Entry point; single cell, displays `script/gui.py::build_app(state)`. |
-| `script/gui.py` | `ipywidgets` GUI layer: `AppState` (shared widgets + cross-panel state), one `build_*_panel()` function per pipeline stage, and `build_app()` combining them into the single panel `main.ipynb` displays. Wires widgets to the functions below; contains no pipeline logic itself. |
+| `script/gui.py` | `ipywidgets` GUI layer: `AppState` (shared widgets + cross-panel state, loads `config.local.json` once), one `build_*_panel()` function per pipeline stage, and `build_app()` combining them into the single panel `main.ipynb` displays. Wires widgets to the functions below; contains no pipeline logic itself. |
+| `script/drive_io.py` | Google Drive-backed data I/O layer: OAuth credential caching/reuse (`get_credentials`/`get_services`), Drive folder resolution/creation, `read_csv`/`write_csv`/`read_excel`/`list_month_folders`, and `prep_drive_paths` (replaces the old local-path resolver `prep_dirs`). No pipeline logic. |
 | `script/parameter.py` | Fixed config: duty types, scoring weights, per-title duty eligibility, Google resource IDs. Edited rarely. |
-| `script/helper.py` | Shared building blocks: calendar prep, roster loading/parsing, the Stage-1 count-optimization MILP (`optimize_count`), result extraction/CSV export. |
+| `script/helper.py` | Shared building blocks: calendar prep, roster loading/parsing, the Stage-1 count-optimization MILP (`optimize_count`), result extraction/CSV export (all via `script/drive_io.py`). |
 | `script/assign.py` | The Stage-2 assignment MILP (`optimize_assign`) and orchestration (`optimize_count_and_assign`), including infeasibility recovery. Contains a stale unused duplicate, `optimize_count_and_assign_old`. |
 | `script/form.py` | Creates the monthly availability Google Form. |
 | `script/collect.py` | Parses Google Form responses into an availability matrix. |
@@ -93,6 +101,13 @@ hardcoded machine-path list (`lp_root` in `script/parameter.py`). Nothing under
   unconstrained.
 - Holidays are passed per-run as a plain list of day-of-month integers (`l_holiday`); weekends
   are always holidays automatically.
+- **Drive folder layout**: `dutyshift/config/member.xlsx` (roster); `dutyshift/result/<year>/
+  <month, zero-padded>/` (live per-month CSVs + that month's Google Form, e.g.
+  `dutyshift/result/2026/08/`); `.../result/<prefix>_<timestamp>/` nested beneath it (a
+  timestamped snapshot written on every pipeline run, alongside the live copy — the only audit
+  trail this system has). `script/drive_io.py::month_folder_path(year, month)` is the single
+  source of truth for that path shape and `prep_drive_paths` resolves/creates it — don't
+  hand-build Drive paths elsewhere.
 - `script/parameter.py`'s duty-related tables have single sources of truth, not independent
   hand-typed copies: `dict_duty`/`dict_duty_jpn`/`dict_time_duty` are all derived from one
   `_dict_duty_info` table; `l_class_duty` is derived from `dict_class_duty`; `dict_score_class`

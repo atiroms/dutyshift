@@ -1,26 +1,29 @@
 
 import numpy as np, pandas as pd
-import os
 from script.helper import *
+from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, SCOPE_DRIVE_FORMS
 #from script.notify import *
 
 
-def check_replacement(lp_root, year_plan, month_plan):
-    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
+def check_replacement(config, year_plan, month_plan):
+    services = get_services(config, SCOPE_DRIVE_FORMS)
+    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
 
 
     ###############################################################################
     # Read and convert data
     ###############################################################################
-    d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
+    d_member = read_csv(services.drive, dp.id_month, 'member.csv')
     d_member['name_jpn_full'] = d_member['name_jpn_full'].str.replace('　',' ')
-    d_assign_date_duty = pd.read_csv(os.path.join(p_month, 'assign_date_duty.csv'))
+    d_assign_date_duty = read_csv(services.drive, dp.id_month, 'assign_date_duty.csv')
 
 
     #sheet_name = "response"
     #d_replace = pd.read_csv(f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}")
+    # Static path -- the standing shift-swap request form is not year/month-specific, unlike the
+    # monthly availability form, so it's unaffected by that folder-convention change.
     path_form = '/dutyshift/result/replacement/replacement'
-    d_replace = read_form_response(p_root, path_form)
+    d_replace = read_form_response(services, path_form)
 
     d_replace = d_replace.sort_values(by = 'Timestamp')
     d_replace = d_replace[['交代する日付','交代する業務','交代後の担当者（敬称略）']]
@@ -75,8 +78,9 @@ def check_replacement(lp_root, year_plan, month_plan):
     return d_replace_checked
 
 
-def replace_assignment(lp_root, year_plan, month_plan, dict_score_duty, l_class_duty, d_replace_checked = None):
-    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = 'rplc')
+def replace_assignment(config, year_plan, month_plan, dict_score_duty, l_class_duty, d_replace_checked = None):
+    services = get_services(config, SCOPE_DRIVE_FORMS)
+    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir = 'rplc')
 
     ###############################################################################
     # Replace data
@@ -86,8 +90,8 @@ def replace_assignment(lp_root, year_plan, month_plan, dict_score_duty, l_class_
     # OPTIONAL: specify which replacement to execute
     #li_replace = [0, 1]
     #d_replace_checked = d_replace_checked.loc[li_replace, :]
-                
-    d_assign_date_duty = pd.read_csv(os.path.join(p_month, 'assign_date_duty.csv'))
+
+    d_assign_date_duty = read_csv(services.drive, dp.id_month, 'assign_date_duty.csv')
 
     # TODO: consider desiganation status difference
     if d_replace_checked is not None:
@@ -97,10 +101,10 @@ def replace_assignment(lp_root, year_plan, month_plan, dict_score_duty, l_class_
             else:
                 d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member', 'status']] = [row['id_member'], 'assigned']
 
-    d_availability_noskip = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
-    d_date_duty = pd.read_csv(os.path.join(p_month, 'date_duty.csv'))
-    d_lim_exact = pd.read_csv(os.path.join(p_month, 'lim_exact.csv'), index_col = 0)
-    d_lim_hard = pd.read_csv(os.path.join(p_month, 'lim_hard.csv'), index_col = 0)
+    d_availability_noskip = read_csv(services.drive, dp.id_month, 'availability.csv', index_col = 0)
+    d_date_duty = read_csv(services.drive, dp.id_month, 'date_duty.csv')
+    d_lim_exact = read_csv(services.drive, dp.id_month, 'lim_exact.csv', index_col = 0)
+    d_lim_hard = read_csv(services.drive, dp.id_month, 'lim_hard.csv', index_col = 0)
     for index in d_lim_hard.index:
         for col in d_lim_hard.columns:
             src = d_lim_hard.loc[index, col]
@@ -109,17 +113,17 @@ def replace_assignment(lp_root, year_plan, month_plan, dict_score_duty, l_class_
             dst = [src_min, src_max]
             d_lim_hard.loc[index, col] = dst
 
-    for p_save in [p_month, p_data]:
+    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
         # TODO: convert d_assign
-        #d_assign.to_csv(os.path.join(p_save, 'assign.csv'), index = True)
-        d_assign_date_duty.to_csv(os.path.join(p_save, 'assign_date_duty.csv'), index = False)
+        #write_csv(services.drive, id_folder, 'assign.csv', d_assign, index = True)
+        write_csv(services.drive, id_folder, 'assign_date_duty.csv', d_assign_date_duty, index = False)
 
-    d_cal = pd.read_csv(os.path.join(p_month, 'calendar.csv'))
-    d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
+    d_cal = read_csv(services.drive, dp.id_month, 'calendar.csv')
+    d_member = read_csv(services.drive, dp.id_month, 'member.csv')
     d_member['name_jpn_full'] = d_member['name_jpn_full'].str.replace('　',' ')
 
     d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
-        convert_assignment(p_month, p_data, d_assign_date_duty, d_availability_noskip, 
+        convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
                         d_member, d_date_duty, d_cal, l_class_duty, dict_score_duty, d_lim_exact, d_lim_hard)
-    
+
     return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print

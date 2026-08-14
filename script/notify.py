@@ -1,40 +1,9 @@
 
 import pandas as pd, datetime as dt
-import os
 from time import sleep
 from script.helper import *
+from script.drive_io import get_services, prep_drive_paths, read_csv, SCOPE_DRIVE_CALENDAR
 
-#from google.auth.transport.requests import Request
-#from google.oauth2.credentials import Credentials
-#from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-#from googleapiclient.errors import HttpError
-
-
-'''
-def access_calendar(p_root, l_scope):
-    # Handle Credentials and token
-    p_token = os.path.join(p_root, 'Dropbox/dutyshift/config/credentials/token.json')
-    p_cred = os.path.join(p_root, 'Dropbox/dutyshift/config/credentials/credentials.json')
-
-    flow = InstalledAppFlow.from_client_secrets_file(p_cred, l_scope)
-    creds = flow.run_local_server(port=0)
-    #print('credentials.json used.')
-    # Save the credentials for the next run
-    with open(p_token, 'w') as token:
-        token.write(creds.to_json())
-
-    service = build('calendar', 'v3', credentials = creds)
-
-    # Read Calendar ID of psydutyshift
-    p_id_calendar = os.path.join(p_root, 'Dropbox/dutyshift/config/calendarid/id_psydutyshift.txt')
-    if os.path.exists(p_id_calendar):
-        with open(p_id_calendar, 'r') as f:
-            id_calendar = f.read()
-        #print('Read Calendar ID: ', id_calendar_duty)
-
-    return service, id_calendar
-'''
 
 def compare_event(d_assign_date_duty, d_event_exist):
     l_date_duty_assigned = d_assign_date_duty.loc[~np.isnan(d_assign_date_duty['id_member']), 'date_duty'].tolist()
@@ -54,22 +23,19 @@ def compare_event(d_assign_date_duty, d_event_exist):
     return l_date_duty_delete, l_date_duty_change, l_date_duty_add
 
 
-def update_calendar(lp_root, year_plan, month_plan, id_calendar, dict_time_duty, t_sleep = 0.0):
-    p_root, p_month, p_data = prep_dirs(lp_root, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
-    #d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
-    d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
+def update_calendar(config, year_plan, month_plan, id_calendar, dict_time_duty, t_sleep = 0.0):
+    services = get_services(config, SCOPE_DRIVE_CALENDAR)
+    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
+    d_member = read_csv(services.drive, dp.id_month, 'member.csv')
 
     # Access calendar
-    #service_calendar, id_calendar = access_calendar(p_root, l_scope)
-    l_scope = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/calendar']
-    creds = prep_api_creds(p_root, l_scope)
-    service_calendar = build('calendar', 'v3', credentials = creds)
+    service_calendar = services.calendar
 
     # Read events on G calendar
     d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, dict_time_duty)
 
     # Read target assignment
-    d_assign_date_duty = pd.read_csv(os.path.join(p_month, 'assign_date_duty.csv'))
+    d_assign_date_duty = read_csv(services.drive, dp.id_month, 'assign_date_duty.csv')
 
     # Compare existing and target events
     l_date_duty_delete, l_date_duty_change, l_date_duty_add = compare_event(d_assign_date_duty, d_assign_calendar)
@@ -79,9 +45,8 @@ def update_calendar(lp_root, year_plan, month_plan, id_calendar, dict_time_duty,
 
     # Add events
     d_date_duty_add = d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_add + l_date_duty_change), :]
-    #d_member = pd.read_csv(os.path.join(p_month, 'member.csv'), index_col = 0)
-    d_member = pd.read_csv(os.path.join(p_month, 'member.csv'))
-    d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
+    d_member = read_csv(services.drive, dp.id_month, 'member.csv')
+    d_availability = read_csv(services.drive, dp.id_month, 'availability.csv', index_col = 0)
     d_time_duty = pd.DataFrame(dict_time_duty)
 
     if len(d_date_duty_add) > 10: # member-wise addition
@@ -200,7 +165,7 @@ def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_du
     else:
         year_end = year
         month_end = month + 1
-    
+
     # Extract from G calendar
     time_start = str(year) + '-' + str(month).zfill(2) + '-01T00:00:00Z'
     time_end = str(year_end) + '-' + str(month_end).zfill(2) + '-01T00:00:00Z'
@@ -234,7 +199,7 @@ def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_du
                                     'duty': duty,
                                     'id_member': id_member,
                                     'name_jpn': name_jpn,
-                                    'id_event': row['id']})        
+                                    'id_event': row['id']})
 
     if len(l_assign_calendar) > 0:
         d_assign_calendar = pd.DataFrame(l_assign_calendar)
