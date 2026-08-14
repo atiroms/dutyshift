@@ -341,6 +341,22 @@ def read_excel(service, id_folder, filename, **kwargs):
     return pd.read_excel(buf, **kwargs)
 
 
+def read_json(service, id_folder, filename, default = None):
+    """Unlike read_csv/read_excel, returns `default` instead of raising when the file doesn't
+    exist -- callers (solver-preset/audit-record lookups) treat 'nothing recorded yet' as an
+    expected, common state, not an error."""
+    id_file = _find_file_id(service, id_folder, filename)
+    if id_file is None:
+        return default
+    buf = _download_bytes(service, id_file)
+    return json.loads(buf.read().decode('utf-8'))
+
+
+def write_json(service, id_folder, filename, obj):
+    buf = io.BytesIO(json.dumps(obj, indent = 2, ensure_ascii = False).encode('utf-8'))
+    return _upload_bytes(service, id_folder, filename, buf, mimetype = 'application/json')
+
+
 def month_folder_path(year, month):
     """Canonical Drive path (relative to root) for a month's live data folder:
     dutyshift/result/<year>/<month, zero-padded>/ -- this matches where script/form.py has

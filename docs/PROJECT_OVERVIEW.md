@@ -36,24 +36,27 @@ Pure Python, driven interactively from a single Jupyter notebook.
   `addbinvars`) for bulk-declaring PuLP variables from a pandas index.
 - **pandas / numpy** — all data wrangling; nearly every intermediate result is a DataFrame
   keyed by `date_duty` (row) and/or member ID (column).
-- **google-api-python-client / google-auth-oauthlib** — Google Forms API (create/read the
+- **openpyxl** — never imported by name, but required as pandas' engine for reading
+  `config/member.xlsx` (`script/helper.py::read_member`'s `pd.read_excel(...)` call).
+- **google-api-python-client / google-auth / google-auth-oauthlib** — Google Forms API (create/read the
   availability and replacement-request surveys), Google Drive API (create/manage the per-month
   folder the form lives in, **and the primary data store** — see [Data storage](#data-storage)),
   Google Calendar API (publish/diff the final schedule).
 - **ipywidgets** — the GUI layer (`script/gui.py`): dropdowns/buttons/output panels wired to
-  the pipeline functions below. Requires a live Jupyter kernel (classic Notebook or JupyterLab)
-  to actually capture button clicks and stage output — building the widgets themselves works
+  the pipeline functions below. Requires a live Jupyter kernel (`ipykernel`, `notebook`) to
+  actually capture button clicks and stage output — building the widgets themselves works
   anywhere ipywidgets is importable, but the interactive parts don't.
 - Standard library: `os`, `datetime`, `calendar`, `math.ceil`, `random`, `time.sleep`, `traceback`.
 
-**Gap:** there is no `requirements.txt`, `pyproject.toml`, or lockfile anywhere in the repo.
-Dependencies must be inferred from imports and installed manually.
+Pinned in `requirements.txt` (`pip install -r requirements.txt`) — versions this codebase is
+developed and tested against (Python 3.8.13).
 
 ## Repo layout
 
 | Path | What it is |
 |---|---|
 | `main.ipynb` | The single live entry point. An `ipywidgets` panel per stage, re-run every month; no code editing needed for a normal month. |
+| `requirements.txt` | Pinned dependency lockfile (`pip install -r requirements.txt`). |
 | `script/` | The Python package with all pipeline logic (see below). |
 | `test/test01.py` … `test19.py` | Ad hoc, undocumented developer scratch scripts — not an automated test suite (no pytest/unittest, no assertions framework). |
 | `README.md` | One paragraph: project purpose + CC BY-NC 4.0 license note. |
@@ -131,15 +134,15 @@ regenerates the summary/score outputs, using `state.d_replace_checked` from the 
 | Module | Lines | Role |
 |---|---|---|
 | `script/parameter.py` | 125 | Fixed, rarely-edited config: duty type ↔ label maps, scoring weights, per-title duty eligibility, class_duty aggregation rules, Google Form/Calendar IDs, duty clock times. |
-| `script/drive_io.py` | 393 | Google Drive-backed data I/O: OAuth credential caching/reuse (`get_credentials`, `get_services`), Drive folder resolution/creation (`resolve_folder_id`, `DriveFolderCache`, plus the moved-from-`helper.py` `check_gdrive_path`/`create_gdrive_path`/etc.), `read_csv`/`write_csv`/`read_excel`/`list_month_folders`, and `prep_drive_paths` (the `(p_root, p_month, p_data)` → Drive-folder-id replacement for the old local-path resolver `prep_dirs`). |
-| `script/helper.py` | 882 | Shared building blocks: calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), the count-optimization MILP (`optimize_count`), result extraction/scoring (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`) — all reading/writing via `script/drive_io.py`. |
-| `script/assign.py` | 841 | The assignment MILP (`optimize_assign`) and the orchestration function that runs both optimization stages and handles infeasibility (`optimize_count_and_assign`), plus a stale duplicate `optimize_count_and_assign_old` (now also uncallable — it still references the removed `prep_dirs`, intentionally left unmigrated). |
+| `script/drive_io.py` | 436 | Google Drive-backed data I/O: OAuth credential caching/reuse (`get_credentials`, `get_services`), Drive folder resolution/creation (`resolve_folder_id`, `DriveFolderCache`, plus the moved-from-`helper.py` `check_gdrive_path`/`create_gdrive_path`/etc.), `read_csv`/`write_csv`/`read_excel`/`read_json`/`write_json`/`list_month_folders`, `month_folder_path` (single source of truth for the `dutyshift/result/<year>/<month>/` layout), and `prep_drive_paths` (the `(p_root, p_month, p_data)` → Drive-folder-id replacement for the old local-path resolver `prep_dirs`). |
+| `script/helper.py` | 881 | Shared building blocks: calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), the count-optimization MILP (`optimize_count`), result extraction/scoring (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`) — all reading/writing via `script/drive_io.py`. |
+| `script/assign.py` | 461 | The assignment MILP (`optimize_assign`) and the orchestration function that runs both optimization stages and handles infeasibility (`optimize_count_and_assign`). |
 | `script/form.py` | 75 | `prepare_form` — builds the availability-survey Google Form for the month. |
 | `script/collect.py` | 188 | `collect_availability` — parses Google Form responses into an availability matrix. |
 | `script/notify.py` | 209 | Google Calendar integration: `update_calendar`, `add_duty`, `delete_duty`, `list_duty`, `compare_event`. |
-| `script/replace.py` | 129 | Shift-swap flow: `check_replacement`, `replace_assignment`. |
+| `script/replace.py` | 191 | Shift-swap flow: `check_replacement`, `replace_assignment`, and `_check_designation_pairing` (warns, doesn't block, if a swap breaks the day/night + on-call designated-physician pairing invariant). |
 | `script/check.py` | 47 | Small sanity-check helpers: `check_availability_duty`, `check_availability_member`. No Drive I/O. |
-| `script/gui.py` | — | `ipywidgets` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), one `build_*_panel()` function per stage above, and `build_app()` combining them into the single panel `main.ipynb` displays (params on top, stages as `Tab`s). No pipeline logic of its own. |
+| `script/gui.py` | 493 | `ipywidgets` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), one `build_*_panel()` function per stage above, and `build_app()` combining them into the single panel `main.ipynb` displays (params on top, stages as `Tab`s). The Assign panel also handles solver-parameter preset save/load/auto-default (`_pack_solver_params`/`_apply_solver_params`/`_load_last_month_solver_params`). No pipeline logic of its own. |
 
 ## Data model
 
@@ -235,8 +238,18 @@ defaulting to `0.00001, 0.1, 0.00001`.
 
 **Infeasibility recovery** — `optimize_count_and_assign` wraps both stages: if a solve comes
 back `Infeasible`, it retries with hard limits relaxed to soft, then runs a randomized
-elimination search (iteratively drop random subsets of `date_duty` and re-solve) to isolate and
-report which specific duty slots can't be filled under the current constraints.
+elimination search to isolate and report which specific duty slots can't be filled under the
+current constraints, in two phases:
+1. **Reduction** — repeatedly sample a random 80% subset of the current suspect set to skip and
+   re-solve. A successful (`Optimal`) solve narrows the suspects to that tested subset. An
+   infeasible solve leaves the suspect set (and so the sample size) unchanged, so the next
+   iteration tries a *differently-sampled* subset of the same size. Once
+   `n_troubleshoot_infeasible_max` (`script/parameter.py`, default 10) differently-sampled
+   subsets of the same size have all come back infeasible in a row — no progress narrowing the
+   suspects — reduction stops and the remaining suspects move to phase 2.
+2. **One-by-one testing** — each remaining suspected duty is tested individually (include vs.
+   skip) to confirm whether it's genuinely unassignable, accumulating a final
+   `l_date_duty_unassignable` list.
 
 ## External integrations
 
@@ -322,21 +335,42 @@ a judgment of the project.
   dropdowns/multi-selects (`script/gui.py::build_common_params_panel`) instead of editing a
   Python tuple each month; the old commented-out per-month history block is kept in cell 0
   purely as an inert historical record, not something that grows via further hand-edits.
-- **Ad hoc solver-tuning presets — partially addressed.** The Cell 3 hyperparameters
+- **~~Ad hoc solver-tuning presets~~ (resolved).** The "3. Assign" tab's solver hyperparameters
   (`dict_c_diff_score_current`/`_total`, `dict_closeduty` thresholds, objective weights,
-  `type_limit`, fulltime/skip overrides) are now editable widgets with sensible defaults instead
-  of commented-out sibling code lines, so trying an alternate value no longer means editing
-  Python. What's still missing: no way to save/name/reload a particular combination of values,
-  and no record of what was actually used for a past month beyond the CSV outputs it produced —
-  a "save this configuration" / "load last month's configuration" feature would close that gap.
-- **Stale duplicate function.** `script/assign.py` (835 lines total) contains both
-  `optimize_count_and_assign` (lines 273–464, ~190 lines) and an apparently unused
-  `optimize_count_and_assign_old` (lines 465–835, ~370 lines) — a near copy, roughly double the
-  length. Both contain an identical unresolved `# TODO: equilize 3 continous holidays assignment
-  count`, at lines 294 and 486 respectively.
-- **Incomplete replacement/swap logic.** `script/replace.py` has two open TODOs: designated-
-  physician status isn't accounted for during a swap (line 92), and a `d_assign.to_csv(...)`
-  write is commented out rather than implemented (line 113).
+  `type_limit`, fulltime/skip overrides) are editable widgets that now persist through
+  `script/drive_io.py`'s `read_json`/`write_json`:
+  - **Named presets** — "Save as Preset"/"Load Preset" read and write
+    `dutyshift/config/solver_presets.json` (`{"<name>": {...params...}}`).
+  - **Per-month audit record** — every successful "Run Optimization" writes the exact values
+    used to `dutyshift/result/<year>/<month>/solver_params.json`, closing the "what was actually
+    used for a past month" gap.
+  - **Auto-loaded defaults** — the panel seeds its widgets from the nearest prior month's
+    recorded `solver_params.json` on build (falling back to the original hardcoded defaults if
+    none exists), rather than always resetting to hardcoded values; a "Load Last Month's Config"
+    button re-triggers the same lookup on demand. This auto-load is the *first* Drive API call
+    `build_app()` makes (previously, opening the notebook was instant/offline until the first
+    button click) — it's wrapped in a broad `try/except` and fails silently to the hardcoded
+    defaults, so a missing-credentials or network problem at notebook-open time can't prevent
+    the panel from rendering.
+- **~~Stale duplicate function~~ (resolved).** `script/assign.py` no longer contains
+  `optimize_count_and_assign_old` — it was an unused, ~370-line near-copy of
+  `optimize_count_and_assign`, left uncallable (referencing the removed `prep_dirs`) after the
+  Drive migration, and has now been deleted outright. The live function still has one open
+  `# TODO: equilize 3 continous holidays assignment count` (`script/assign.py:296`).
+- **~~Incomplete replacement/swap logic~~ (resolved).** `script/replace.py` had two open TODOs,
+  turned out to be very different in nature on investigation: the `d_assign.to_csv(...)` one was
+  **stale** — `d_assign` wasn't even defined at that point in the function, and the real
+  `d_assign` matrix was already being correctly rebuilt and saved later via `convert_assignment`
+  — so that dead comment/line was simply deleted. The designated-physician one was real:
+  `script/assign.py::optimize_assign` enforces exactly one designated physician (`指定医`)
+  covering each day/night duty between the primary doctor and its on-call pair
+  (`ocday`/`ocnight`), and a swap could silently break that. `_check_designation_pairing`
+  (`script/replace.py`) now detects this — including the nuance that an on-call slot with
+  nobody assigned is itself a normal, valid state (only needed when the day/night doctor isn't
+  designated) that must be treated as "not designated," not skipped — and prints a warning in
+  both `check_replacement`'s review step and `replace_assignment` before applying. It warns,
+  doesn't block: this subsystem is human-reviewed before a swap is ever applied, so surfacing
+  the problem is the goal, not overriding the admin's decision.
 - **Fragile Google Form parsing.** `script/collect.py` matches form questions by exact Japanese
   substring (e.g. `'[' + title_dateduty + ']'`, `'指定医'`, `'月2回'`, `'ご要望'`). Any wording
   change to the form template silently breaks parsing; the only feedback is a printed
@@ -345,8 +379,14 @@ a judgment of the project.
   developer scripts (early PuLP prototypes, one-off data-migration patches, Google API
   experiments) — not a pytest/unittest suite, no assertions, no CI. The optimizer's correctness
   has no automated coverage.
-- **No dependency lockfile.** No `requirements.txt`/`pyproject.toml` anywhere; dependencies must
-  be inferred from imports and installed by hand.
+- **~~No dependency lockfile~~ (resolved).** `requirements.txt` now pins every direct dependency
+  (`pulp`, `ortoolpy`, `pandas`, `numpy`, `openpyxl`, `google-api-python-client`, `google-auth`,
+  `google-auth-oauthlib`, `ipywidgets`, `ipython`, `ipykernel`, `notebook`) to the exact versions
+  this codebase is developed and tested against — including `openpyxl`, which is never imported
+  by name but is pandas' engine for reading `config/member.xlsx`, and the Jupyter runtime pieces
+  (`ipykernel`/`notebook`) needed to actually *run* `script/gui.py`'s widgets interactively, not
+  just import them. Re-pin deliberately (e.g. after verifying a version bump still works), don't
+  let installs silently drift.
 - **Duplicated logic between the main pipeline and archived seasonal notebooks.** The
   now-archived per-season notebooks (summer/winter vacation assignment, etc.) reimplement their
   own inline PuLP model and their own result-extraction/CSV-saving/printing boilerplate rather

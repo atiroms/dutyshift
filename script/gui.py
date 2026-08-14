@@ -24,7 +24,10 @@ import ipywidgets as widgets
 from IPython.display import display
 
 from script.parameter import *
-from script.drive_io import load_config
+from script.drive_io import (
+    load_config, get_services, prep_drive_paths, resolve_folder_id,
+    read_json, write_json, month_folder_path, list_month_folders, SCOPE_DRIVE_FORMS,
+)
 from script.form import *
 from script.collect import *
 from script.assign import *
@@ -155,6 +158,85 @@ def build_collect_panel(state):
 
 
 ###############################################################################
+# Solver-tuning preset persistence, shared by build_assign_panel below
+#
+# "Presets" (named, saved on demand) and the per-month "audit record" (auto-saved on every
+# successful run) share one schema and one Drive-backed store per kind:
+#   dutyshift/config/solver_presets.json           -- {"<name>": {...params...}, ...}
+#   dutyshift/result/<year>/<month>/solver_params.json  -- {...params...} (this month's own)
+###############################################################################
+def _pack_solver_params(dict_w_current, dict_w_total, dict_w_closeduty,
+                        w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                        w_type_limit, w_fulltime, w_skip):
+    """Read the Assign panel's current widget values into the JSON shape saved as a preset or
+    per-month audit record."""
+    return {
+        'dict_c_diff_score_current': {axis: w.value for axis, w in dict_w_current.items()},
+        'dict_c_diff_score_total': {axis: w.value for axis, w in dict_w_total.items()},
+        'dict_closeduty_thresholds': {group: {'thr_hard': w['thr_hard'].value, 'thr_soft': w['thr_soft'].value}
+                                      for group, w in dict_w_closeduty.items()},
+        'c_assign_suboptimal': w_c_assign_suboptimal.value,
+        'c_cnt_deviation': w_c_cnt_deviation.value,
+        'c_closeduty': w_c_closeduty.value,
+        'type_limit': w_type_limit.value,
+        'l_date_duty_fulltime': [s.strip() for s in w_fulltime.value.split(',') if s.strip()],
+        'l_date_duty_skip_manual': [s.strip() for s in w_skip.value.split(',') if s.strip()],
+    }
+
+
+def _apply_solver_params(dict_params, dict_w_current, dict_w_total, dict_w_closeduty,
+                         w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                         w_type_limit, w_fulltime, w_skip):
+    """Set the Assign panel's widget values from a loaded preset/audit-record dict. Missing keys
+    (e.g. an older record saved before a field existed) are left at whatever the widgets already
+    hold, rather than raising."""
+    for axis, w in dict_w_current.items():
+        if axis in dict_params.get('dict_c_diff_score_current', {}):
+            w.value = dict_params['dict_c_diff_score_current'][axis]
+    for axis, w in dict_w_total.items():
+        if axis in dict_params.get('dict_c_diff_score_total', {}):
+            w.value = dict_params['dict_c_diff_score_total'][axis]
+    for group, w in dict_w_closeduty.items():
+        thr = dict_params.get('dict_closeduty_thresholds', {}).get(group)
+        if thr:
+            w['thr_hard'].value = thr['thr_hard']
+            w['thr_soft'].value = thr['thr_soft']
+    if 'c_assign_suboptimal' in dict_params:
+        w_c_assign_suboptimal.value = dict_params['c_assign_suboptimal']
+    if 'c_cnt_deviation' in dict_params:
+        w_c_cnt_deviation.value = dict_params['c_cnt_deviation']
+    if 'c_closeduty' in dict_params:
+        w_c_closeduty.value = dict_params['c_closeduty']
+    if 'type_limit' in dict_params:
+        w_type_limit.value = dict_params['type_limit']
+    if 'l_date_duty_fulltime' in dict_params:
+        w_fulltime.value = ', '.join(dict_params['l_date_duty_fulltime'])
+    if 'l_date_duty_skip_manual' in dict_params:
+        w_skip.value = ', '.join(dict_params['l_date_duty_skip_manual'])
+
+
+def _load_last_month_solver_params(state):
+    """Best-effort load of the previous month's recorded solver_params.json -- used both to
+    seed the Assign panel's default widget values at build time and by the explicit 'Load Last
+    Month's Config' button. Returns None on any failure (missing credentials, no prior month,
+    network issue, nothing recorded) -- never raises, since the panel-build call site must not
+    be able to break build_app()."""
+    try:
+        services = get_services(state.config, SCOPE_DRIVE_FORMS)
+        id_root = resolve_folder_id(services.drive, 'dutyshift', create = False)
+        l_dir_before_current = sorted(d for d in list_month_folders(services.drive, id_root)
+                                      if d < '{:04d}{:02d}'.format(state.year_plan, state.month_plan))
+        if not l_dir_before_current:
+            return None
+        dir_previous = l_dir_before_current[-1]
+        id_month_previous = resolve_folder_id(
+            services.drive, month_folder_path(int(dir_previous[:4]), int(dir_previous[4:6])), create = False)
+        return read_json(services.drive, id_month_previous, 'solver_params.json', default = None)
+    except Exception:
+        return None
+
+
+###############################################################################
 # Optimize assignment count and assign members (replaces main.ipynb cell 3)
 ###############################################################################
 def build_assign_panel(state):
@@ -193,6 +275,15 @@ def build_assign_panel(state):
         return widgets.VBox([widgets.HTML('<b>' + group + '</b>'),
                              dict_w_closeduty[group]['thr_hard'], dict_w_closeduty[group]['thr_soft']])
 
+    # Seed the widgets above from the previous month's recorded configuration, if any -- falls
+    # back to the hardcoded defaults just set above on any failure (see
+    # _load_last_month_solver_params's docstring for why this must never raise).
+    _dict_solver_defaults = _load_last_month_solver_params(state)
+    if _dict_solver_defaults:
+        _apply_solver_params(_dict_solver_defaults, dict_w_current, dict_w_total, dict_w_closeduty,
+                             w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                             w_type_limit, w_fulltime, w_skip)
+
     advanced = widgets.Accordion(children = [widgets.VBox([
         widgets.HTML('<b>Score-deviation weight, current month (dict_c_diff_score_current)</b>'),
         widgets.HBox(list(dict_w_current.values())),
@@ -205,8 +296,81 @@ def build_assign_panel(state):
         widgets.HTML('<b>Other</b>'),
         w_type_limit, w_fulltime, w_skip,
     ])])
-    advanced.set_title(0, 'Advanced solver parameters')
+    advanced.set_title(0, 'Advanced solver parameters' + ('' if _dict_solver_defaults else ' (hardcoded defaults -- no prior month found)'))
     advanced.selected_index = None  # collapsed by default
+
+    # --- Solver-parameter preset / last-month-config controls ---
+    w_preset_name = widgets.Text(value = '', description = 'Preset name',
+                                 placeholder = 'e.g. strict-fairness', style = _STYLE)
+    btn_save_preset = widgets.Button(description = 'Save as Preset')
+    w_preset_select = widgets.Dropdown(options = [], description = 'Load preset', style = _STYLE)
+    btn_load_preset = widgets.Button(description = 'Load Preset')
+    btn_load_last_month = widgets.Button(description = "Load Last Month's Config")
+    output_preset = widgets.Output()
+
+    def _refresh_preset_options():
+        try:
+            services = get_services(state.config, SCOPE_DRIVE_FORMS)
+            id_config = resolve_folder_id(services.drive, 'dutyshift/config', create = False)
+            dict_presets = read_json(services.drive, id_config, 'solver_presets.json', default = {})
+            w_preset_select.options = sorted(dict_presets.keys())
+        except Exception:
+            pass  # leave whatever options already exist; a passive refresh must not block the panel
+    _refresh_preset_options()
+
+    def _current_params():
+        return _pack_solver_params(dict_w_current, dict_w_total, dict_w_closeduty,
+                                   w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                                   w_type_limit, w_fulltime, w_skip)
+
+    def on_save_preset(_):
+        def run():
+            name = w_preset_name.value.strip()
+            if not name:
+                print('Enter a preset name first.')
+                return
+            services = get_services(state.config, SCOPE_DRIVE_FORMS)
+            id_config = resolve_folder_id(services.drive, 'dutyshift/config', create = True)
+            dict_presets = read_json(services.drive, id_config, 'solver_presets.json', default = {})
+            dict_presets[name] = _current_params()
+            write_json(services.drive, id_config, 'solver_presets.json', dict_presets)
+            _refresh_preset_options()
+            w_preset_select.value = name
+            print('Saved preset "' + name + '".')
+        _run_in_output(output_preset, run)
+    btn_save_preset.on_click(on_save_preset)
+
+    def on_load_preset(_):
+        def run():
+            if not w_preset_select.value:
+                print('No preset selected.')
+                return
+            services = get_services(state.config, SCOPE_DRIVE_FORMS)
+            id_config = resolve_folder_id(services.drive, 'dutyshift/config', create = False)
+            dict_presets = read_json(services.drive, id_config, 'solver_presets.json', default = {})
+            dict_params = dict_presets.get(w_preset_select.value)
+            if dict_params is None:
+                print('Preset "' + w_preset_select.value + '" not found.')
+                return
+            _apply_solver_params(dict_params, dict_w_current, dict_w_total, dict_w_closeduty,
+                                 w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                                 w_type_limit, w_fulltime, w_skip)
+            print('Loaded preset "' + w_preset_select.value + '".')
+        _run_in_output(output_preset, run)
+    btn_load_preset.on_click(on_load_preset)
+
+    def on_load_last_month(_):
+        def run():
+            dict_params = _load_last_month_solver_params(state)
+            if dict_params is None:
+                print('No recorded configuration found for a previous month.')
+                return
+            _apply_solver_params(dict_params, dict_w_current, dict_w_total, dict_w_closeduty,
+                                 w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                                 w_type_limit, w_fulltime, w_skip)
+            print("Loaded last month's configuration.")
+        _run_in_output(output_preset, run)
+    btn_load_last_month.on_click(on_load_last_month)
 
     button = widgets.Button(description = 'Run Optimization', button_style = 'primary')
     output = widgets.Output()
@@ -221,16 +385,35 @@ def build_assign_panel(state):
                               for group in dict_closeduty_default}
             l_date_duty_fulltime = [s.strip() for s in w_fulltime.value.split(',') if s.strip()]
             l_date_duty_skip_manual = [s.strip() for s in w_skip.value.split(',') if s.strip()]
-            optimize_count_and_assign(state.config, state.year_plan, state.month_plan, year_start, month_start,
+            result = optimize_count_and_assign(state.config, state.year_plan, state.month_plan, year_start, month_start,
                                       l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,
                                       l_date_duty_skip_manual, dict_closeduty, ll_avoid_adjacent,
                                       l_title_fulltime, l_date_duty_fulltime, w_type_limit.value,
                                       w_c_assign_suboptimal.value, w_c_cnt_deviation.value, w_c_closeduty.value,
-                                      dict_score_duty, dict_score_class, dict_class_duty)
+                                      dict_score_duty, dict_score_class, dict_class_duty,
+                                      n_troubleshoot_infeasible_max)
+            # result[0] (d_assign) is None on failure regardless of the differing success/failure
+            # tuple lengths -- duck-typed success check, doesn't unpack the tuple.
+            if result is not None and result[0] is not None:
+                try:
+                    services = get_services(state.config, SCOPE_DRIVE_FORMS)
+                    dp = prep_drive_paths(state.config, services.drive, state.year_plan, state.month_plan,
+                                          prefix_dir = 'asgn', make_data_dir = False)
+                    write_json(services.drive, dp.id_month, 'solver_params.json', _current_params())
+                except Exception:
+                    print('[WARNING] Optimization succeeded but failed to record solver_params.json:')
+                    print(traceback.format_exc())
         _run_in_output(output, run)
     button.on_click(on_click)
 
-    return widgets.VBox([widgets.HTML('<h3>Optimize Assignment</h3>'), advanced, button, output])
+    preset_controls = widgets.VBox([
+        widgets.HTML('<b>Solver-parameter presets</b>'),
+        widgets.HBox([w_preset_name, btn_save_preset]),
+        widgets.HBox([w_preset_select, btn_load_preset, btn_load_last_month]),
+        output_preset,
+    ])
+
+    return widgets.VBox([widgets.HTML('<h3>Optimize Assignment</h3>'), preset_controls, advanced, button, output])
 
 
 ###############################################################################

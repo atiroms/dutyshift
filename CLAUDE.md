@@ -23,10 +23,13 @@ directories unless the user explicitly asks about archived history.
 
 ## Tech stack
 
-Pure Python + Jupyter. No `requirements.txt`/`pyproject.toml`/lockfile exists — dependencies
-must be installed manually. Core libraries actually imported by the code:
+Pure Python + Jupyter. Dependencies are pinned in `requirements.txt` (`pip install -r
+requirements.txt`) — pinned to the versions this codebase is developed and tested against
+(Python 3.8.13); re-pin deliberately, don't let installs silently drift. Core libraries actually
+imported by the code:
 - `pulp`, `ortoolpy` — the MILP optimizer (PuLP modeling + CBC solver)
-- `pandas`, `numpy` — all data handling
+- `pandas`, `numpy`, `openpyxl` — all data handling (`openpyxl` is pandas' engine for reading
+  `config/member.xlsx`)
 - `google-api-python-client`, `google-auth-oauthlib` — Google Forms/Drive/Calendar APIs. Drive
   is also the **data store**: doctor roster, per-month CSVs, and the Google Form itself all live
   in a `dutyshift` Drive folder, accessed directly via the API (`script/drive_io.py`) — there is
@@ -50,8 +53,11 @@ stage:
 2. **2. Collect** — `script/collect.py::collect_availability`, parses form responses.
 3. **3. Assign** — `script/assign.py::optimize_count_and_assign`, runs the two-stage MILP. Its
    hyperparameters (score-deviation weights, close-duty thresholds, `type_limit`, etc.) are
-   editable widgets in a collapsed "Advanced solver parameters" accordion, defaulting to the
-   values that used to be hardcoded in the old cell 3.
+   editable widgets in a collapsed "Advanced solver parameters" accordion. They persist via
+   `drive_io.read_json`/`write_json`: named presets in `dutyshift/config/solver_presets.json`,
+   and an automatic per-month audit record (`dutyshift/result/<year>/<month>/solver_params.json`)
+   written on every successful run. The panel seeds its defaults from the nearest prior month's
+   audit record on build, falling back to hardcoded defaults if none exists.
 4. **4. Notify** — `script/notify.py::update_calendar`, publishes to Google Calendar.
 5. **5. Check Replace** / **6. Apply Replace** — `script/replace.py::check_replacement` /
    `replace_assignment`, handle shift-swap requests. `check_replacement`'s result is held on
@@ -81,7 +87,7 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
 | `script/drive_io.py` | Google Drive-backed data I/O layer: OAuth credential caching/reuse (`get_credentials`/`get_services`), Drive folder resolution/creation, `read_csv`/`write_csv`/`read_excel`/`list_month_folders`, and `prep_drive_paths` (replaces the old local-path resolver `prep_dirs`). No pipeline logic. |
 | `script/parameter.py` | Fixed config: duty types, scoring weights, per-title duty eligibility, Google resource IDs. Edited rarely. |
 | `script/helper.py` | Shared building blocks: calendar prep, roster loading/parsing, the Stage-1 count-optimization MILP (`optimize_count`), result extraction/CSV export (all via `script/drive_io.py`). |
-| `script/assign.py` | The Stage-2 assignment MILP (`optimize_assign`) and orchestration (`optimize_count_and_assign`), including infeasibility recovery. Contains a stale unused duplicate, `optimize_count_and_assign_old`. |
+| `script/assign.py` | The Stage-2 assignment MILP (`optimize_assign`) and orchestration (`optimize_count_and_assign`), including infeasibility recovery. |
 | `script/form.py` | Creates the monthly availability Google Form. |
 | `script/collect.py` | Parses Google Form responses into an availability matrix. |
 | `script/notify.py` | Publishes/diffs the schedule against Google Calendar events. |

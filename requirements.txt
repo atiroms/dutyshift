@@ -1,0 +1,24 @@
+# dutyshift's dependency lockfile. Pinned to the versions this codebase is developed and
+# tested against (Python 3.8.13). Install with: pip install -r requirements.txt
+# See CLAUDE.md / docs/PROJECT_OVERVIEW.md for what each dependency is used for.
+
+# MILP optimizer (script/helper.py, script/assign.py)
+pulp==2.6.0
+ortoolpy==0.2.38
+
+# Data handling
+pandas==1.4.1
+numpy==1.22.3
+openpyxl==3.1.2       # pandas' engine for reading config/member.xlsx (script/helper.py::read_member)
+
+# Google Forms / Drive / Calendar APIs (script/drive_io.py, script/notify.py)
+google-api-python-client==2.48.0
+google-auth==2.6.6
+google-auth-oauthlib==0.5.1
+
+# GUI (script/gui.py) -- ipywidgets needs a live Jupyter kernel to actually capture button
+# clicks/output, not just be importable; see CLAUDE.md's Tech stack section.
+ipywidgets==7.7.0
+ipython==8.2.0
+ipykernel==6.13.0
+notebook==6.4.11

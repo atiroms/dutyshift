@@ -69,6 +69,14 @@ ll_avoid_adjacent = [[['pm', 0], ['night', 0], ['emnight', 0], ['ocnight', 0]],
                      [['night', 0], ['emnight', 0], ['ocnight', 0], ['ect', 1], ['am', 1]]]
 #l_title_fulltime = ['assist'] # ['limterm_instr', 'assist', 'limtermclin']
 l_title_fulltime = ['assist', 'limtermclin'] # ['limterm_instr', 'assist', 'limtermclin']
+
+# Troubleshooting an infeasible assignment problem (script/assign.py::optimize_count_and_assign):
+# the random-subset-reduction phase keeps sampling differently-skipped subsets of a given size
+# until one succeeds (narrowing the suspect set) or this many consecutive samples of that same
+# size all come back infeasible -- at which point it stops trying to reduce further and moves on
+# to testing the remaining suspected duties one by one.
+n_troubleshoot_infeasible_max = 10
+
 # Notification
 id_calendar = 'ht4svlr03krt7jcqho5guou32c@group.calendar.google.com'
 t_sleep = 600.0
