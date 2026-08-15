@@ -1,13 +1,15 @@
 
+import base64, traceback
+from email.mime.text import MIMEText
 import pandas as pd
 from script.helper import *
-from script.drive_io import get_services, prep_drive_paths, write_csv, SCOPE_DRIVE_FORMS
+from script.drive_io import get_services, prep_drive_paths, write_csv, SCOPE_DRIVE_FORMS_GMAIL
 
 def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_day_ect, day_em, l_week_em,
                  l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn, dict_title_duty, dict_class_duty,
-                 id_template_form, dict_itemid_form):
+                 id_template_form, dict_itemid_form, str_email_template, str_deadline = None):
 
-    services = get_services(config, SCOPE_DRIVE_FORMS)
+    services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
     dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir = 'form')
 
     # Prepare calendar and all duties of the month
@@ -64,12 +66,48 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     l_request = l_request + generate_request_delete_item(id_form_copied, services.forms, l_itemid_missing)
 
     # Update form title
-    l_request.append({"updateFormInfo": {"info": {"title": f"{year_plan}年{month_plan}月当直希望調査"},"updateMask": "title"}})
+    str_title = f"{year_plan}年{month_plan}月当直希望調査"
+    l_request.append({"updateFormInfo": {"info": {"title": str_title},"updateMask": "title"}})
 
     # Execute the update
     result = services.forms.forms().batchUpdate(formId = id_form_copied, body={"requests": l_request}).execute()
 
     # Print responding URL
-    print('Form URL:', services.forms.forms().get(formId = id_form_copied).execute().get('responderUri'))
+    str_responder_uri = services.forms.forms().get(formId = id_form_copied).execute().get('responderUri')
+    print('Form URL:', str_responder_uri)
+
+    ###############################################################################
+    # Copy forward next month's member.xlsx sheet, then draft (never send) a notification
+    # email to active doctors. Both best-effort: a failure here must not turn an
+    # otherwise-successful form creation into a reported failure.
+    ###############################################################################
+    try:
+        id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+        ensure_member_sheet(services.drive, id_config, year_plan, month_plan)
+
+        if not str_deadline:
+            print('No response deadline set -- skipping notification email draft.')
+        else:
+            d_member = read_member(services.drive, id_config, year_plan, month_plan)
+            d_member_active = d_member.loc[d_member['active'] == True, :]
+            l_email_active = [email for email in d_member_active['email'].tolist()
+                              if isinstance(email, str) and email.strip()]
+            n_missing_email = len(d_member_active) - len(l_email_active)
+            if n_missing_email > 0:
+                print('[WARNING]', n_missing_email, 'active doctor(s) have no email on file -- excluded from the draft.')
+
+            if len(l_email_active) == 0:
+                print('No active doctors with an email on file -- skipping notification email draft.')
+            else:
+                str_body = str_email_template.format(form_url = str_responder_uri, deadline = str_deadline)
+                message = MIMEText(str_body)
+                message['bcc'] = ', '.join(l_email_active)
+                message['subject'] = str_title
+                str_raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+                services.gmail.users().drafts().create(userId = 'me', body = {'message': {'raw': str_raw}}).execute()
+                print('Drafted notification email to', len(l_email_active), 'active doctor(s) (not sent).')
+    except Exception:
+        print('[WARNING] Could not complete member.xlsx sheet copy / notification email draft:')
+        print(traceback.format_exc())
 
     return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty, d_cal_duty, d_form

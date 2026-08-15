@@ -36,12 +36,18 @@ Pure Python, driven interactively from a single Jupyter notebook.
   `addbinvars`) for bulk-declaring PuLP variables from a pandas index.
 - **pandas / numpy** — all data wrangling; nearly every intermediate result is a DataFrame
   keyed by `date_duty` (row) and/or member ID (column).
-- **openpyxl** — never imported by name, but required as pandas' engine for reading
-  `config/member.xlsx` (`script/helper.py::read_member`'s `pd.read_excel(...)` call).
+- **openpyxl** — pandas' engine for reading `config/member.xlsx`
+  (`script/helper.py::read_member`'s `pd.read_excel(...)` call), and used directly (not via
+  pandas) by `script/drive_io.py::copy_excel_sheet`/`list_workbook_sheets` to duplicate a sheet
+  within that workbook without disturbing its other sheets or that sheet's own formatting.
 - **google-api-python-client / google-auth / google-auth-oauthlib** — Google Forms API (create/read the
   availability and replacement-request surveys), Google Drive API (create/manage the per-month
   folder the form lives in, **and the primary data store** — see [Data storage](#data-storage)),
-  Google Calendar API (publish/diff the final schedule).
+  Google Calendar API (publish/diff the final schedule), Google Gmail API (**draft-only**, never
+  sends — `script/form.py::prepare_form` drafts a notification email to active doctors each
+  month via the `gmail.compose` scope, which is the narrowest scope Gmail offers for draft
+  creation; the "never send" guarantee is enforced by this codebase simply never calling a
+  send/`drafts.send` endpoint, not by the scope itself).
 - **ipywidgets** — the GUI layer (`script/gui.py`): dropdowns/buttons/output panels wired to
   the pipeline functions below. Requires a live Jupyter kernel (`ipykernel`, `notebook`) to
   actually capture button clicks and stage output — building the widgets themselves works
@@ -99,7 +105,13 @@ eligibility, Google resource IDs) from `script/parameter.py`.
 **Tab "1. Create Form"** (`build_form_panel` → `script/form.py::prepare_form`): builds the
 month's calendar and duty-slot structure, then creates (from a template) a Google Form asking
 each doctor their availability, printing the form's response URL for distribution into the
-tab's output area.
+tab's output area. Also, best-effort (a failure here doesn't fail the form creation itself):
+copies forward next month's `dutyshift/config/member.xlsx` sheet from the nearest prior month
+(`script/helper.py::ensure_member_sheet` — skips gaps, never overwrites an existing sheet) as a
+starting point for that month's per-doctor parameter edits, then drafts (never sends) a
+notification email to every active doctor via Gmail, using the response deadline entered in
+this tab's date picker (auto-formatted `M/D(曜)` via `dict_jpnday`) and the template in
+`script/parameter.py::str_email_template`.
 
 **Tab "2. Collect"** (`build_collect_panel` → `script/collect.py::collect_availability`): reads
 form responses plus the member roster, builds an availability matrix, flags doctors who haven't
@@ -134,15 +146,15 @@ regenerates the summary/score outputs, using `state.d_replace_checked` from the 
 | Module | Lines | Role |
 |---|---|---|
 | `script/parameter.py` | 125 | Fixed, rarely-edited config: duty type ↔ label maps, scoring weights, per-title duty eligibility, class_duty aggregation rules, Google Form/Calendar IDs, duty clock times. |
-| `script/drive_io.py` | 436 | Google Drive-backed data I/O: OAuth credential caching/reuse (`get_credentials`, `get_services`), Drive folder resolution/creation (`resolve_folder_id`, `DriveFolderCache`, plus the moved-from-`helper.py` `check_gdrive_path`/`create_gdrive_path`/etc.), `read_csv`/`write_csv`/`read_excel`/`read_json`/`write_json`/`list_month_folders`, `month_folder_path` (single source of truth for the `dutyshift/result/<year>/<month>/` layout), and `prep_drive_paths` (the `(p_root, p_month, p_data)` → Drive-folder-id replacement for the old local-path resolver `prep_dirs`). |
-| `script/helper.py` | 881 | Shared building blocks: calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), the count-optimization MILP (`optimize_count`), result extraction/scoring (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`) — all reading/writing via `script/drive_io.py`. |
+| `script/drive_io.py` | 485 | Google Drive-backed data I/O: OAuth credential caching/reuse (`get_credentials`, `get_services`, now also building a Gmail client), Drive folder resolution/creation (`resolve_folder_id`, `DriveFolderCache`, plus the moved-from-`helper.py` `check_gdrive_path`/`create_gdrive_path`/etc.), `read_csv`/`write_csv`/`read_excel`/`read_json`/`write_json`/`list_month_folders`, `list_workbook_sheets`/`copy_excel_sheet` (openpyxl-based, for duplicating a sheet within `member.xlsx`), `month_folder_path` (single source of truth for the `dutyshift/result/<year>/<month>/` layout), and `prep_drive_paths` (the `(p_root, p_month, p_data)` → Drive-folder-id replacement for the old local-path resolver `prep_dirs`). |
+| `script/helper.py` | 923 | Shared building blocks: calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), `member_sheet_name`/`ensure_member_sheet` (copies next month's `member.xlsx` sheet forward from the nearest prior month), the count-optimization MILP (`optimize_count`), result extraction/scoring (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`) — all reading/writing via `script/drive_io.py`. |
 | `script/assign.py` | 461 | The assignment MILP (`optimize_assign`) and the orchestration function that runs both optimization stages and handles infeasibility (`optimize_count_and_assign`). |
-| `script/form.py` | 75 | `prepare_form` — builds the availability-survey Google Form for the month. |
+| `script/form.py` | 113 | `prepare_form` — builds the availability-survey Google Form for the month, ensures next month's `member.xlsx` sheet exists, and drafts a notification email to active doctors (never sent). |
 | `script/collect.py` | 188 | `collect_availability` — parses Google Form responses into an availability matrix. |
 | `script/notify.py` | 209 | Google Calendar integration: `update_calendar`, `add_duty`, `delete_duty`, `list_duty`, `compare_event`. |
 | `script/replace.py` | 191 | Shift-swap flow: `check_replacement`, `replace_assignment`, and `_check_designation_pairing` (warns, doesn't block, if a swap breaks the day/night + on-call designated-physician pairing invariant). |
 | `script/check.py` | 47 | Small sanity-check helpers: `check_availability_duty`, `check_availability_member`. No Drive I/O. |
-| `script/gui.py` | 493 | `ipywidgets` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), one `build_*_panel()` function per stage above, and `build_app()` combining them into the single panel `main.ipynb` displays (params on top, stages as `Tab`s). The Assign panel also handles solver-parameter preset save/load/auto-default (`_pack_solver_params`/`_apply_solver_params`/`_load_last_month_solver_params`). No pipeline logic of its own. |
+| `script/gui.py` | 500 | `ipywidgets` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), one `build_*_panel()` function per stage above, and `build_app()` combining them into the single panel `main.ipynb` displays (params on top, stages as `Tab`s). The Assign panel also handles solver-parameter preset save/load/auto-default (`_pack_solver_params`/`_apply_solver_params`/`_load_last_month_solver_params`). No pipeline logic of its own. |
 
 ## Data model
 
@@ -262,6 +274,9 @@ current constraints, in two phases:
 - **Google Calendar** — the final schedule is published as one event per duty per doctor
   (`id_calendar` in `parameter.py`); `update_calendar` diffs against existing events so re-runs
   only add/remove/update what changed.
+- **Gmail** — `prepare_form` creates (never sends) one draft notification email per month, Bcc'd
+  to every active doctor, via the `gmail.compose` scope (`SCOPE_DRIVE_FORMS_GMAIL` in
+  `drive_io.py`, requested only by `prepare_form` — no other stage needs Gmail access).
 - **OAuth credentials** — per-user `InstalledAppFlow`, via `script/drive_io.py::get_credentials`.
   Unlike the pre-migration code, an existing `token.json` is loaded and refreshed before falling
   back to a fresh interactive browser consent — a normal run doesn't need a browser at all once
@@ -277,7 +292,10 @@ API (`script/drive_io.py`), resolved **by name** from `root`, not by any per-mac
 is what eliminates the old `lp_root` hardcoded-machine-path-list problem outright rather than
 relocating it: a Drive folder name resolves identically from every machine/account with access.
 
-Layout: `dutyshift/config/member.xlsx` (roster); `dutyshift/result/<year>/<month, zero-padded>/`
+Layout: `dutyshift/config/member.xlsx` (roster — one sheet per month, `member_<yyyymm>`;
+`script/helper.py::ensure_member_sheet` copies the nearest prior month's sheet forward as a
+starting point whenever `prepare_form` runs and that month's sheet doesn't exist yet);
+`dutyshift/result/<year>/<month, zero-padded>/`
 (live per-month data, e.g. `dutyshift/result/2026/08/` — matching where `script/form.py` has
 always created that month's Google Form, so the data and the form live side by side; this is
 also literally where the operator's own Drive already had past months' data, so it's treated as

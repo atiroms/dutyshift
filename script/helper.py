@@ -249,8 +249,14 @@ def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_m
 ################################################################################
 # Read config/member.xlsx file
 ################################################################################
+def member_sheet_name(year, month):
+    """Single source of truth for config/member.xlsx's per-month sheet naming convention
+    (mirrors drive_io.py::month_folder_path's role for the Drive folder layout)."""
+    return 'member_' + str(year).zfill(4) + str(month).zfill(2)
+
+
 def read_member(service_drive, id_config, year_plan, month_plan):
-    name_sheet = 'member_' + str(year_plan).zfill(4) + str(month_plan).zfill(2)
+    name_sheet = member_sheet_name(year_plan, month_plan)
     d_member_src = read_excel(service_drive, id_config, 'member.xlsx', sheet_name = name_sheet)
     d_member = d_member_src.iloc[3:,:]
     d_member.columns = d_member_src.iloc[2,:].tolist()
@@ -259,6 +265,42 @@ def read_member(service_drive, id_config, year_plan, month_plan):
     d_member.loc[:, 'name_jpn_full'] = d_member.loc[:, 'name_jpn_full'].str.replace('　',' ')
 
     return d_member
+
+
+def ensure_member_sheet(service_drive, id_config, year_plan, month_plan):
+    """Best-effort: if config/member.xlsx doesn't yet have a sheet for year_plan/month_plan,
+    copy forward the nearest prior member_<yyyymm> sheet (skipping gaps, same pattern
+    script/gui.py::_load_last_month_solver_params uses for solver-parameter audit records) as a
+    starting point for that month's per-doctor parameter edits. Never overwrites an existing
+    destination sheet, never raises -- this is a convenience, not a required step. Prints a
+    one-line status regardless of outcome."""
+    name_dst = member_sheet_name(year_plan, month_plan)
+    try:
+        l_sheet = list_workbook_sheets(service_drive, id_config, 'member.xlsx')
+    except Exception:
+        print('[WARNING] Could not read config/member.xlsx to check/copy this month\'s sheet.')
+        return
+
+    if name_dst in l_sheet:
+        print('member.xlsx already has a sheet for this month (' + name_dst + ').')
+        return
+
+    dict_ym_to_sheet = {}
+    for name_sheet in l_sheet:
+        if name_sheet.startswith('member_') and len(name_sheet) == len('member_') + 6 and name_sheet[7:].isdigit():
+            dict_ym_to_sheet[name_sheet[7:]] = name_sheet
+    ym_dst = '{:04d}{:02d}'.format(year_plan, month_plan)
+    l_ym_before = sorted(ym for ym in dict_ym_to_sheet if ym < ym_dst)
+    if not l_ym_before:
+        print('[WARNING] No prior member_<yyyymm> sheet found to copy forward for ' + name_dst + '. Create it manually.')
+        return
+
+    name_src = dict_ym_to_sheet[l_ym_before[-1]]
+    result = copy_excel_sheet(service_drive, id_config, 'member.xlsx', name_src, name_dst)
+    if result == 'copied':
+        print('Copied member.xlsx sheet ' + name_src + ' -> ' + name_dst + '.')
+    else:
+        print('[WARNING] Could not copy member.xlsx sheet ' + name_src + ' -> ' + name_dst + ' (' + result + ').')
 
 
 ################################################################################

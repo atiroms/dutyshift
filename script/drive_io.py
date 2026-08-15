@@ -25,6 +25,7 @@ from pathlib import Path
 from dataclasses import dataclass
 
 import pandas as pd
+import openpyxl
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -40,6 +41,12 @@ from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 # separate.
 SCOPE_DRIVE_FORMS = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/forms.body']
 SCOPE_DRIVE_CALENDAR = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/calendar']
+# Used only by script/form.py::prepare_form, which is the only stage that drafts a notification
+# email -- principle of least privilege, no other stage needs Gmail access. gmail.compose is the
+# minimal Gmail scope that permits creating a draft; Gmail's scope model has no narrower
+# "draft-only, can never send" option, so the "never auto-send" guarantee is enforced entirely
+# at the code level (nothing in this codebase ever calls a send/drafts.send endpoint).
+SCOPE_DRIVE_FORMS_GMAIL = SCOPE_DRIVE_FORMS + ['https://www.googleapis.com/auth/gmail.compose']
 
 
 ###############################################################################
@@ -101,14 +108,18 @@ class DriveServices:
     drive: object
     forms: object
     calendar: object
+    gmail: object
 
 
 _dict_service_cache = {}
 
 def get_services(config, l_scope):
-    """Build {drive, forms, calendar} service objects from one set of credentials, memoized
-    per (scope-set, credentials path) so a pipeline stage authenticates once regardless of how
-    many I/O calls it makes."""
+    """Build {drive, forms, calendar, gmail} service objects from one set of credentials,
+    memoized per (scope-set, credentials path) so a pipeline stage authenticates once regardless
+    of how many I/O calls it makes. Building a client here doesn't require its scope to have
+    been granted -- only actually calling one of its methods does -- so all four are built
+    unconditionally regardless of which scopes l_scope actually requested, same as before gmail
+    was added."""
     key = (tuple(sorted(l_scope)), config['credentials_path'])
     if key not in _dict_service_cache:
         creds = get_credentials(config['credentials_path'], config['token_path'], l_scope)
@@ -116,6 +127,7 @@ def get_services(config, l_scope):
             drive = build('drive', 'v3', credentials = creds),
             forms = build('forms', 'v1', credentials = creds),
             calendar = build('calendar', 'v3', credentials = creds),
+            gmail = build('gmail', 'v1', credentials = creds),
         )
     return _dict_service_cache[key]
 
@@ -339,6 +351,43 @@ def read_excel(service, id_folder, filename, **kwargs):
         raise FileNotFoundError(filename + ' not found in Drive folder ' + id_folder)
     buf = _download_bytes(service, id_file)
     return pd.read_excel(buf, **kwargs)
+
+
+def list_workbook_sheets(service, id_folder, filename):
+    id_file = _find_file_id(service, id_folder, filename)
+    if id_file is None:
+        raise FileNotFoundError(filename + ' not found in Drive folder ' + id_folder)
+    buf = _download_bytes(service, id_file)
+    return openpyxl.load_workbook(buf, read_only = True).sheetnames
+
+
+def copy_excel_sheet(service, id_folder, filename, sheet_src, sheet_dst):
+    """Duplicate an existing sheet within an Excel workbook stored on Drive and rename the
+    copy, preserving every other sheet. Uses openpyxl directly (not pandas) so round-tripping
+    through Drive doesn't lose the workbook's other sheets or the copied sheet's own formatting
+    -- note openpyxl's copy_worksheet does not carry over charts/images, only cell
+    values/styles/merges, which is fine for a plain data table like config/member.xlsx.
+
+    Returns 'copied', 'exists' (sheet_dst already present -- left untouched, never overwritten,
+    since clobbering an admin's already-edited per-doctor parameters would be destructive), or
+    'missing_source' (sheet_src not found)."""
+    id_file = _find_file_id(service, id_folder, filename)
+    if id_file is None:
+        raise FileNotFoundError(filename + ' not found in Drive folder ' + id_folder)
+    buf = _download_bytes(service, id_file)
+    wb = openpyxl.load_workbook(buf)
+    if sheet_dst in wb.sheetnames:
+        return 'exists'
+    if sheet_src not in wb.sheetnames:
+        return 'missing_source'
+    ws_new = wb.copy_worksheet(wb[sheet_src])
+    ws_new.title = sheet_dst
+    buf_out = io.BytesIO()
+    wb.save(buf_out)
+    buf_out.seek(0)
+    _upload_bytes(service, id_folder, filename, buf_out,
+                  mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    return 'copied'
 
 
 def read_json(service, id_folder, filename, default = None):

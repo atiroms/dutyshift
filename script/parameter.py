@@ -54,6 +54,21 @@ dict_itemid_form = {'assoc_holiday': '3fd28d79', 'assoc_others': '03f37999',
                     'limtermclin_holiday': '02401b89', 'limtermclin_others': '0e55b20f',
                     'stud_holiday': '48b9378b', 'stud_others': '32b66da2'}
 
+# Notification email drafted (never auto-sent) by script/form.py::prepare_form once a month's
+# Google Form is created. {form_url} and {deadline} are filled in per month; everything else
+# stays fixed.
+str_email_template = '''東大精神科の日当直をご担当される先生方
+
+平素より大変お世話になっております。
+下記のフォームより、来月分の日当直の希望のご入力をお願いいたします。
+{form_url}
+
+締切は{deadline}とさせていただきます。
+よろしくお願いいたします。
+
+当直係　森田　進
+調整用プログラム：https://github.com/atiroms/dutyshift'''
+
 # Optimizing assignment count
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em, l_week_em = 2, [] # Wednesday, 1st and 3rd weeks

@@ -127,18 +127,25 @@ def build_common_params_panel(state):
 # Create Google form (replaces main.ipynb cell 1)
 ###############################################################################
 def build_form_panel(state):
+    w_deadline = widgets.DatePicker(description = 'Response deadline', style = _STYLE)
     button = widgets.Button(description = 'Create Google Form', button_style = 'primary')
     output = widgets.Output()
 
     def on_click(_):
         def run():
+            if w_deadline.value is None:
+                str_deadline = None
+            else:
+                d = w_deadline.value
+                str_deadline = str(d.month) + '/' + str(d.day) + '(' + dict_jpnday[d.weekday()] + ')'
             prepare_form(state.config, state.year_plan, state.month_plan, state.l_holiday, state.l_date_ect_cancel,
                          l_day_ect, day_em, l_week_em, l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn,
-                         dict_title_duty, dict_class_duty, id_template_form, dict_itemid_form)
+                         dict_title_duty, dict_class_duty, id_template_form, dict_itemid_form,
+                         str_email_template, str_deadline)
         _run_in_output(output, run)
     button.on_click(on_click)
 
-    return widgets.VBox([widgets.HTML('<h3>Create Google Form</h3>'), button, output])
+    return widgets.VBox([widgets.HTML('<h3>Create Google Form</h3>'), w_deadline, button, output])
 
 
 ###############################################################################

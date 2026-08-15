@@ -29,11 +29,13 @@ requirements.txt`) — pinned to the versions this codebase is developed and tes
 imported by the code:
 - `pulp`, `ortoolpy` — the MILP optimizer (PuLP modeling + CBC solver)
 - `pandas`, `numpy`, `openpyxl` — all data handling (`openpyxl` is pandas' engine for reading
-  `config/member.xlsx`)
-- `google-api-python-client`, `google-auth-oauthlib` — Google Forms/Drive/Calendar APIs. Drive
-  is also the **data store**: doctor roster, per-month CSVs, and the Google Form itself all live
-  in a `dutyshift` Drive folder, accessed directly via the API (`script/drive_io.py`) — there is
-  no local file mirror.
+  `config/member.xlsx`, and is also used directly by `script/drive_io.py` to copy a sheet
+  within that workbook without disturbing its other sheets/formatting)
+- `google-api-python-client`, `google-auth-oauthlib` — Google Forms/Drive/Calendar/Gmail APIs.
+  Drive is also the **data store**: doctor roster, per-month CSVs, and the Google Form itself
+  all live in a `dutyshift` Drive folder, accessed directly via the API (`script/drive_io.py`)
+  — there is no local file mirror. Gmail is used only to create a **draft** (never sent) monthly
+  notification email; see `script/form.py::prepare_form`.
 - `ipywidgets` — the GUI layer (`script/gui.py`); runs under classic Jupyter Notebook, which
   must be running an actual `ipykernel` for widget `Button`/`Output` capture to work — running
   cells via `nbconvert --execute` or a plain script only checks that panels *build*, not that
@@ -49,7 +51,12 @@ display(build_app(state))
 `build_app` (`script/gui.py`) combines every stage into one panel — common parameters
 (year/month dropdowns, holiday/ECT-cancel multi-selects) pinned on top, one `Tab` below per
 stage:
-1. **1. Create Form** — `script/form.py::prepare_form`, creates the availability Google Form.
+1. **1. Create Form** — `script/form.py::prepare_form`, creates the availability Google Form,
+   copies forward next month's `dutyshift/config/member.xlsx` sheet from the nearest prior month
+   (`script/helper.py::ensure_member_sheet`, never overwrites an existing sheet), and drafts
+   (never sends) a notification email to active doctors via Gmail, using the response deadline
+   entered in this tab's date picker and the template in `str_email_template`
+   (`script/parameter.py`).
 2. **2. Collect** — `script/collect.py::collect_availability`, parses form responses.
 3. **3. Assign** — `script/assign.py::optimize_count_and_assign`, runs the two-stage MILP. Its
    hyperparameters (score-deviation weights, close-duty thresholds, `type_limit`, etc.) are
