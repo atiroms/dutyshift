@@ -1,7 +1,6 @@
 
+import numpy as np
 import pandas as pd, datetime as dt
-from time import sleep
-from script.helper import *
 from script.drive_io import get_services, prep_drive_paths, read_csv, SCOPE_DRIVE_CALENDAR
 
 
@@ -23,16 +22,16 @@ def compare_event(d_assign_date_duty, d_event_exist):
     return l_date_duty_delete, l_date_duty_change, l_date_duty_add
 
 
-def update_calendar(config, year_plan, month_plan, id_calendar, dict_time_duty, t_sleep = 0.0):
+def update_calendar(config, year_plan, month_plan, id_calendar, dict_time_duty, num_retries=5):
     services = get_services(config, SCOPE_DRIVE_CALENDAR)
-    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
+    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir='', make_data_dir=False)
     d_member = read_csv(services.drive, dp.id_month, 'member.csv')
 
     # Access calendar
     service_calendar = services.calendar
 
     # Read events on G calendar
-    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, dict_time_duty)
+    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, dict_time_duty, num_retries)
 
     # Read target assignment
     d_assign_date_duty = read_csv(services.drive, dp.id_month, 'assign_date_duty.csv')
@@ -41,28 +40,22 @@ def update_calendar(config, year_plan, month_plan, id_calendar, dict_time_duty, 
     l_date_duty_delete, l_date_duty_change, l_date_duty_add = compare_event(d_assign_date_duty, d_assign_calendar)
 
     # Delete events
-    l_result_delete = delete_duty(service_calendar, id_calendar, l_date_duty_delete + l_date_duty_change, d_assign_calendar)
+    l_result_delete = delete_duty(service_calendar, id_calendar, l_date_duty_delete + l_date_duty_change, d_assign_calendar, num_retries)
 
     # Add events
     d_date_duty_add = d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_add + l_date_duty_change), :]
     d_member = read_csv(services.drive, dp.id_month, 'member.csv')
-    d_availability = read_csv(services.drive, dp.id_month, 'availability.csv', index_col = 0)
+    d_availability = read_csv(services.drive, dp.id_month, 'availability.csv', index_col=0)
     d_time_duty = pd.DataFrame(dict_time_duty)
 
-    if len(d_date_duty_add) > 10: # member-wise addition
-        l_result_add = []
-        l_member = sorted(list(set(d_date_duty_add['id_member'])))
-        for id_member in l_member:
-            print('Adding member:', str(id_member))
-            d_date_duty_member = d_date_duty_add[d_date_duty_add['id_member'] == id_member]
-            l_result_add_add = add_duty(service_calendar, id_calendar, d_date_duty_member, d_member, d_time_duty, d_availability)
-            l_result_add += l_result_add_add
-            sleep(t_sleep)
-    else: # at-once addition
-        l_result_add = add_duty(service_calendar, id_calendar, d_date_duty_add, d_member, d_time_duty, d_availability)
+    # Single pass over all additions/changes: with num_retries applying googleapiclient's own
+    # randomized-exponential-backoff to each call (see script/parameter.py::n_retry_calendar),
+    # a genuine rate-limit hit is retried in place within seconds rather than needing a
+    # preventive multi-minute pause between member-sized batches.
+    l_result_add = add_duty(service_calendar, id_calendar, d_date_duty_add, d_member, d_time_duty, d_availability, num_retries)
 
     # Assert result
-    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, dict_time_duty)
+    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, dict_time_duty, num_retries)
     l_date_duty_delete, l_date_duty_change, l_date_duty_add = compare_event(d_assign_date_duty, d_assign_calendar)
     if len(l_date_duty_delete) > 0:
         print('Duty not deleted ', l_date_duty_delete)
@@ -74,12 +67,12 @@ def update_calendar(config, year_plan, month_plan, id_calendar, dict_time_duty, 
         print('Confirmed update')
 
 
-def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availability):
+def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availability, num_retries=5):
 
     #d_member['id_member'] = d_member.index
     #d_member = d_member.reset_index()
-    d_date_duty = pd.merge(d_date_duty, d_member[['id_member','name_jpn_full','email']], on = 'id_member', how = 'left')
-    d_date_duty = pd.merge(d_date_duty, d_time_duty, on = 'duty', how = 'left')
+    d_date_duty = pd.merge(d_date_duty, d_member[['id_member','name_jpn_full','email']], on='id_member', how='left')
+    d_date_duty = pd.merge(d_date_duty, d_time_duty, on='duty', how='left')
 
     l_result = []
     for _, row in d_date_duty.iterrows():
@@ -94,11 +87,11 @@ def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availab
         email = row['email']
         str_start = row['start']
         str_end = row['end']
-        t_start = (dt.datetime(year = year, month = month, day = date) +\
-                dt.timedelta(hours = int(str_start[0:2]), minutes = int(str_start[3:5]))).isoformat()
-        t_end = (dt.datetime(year = year, month = month, day = date) +\
-                dt.timedelta(hours = int(str_end[0:2]), minutes = int(str_end[3:5]))).isoformat()
-        s_id_member_proxy = d_availability.loc[d_availability.index == date_duty,:].reset_index(drop = True).squeeze().iloc[1:]
+        t_start = (dt.datetime(year=year, month=month, day=date) +\
+                dt.timedelta(hours=int(str_start[0:2]), minutes=int(str_start[3:5]))).isoformat()
+        t_end = (dt.datetime(year=year, month=month, day=date) +\
+                dt.timedelta(hours=int(str_end[0:2]), minutes=int(str_end[3:5]))).isoformat()
+        s_id_member_proxy = d_availability.loc[d_availability.index == date_duty,:].reset_index(drop=True).squeeze().iloc[1:]
 
         l_id_member_proxy = [int(id) for id in s_id_member_proxy.loc[s_id_member_proxy > 0].index.tolist()]
         d_member_proxy = d_member.loc[d_member['id_member'].isin(l_id_member_proxy),['id_member', 'name_jpn_full', 'designation']]
@@ -136,13 +129,13 @@ def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availab
                     #'attendees': [{'email': email, 'responseStatus':'accepted'}],
                     'description': description
                     }
-        result_event = service.events().insert(calendarId = id_calendar, body = body_event).execute()
+        result_event = service.events().insert(calendarId=id_calendar, body=body_event).execute(num_retries=num_retries)
         l_result.append(result_event)
 
     return l_result
 
 
-def delete_duty(service_calendar, id_calendar, l_date_duty_delete, d_event_exist):
+def delete_duty(service_calendar, id_calendar, l_date_duty_delete, d_event_exist, num_retries=5):
     l_id_event_delete = []
     for date_duty in l_date_duty_delete:
         id_event = d_event_exist.loc[d_event_exist['date_duty'] == date_duty, 'id_event'].tolist()[0]
@@ -150,13 +143,13 @@ def delete_duty(service_calendar, id_calendar, l_date_duty_delete, d_event_exist
 
     l_result = []
     for id_event in l_id_event_delete:
-        result_delete = service_calendar.events().delete(calendarId = id_calendar, eventId = id_event).execute()
+        result_delete = service_calendar.events().delete(calendarId=id_calendar, eventId=id_event).execute(num_retries=num_retries)
         l_result.append(result_delete)
 
     return l_result
 
 
-def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_duty):
+def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_duty, num_retries=5):
     #d_member = d_member.reset_index()
 
     if month == 12:
@@ -170,13 +163,13 @@ def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_du
     time_start = str(year) + '-' + str(month).zfill(2) + '-01T00:00:00Z'
     time_end = str(year_end) + '-' + str(month_end).zfill(2) + '-01T00:00:00Z'
     l_event = service_calendar.events().list(
-        calendarId = id_calendar,
-        timeMin = time_start,
-        timeMax = time_end,
-        maxResults = 1000,
-        singleEvents = True,
-        orderBy = 'startTime'
-    ).execute()
+        calendarId=id_calendar,
+        timeMin=time_start,
+        timeMax=time_end,
+        maxResults=1000,
+        singleEvents=True,
+        orderBy='startTime'
+    ).execute(num_retries=num_retries)
     d_event = pd.DataFrame(l_event.get('items', []))
 
     # Convert result
@@ -204,6 +197,6 @@ def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_du
     if len(l_assign_calendar) > 0:
         d_assign_calendar = pd.DataFrame(l_assign_calendar)
     else:
-        d_assign_calendar = pd.DataFrame(columns = ['date_duty', 'year', 'month', 'date', 'duty', 'id_member', 'name_jpn', 'id_event'])
+        d_assign_calendar = pd.DataFrame(columns=['date_duty', 'year', 'month', 'date', 'duty', 'id_member', 'name_jpn', 'id_event'])
 
     return d_assign_calendar

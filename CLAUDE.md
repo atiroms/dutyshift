@@ -7,10 +7,11 @@ Guidance for Claude Code when working in this repository.
 `dutyshift` automates the monthly build of an on-call duty roster for hospital doctors: it
 creates a Google Form to collect doctor availability, solves a two-stage mixed-integer linear
 program (PuLP/CBC) to decide who works which shift, publishes the result to a shared Google
-Calendar, and handles post-publication shift-swap requests. It's operated as a single Jupyter
-notebook re-run once per month, not a deployed service. The notebook is a single cell that
-displays one combined `ipywidgets` panel — common parameters on top, one `Tab` per pipeline
-stage below — rather than hand-edited code across multiple cells.
+Calendar, and handles post-publication shift-swap requests. It's operated once a month via
+`python main.py`, not a deployed service; that entry point launches a Jupyter Notebook server
+against a generated single-cell notebook that displays one combined `ipywidgets` panel — common
+parameters on top, one `Tab` per pipeline stage below — rather than hand-edited code across
+multiple cells.
 
 For a full deep-dive (data model, MILP formulation, module-by-module walkthrough, known issues),
 see [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md).
@@ -43,11 +44,19 @@ imported by the code:
 
 ## How it runs
 
-There is no CLI or `main.py`. `main.ipynb` is one cell:
+`main.py` is the entry point: `python main.py`. The GUI itself (`script/gui.py::build_app`) is
+still built on `ipywidgets`, which needs a live Jupyter kernel to render and capture clicks, so
+`main.py` doesn't build/display it directly — it writes a gitignored one-cell notebook (the
+single cell `main.ipynb` used to be) to the repo root and launches the classic Jupyter Notebook
+server (`notebook`, pinned in `requirements.txt`) against it, cleaning the generated notebook up
+again once the server exits. That one cell is unchanged from the old `main.ipynb`:
 ```python
+from script.gui import *
 state = AppState()
 display(build_app(state))
 ```
+Run `python main.py --help` for its `--port`/`--no-browser` flags.
+
 `build_app` (`script/gui.py`) combines every stage into one panel — common parameters
 (year/month dropdowns, holiday/ECT-cancel multi-selects) pinned on top, one `Tab` below per
 stage:
@@ -89,8 +98,8 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
 
 | File | Role |
 |---|---|
-| `main.ipynb` | Entry point; single cell, displays `script/gui.py::build_app(state)`. |
-| `script/gui.py` | `ipywidgets` GUI layer: `AppState` (shared widgets + cross-panel state, loads `config.local.json` once), one `build_*_panel()` function per pipeline stage, and `build_app()` combining them into the single panel `main.ipynb` displays. Wires widgets to the functions below; contains no pipeline logic itself. |
+| `main.py` | Entry point; launches a Jupyter Notebook server against a generated one-cell notebook that displays `script/gui.py::build_app(state)`. |
+| `script/gui.py` | `ipywidgets` GUI layer: `AppState` (shared widgets + cross-panel state, loads `config.local.json` once), one `build_*_panel()` function per pipeline stage, and `build_app()` combining them into the single panel `main.py`'s generated notebook displays. Wires widgets to the functions below; contains no pipeline logic itself. |
 | `script/drive_io.py` | Google Drive-backed data I/O layer: OAuth credential caching/reuse (`get_credentials`/`get_services`), Drive folder resolution/creation, `read_csv`/`write_csv`/`read_excel`/`list_month_folders`, and `prep_drive_paths` (replaces the old local-path resolver `prep_dirs`). No pipeline logic. |
 | `script/parameter.py` | Fixed config: duty types, scoring weights, per-title duty eligibility, Google resource IDs. Edited rarely. |
 | `script/helper.py` | Shared building blocks: calendar prep, roster loading/parsing, the Stage-1 count-optimization MILP (`optimize_count`), result extraction/CSV export (all via `script/drive_io.py`). |

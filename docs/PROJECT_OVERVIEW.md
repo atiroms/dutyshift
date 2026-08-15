@@ -61,7 +61,7 @@ developed and tested against (Python 3.8.13).
 
 | Path | What it is |
 |---|---|
-| `main.ipynb` | The single live entry point. An `ipywidgets` panel per stage, re-run every month; no code editing needed for a normal month. |
+| `main.py` | The live entry point (`python main.py`). Launches a Jupyter Notebook server against a generated one-cell notebook showing an `ipywidgets` panel per stage, re-run every month; no code editing needed for a normal month. |
 | `requirements.txt` | Pinned dependency lockfile (`pip install -r requirements.txt`). |
 | `script/` | The Python package with all pipeline logic (see below). |
 | `test/test01.py` … `test19.py` | Ad hoc, undocumented developer scratch scripts — not an automated test suite (no pytest/unittest, no assertions framework). |
@@ -79,28 +79,28 @@ configure; nothing under it is checked into git.
 
 ## Pipeline walkthrough
 
-`main.ipynb` is a single cell: it sets up an `AppState` and `display()`s one combined panel,
-`script/gui.py::build_app(state)`, covering the whole monthly pipeline. That panel is common
-parameters pinned on top, above a `Tab` with one tab per stage — so opening the notebook and
-running its one cell is enough to see the entire workflow, rather than running 7 cells in
-order. Cell output is cleared before commit, so the notebook file itself carries no historical
-run output — only code. Every panel only wires widgets to the underlying `script/*.py` function
-below it — none of the pipeline logic lives in `script/gui.py` itself; `build_app` and each
-`build_*_panel` function can still be `display()`-ed individually (e.g. in a scratch cell) if
+`python main.py` launches a Jupyter Notebook server against a generated, gitignored one-cell
+notebook (the single cell `main.ipynb` used to hold, before it was replaced by this launcher):
+it sets up an `AppState` and `display()`s one combined panel, `script/gui.py::build_app(state)`,
+covering the whole monthly pipeline. That panel is common parameters pinned on top, above a
+`Tab` with one tab per stage — so running `main.py` is enough to see the entire workflow, rather
+than running 7 cells in order. Every panel only wires widgets to the underlying `script/*.py`
+function below it — none of the pipeline logic lives in `script/gui.py` itself; `build_app` and
+each `build_*_panel` function can still be `display()`-ed individually (e.g. in a scratch cell) if
 useful for debugging just one stage.
 
 **Common parameters** (`build_common_params_panel`, pinned above the tabs): Year/Month
 dropdowns plus Holiday/ECT-cancel multi-selects, the latter two rebuilt from
 `calendar.monthrange` whenever year or month changes. These replace what used to be a
-hand-edited `year_plan, month_plan, l_holiday = ...` tuple; a comment block preserving every
-past month's tuple (back to 2024-06) is kept in the notebook cell above the GUI code purely as a
-historical record — weekends are always holidays automatically regardless of the selection (see
+hand-edited `year_plan, month_plan, l_holiday = ...` tuple (past months' tuples, back to
+2024-06, are recoverable from git history if ever needed, e.g. `git log -p -- main.ipynb`) —
+weekends are always holidays automatically regardless of the selection (see
 [Data model](#data-model)). Populates the `AppState` (`state`) that every tab reads
 `year_plan`/`month_plan`/`l_holiday`/`l_date_ect_cancel` from at click time, plus the one value
 that genuinely flows between tabs in memory, `d_replace_checked` (see "5. Check Replace" →
-"6. Apply Replace" below). `script/gui.py` itself does `from script.parameter import *` etc.,
-loading the fixed, rarely-changing configuration (duty types, scoring weights, per-title duty
-eligibility, Google resource IDs) from `script/parameter.py`.
+"6. Apply Replace" below). `script/gui.py` itself explicitly imports the fixed, rarely-changing
+configuration (duty types, scoring weights, per-title duty eligibility, Google resource IDs) it
+needs from `script/parameter.py`.
 
 **Tab "1. Create Form"** (`build_form_panel` → `script/form.py::prepare_form`): builds the
 month's calendar and duty-slot structure, then creates (from a template) a Google Form asking
@@ -154,7 +154,7 @@ regenerates the summary/score outputs, using `state.d_replace_checked` from the 
 | `script/notify.py` | 209 | Google Calendar integration: `update_calendar`, `add_duty`, `delete_duty`, `list_duty`, `compare_event`. |
 | `script/replace.py` | 191 | Shift-swap flow: `check_replacement`, `replace_assignment`, and `_check_designation_pairing` (warns, doesn't block, if a swap breaks the day/night + on-call designated-physician pairing invariant). |
 | `script/check.py` | 47 | Small sanity-check helpers: `check_availability_duty`, `check_availability_member`. No Drive I/O. |
-| `script/gui.py` | 500 | `ipywidgets` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), one `build_*_panel()` function per stage above, and `build_app()` combining them into the single panel `main.ipynb` displays (params on top, stages as `Tab`s). The Assign panel also handles solver-parameter preset save/load/auto-default (`_pack_solver_params`/`_apply_solver_params`/`_load_last_month_solver_params`). No pipeline logic of its own. |
+| `script/gui.py` | 505 | `ipywidgets` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), one `build_*_panel()` function per stage above, and `build_app()` combining them into the single panel `main.py`'s generated notebook displays (params on top, stages as `Tab`s). The Assign panel also handles solver-parameter preset save/load/auto-default (`_pack_solver_params`/`_apply_solver_params`/`_load_last_month_solver_params`). No pipeline logic of its own. |
 
 ## Data model
 

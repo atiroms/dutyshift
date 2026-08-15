@@ -1,12 +1,11 @@
 
 import pandas as pd
 #import os
-from script.helper import *
 
 def check_availability_duty(d_member, d_availability):
     d_availability = d_availability.T
 
-    d_availability_duty = pd.DataFrame(index = d_availability.columns.tolist())
+    d_availability_duty = pd.DataFrame(index=d_availability.columns.tolist())
 
     for date_duty in d_availability.columns:
         l_member_available = d_availability.loc[d_availability[date_duty] > 0, :].index.tolist()
@@ -42,6 +41,6 @@ def check_availability_member(d_member, d_availability):
 
             l_availability_member.append([id_member, name_jpn_full, str_date_duty_available])
 
-    d_availability_member = pd.DataFrame(l_availability_member, columns = ['id_member', 'name_jpn', 'l_date_duty'])
+    d_availability_member = pd.DataFrame(l_availability_member, columns=['id_member', 'name_jpn', 'l_date_duty'])
 
     return d_availability_member

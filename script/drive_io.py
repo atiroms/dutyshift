@@ -113,7 +113,7 @@ def get_credentials(p_cred, p_token, l_scope):
 
     if not creds or not creds.valid:
         flow = InstalledAppFlow.from_client_secrets_file(p_cred, l_scope)
-        creds = flow.run_local_server(port = 0)
+        creds = flow.run_local_server(port=0)
 
     with open(p_token, 'w') as token:
         token.write(creds.to_json())
@@ -142,10 +142,10 @@ def get_services(config, l_scope):
     if key not in _dict_service_cache:
         creds = get_credentials(config['credentials_path'], config['token_path'], l_scope)
         _dict_service_cache[key] = DriveServices(
-            drive = build('drive', 'v3', credentials = creds),
-            forms = build('forms', 'v1', credentials = creds),
-            calendar = build('calendar', 'v3', credentials = creds),
-            gmail = build('gmail', 'v1', credentials = creds),
+            drive=build('drive', 'v3', credentials=creds),
+            forms=build('forms', 'v1', credentials=creds),
+            calendar=build('calendar', 'v3', credentials=creds),
+            gmail=build('gmail', 'v1', credentials=creds),
         )
     return _dict_service_cache[key]
 
@@ -164,9 +164,9 @@ def check_gdrive_folder(service, id_folder_parent, name_folder_child):
         "and trashed = false"
     )
     resp = service.files().list(
-        q = q,
-        spaces = 'drive',
-        fields = 'files(id, name)'
+        q=q,
+        spaces='drive',
+        fields='files(id, name)'
     ).execute()
     folder_old = resp.get('files', [])
     if folder_old:
@@ -193,8 +193,8 @@ def create_gdrive_folder(service, id_folder_parent, name_folder_child):
             'parents': [id_folder_parent],
         }
         folder_new = service.files().create(
-            body = folder_metadata,
-            fields = 'id,name'
+            body=folder_metadata,
+            fields='id,name'
         ).execute()
         id_folder_child = folder_new['id']
 
@@ -205,8 +205,8 @@ def check_gdrive_path(service, path):
     l_folder = path.split('/')
     l_folder = [folder for folder in l_folder if folder != '']
     root = service.files().get(
-        fileId = 'root',
-        fields = 'id'
+        fileId='root',
+        fields='id'
     ).execute()
     id_folder_parent = root.get('id')
     l_id_folder = [id_folder_parent]
@@ -229,8 +229,8 @@ def create_gdrive_path(service, path):
     l_folder = path.split('/')
     l_folder = [folder for folder in l_folder if folder != '']
     root = service.files().get(
-        fileId = 'root',
-        fields = 'id'
+        fileId='root',
+        fields='id'
     ).execute()
     id_folder_parent = root.get('id')
     l_id_folder = [id_folder_parent]
@@ -249,14 +249,14 @@ def check_form_exists(service, path_form):
     if result_folder['exist']:
         id_folder = result_folder['l_id_folder'][-1]
         resp = service.files().list(
-            q = (
+            q=(
                 f"'{id_folder}' in parents "
                 f"and name = '{name_form}' "
                 "and mimeType = 'application/vnd.google-apps.form' "
                 "and trashed = false"
             ),
-            fields = 'files(id, name)',
-            pageSize = 1
+            fields='files(id, name)',
+            pageSize=1
         ).execute()
         if len(resp.get('files', [])) > 0:
             return resp.get('files', [])[0]['id']
@@ -295,7 +295,7 @@ class DriveFolderCache:
         return self._dict_id[path]
 
 
-def resolve_folder_id(service, path, create = False, cache = None):
+def resolve_folder_id(service, path, create=False, cache=None):
     if cache is None:
         cache = DriveFolderCache()
     if create:
@@ -312,20 +312,20 @@ def resolve_folder_id(service, path, create = False, cache = None):
 ###############################################################################
 def _find_file_id(service, id_folder, filename):
     resp = service.files().list(
-        q = (
+        q=(
             f"'{id_folder}' in parents "
             f"and name = '{filename}' "
             "and trashed = false"
         ),
-        fields = 'files(id, name)',
-        pageSize = 1
+        fields='files(id, name)',
+        pageSize=1
     ).execute()
     l_file = resp.get('files', [])
     return l_file[0]['id'] if l_file else None
 
 
 def _download_bytes(service, id_file):
-    request = service.files().get_media(fileId = id_file)
+    request = service.files().get_media(fileId=id_file)
     buf = io.BytesIO()
     downloader = MediaIoBaseDownload(buf, request)
     done = False
@@ -336,15 +336,15 @@ def _download_bytes(service, id_file):
 
 
 def _upload_bytes(service, id_folder, filename, buf, mimetype):
-    media = MediaIoBaseUpload(buf, mimetype = mimetype, resumable = False)
+    media = MediaIoBaseUpload(buf, mimetype=mimetype, resumable=False)
     id_file = _find_file_id(service, id_folder, filename)
     if id_file is None:
         body = {'name': filename, 'parents': [id_folder]}
-        result = service.files().create(body = body, media_body = media, fields = 'id').execute()
+        result = service.files().create(body=body, media_body=media, fields='id').execute()
     else:
         # Upsert-by-name: overwrite the existing file's content, matching the old local
         # behavior where re-running a stage overwrote the CSVs already in p_month.
-        result = service.files().update(fileId = id_file, media_body = media, fields = 'id').execute()
+        result = service.files().update(fileId=id_file, media_body=media, fields='id').execute()
     return result['id']
 
 
@@ -360,7 +360,7 @@ def write_csv(service, id_folder, filename, df, **kwargs):
     sio = io.StringIO()
     df.to_csv(sio, **kwargs)
     buf = io.BytesIO(sio.getvalue().encode('utf-8'))
-    return _upload_bytes(service, id_folder, filename, buf, mimetype = 'text/csv')
+    return _upload_bytes(service, id_folder, filename, buf, mimetype='text/csv')
 
 
 def read_excel(service, id_folder, filename, **kwargs):
@@ -376,7 +376,7 @@ def list_workbook_sheets(service, id_folder, filename):
     if id_file is None:
         raise FileNotFoundError(filename + ' not found in Drive folder ' + id_folder)
     buf = _download_bytes(service, id_file)
-    return openpyxl.load_workbook(buf, read_only = True).sheetnames
+    return openpyxl.load_workbook(buf, read_only=True).sheetnames
 
 
 def copy_excel_sheet(service, id_folder, filename, sheet_src, sheet_dst):
@@ -404,11 +404,11 @@ def copy_excel_sheet(service, id_folder, filename, sheet_src, sheet_dst):
     wb.save(buf_out)
     buf_out.seek(0)
     _upload_bytes(service, id_folder, filename, buf_out,
-                  mimetype = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                  mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     return 'copied'
 
 
-def read_json(service, id_folder, filename, default = None):
+def read_json(service, id_folder, filename, default=None):
     """Unlike read_csv/read_excel, returns `default` instead of raising when the file doesn't
     exist -- callers (solver-preset/audit-record lookups) treat 'nothing recorded yet' as an
     expected, common state, not an error."""
@@ -420,8 +420,8 @@ def read_json(service, id_folder, filename, default = None):
 
 
 def write_json(service, id_folder, filename, obj):
-    buf = io.BytesIO(json.dumps(obj, indent = 2, ensure_ascii = False).encode('utf-8'))
-    return _upload_bytes(service, id_folder, filename, buf, mimetype = 'application/json')
+    buf = io.BytesIO(json.dumps(obj, indent=2, ensure_ascii=False).encode('utf-8'))
+    return _upload_bytes(service, id_folder, filename, buf, mimetype='application/json')
 
 
 def month_folder_path(year, month):
@@ -449,13 +449,13 @@ def list_month_folders(service, id_root):
 
     def _list_child_folders(id_parent):
         resp = service.files().list(
-            q = (
+            q=(
                 f"'{id_parent}' in parents "
                 "and mimeType = 'application/vnd.google-apps.folder' "
                 "and trashed = false"
             ),
-            fields = 'files(id, name)',
-            pageSize = 1000
+            fields='files(id, name)',
+            pageSize=1000
         ).execute()
         return resp.get('files', [])
 
@@ -487,7 +487,7 @@ class DrivePaths:
     cache: DriveFolderCache
 
 
-def prep_drive_paths(config, service_drive, year_plan, month_plan, prefix_dir, make_data_dir = True):
+def prep_drive_paths(config, service_drive, year_plan, month_plan, prefix_dir, make_data_dir=True):
     cache = DriveFolderCache()
     id_root = cache.get_or_create(service_drive, 'dutyshift')
 

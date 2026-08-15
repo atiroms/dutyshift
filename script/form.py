@@ -2,15 +2,18 @@
 import base64, traceback
 from email.mime.text import MIMEText
 import pandas as pd
-from script.helper import *
+from script.helper import (
+    prep_calendar, generate_request_update_question, generate_request_delete_item,
+    ensure_member_sheet, read_member,
+)
 from script.drive_io import get_services, prep_drive_paths, write_csv, SCOPE_DRIVE_FORMS_GMAIL
 
 def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_day_ect, day_em, l_week_em,
                  l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn, dict_title_duty, dict_class_duty,
-                 id_template_form, dict_itemid_form, str_email_template, str_deadline = None):
+                 id_template_form, dict_itemid_form, str_email_template, str_deadline=None):
 
     services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
-    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir = 'form')
+    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir='form')
 
     # Prepare calendar and all duties of the month
     d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty \
@@ -25,9 +28,9 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
         d_cal_duty = d_cal.loc[d_cal[duty] == True, ['date', 'title_date', 'wday', 'holiday_wday']].copy()
         d_cal_duty['duty'] = duty
         l_cal_duty.append(d_cal_duty)
-    d_cal_duty = pd.concat(l_cal_duty, axis = 0)
+    d_cal_duty = pd.concat(l_cal_duty, axis=0)
     d_cal_duty['duty_sort'] = d_cal_duty['duty'].map(dict_duty)
-    d_cal_duty = d_cal_duty.sort_values(by = ['date', 'duty_sort'])
+    d_cal_duty = d_cal_duty.sort_values(by=['date', 'duty_sort'])
     d_cal_duty.index = range(len(d_cal_duty))
 
     d_cal_duty['duty_jpn'] = d_cal_duty['duty'].map(dict_duty_jpn)
@@ -47,8 +50,8 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     d_form = pd.DataFrame(dict([(key, pd.Series(l_form)) for key, l_form in dict_l_form.items() ]))
     # Save data
     for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
-        write_csv(services.drive, id_folder, 'duty.csv', d_cal_duty, index = False)
-        write_csv(services.drive, id_folder, 'form.csv', d_form, index = False)
+        write_csv(services.drive, id_folder, 'duty.csv', d_cal_duty, index=False)
+        write_csv(services.drive, id_folder, 'form.csv', d_form, index=False)
 
     # Create Google form
     # The month's live Drive folder (dp.id_month, "dutyshift/result/<year>/<month>/") is where
@@ -56,7 +59,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     # inside it.
     id_folder_data = dp.id_month
     body = {'name':'form_' + str(year_plan) + str(month_plan).zfill(2), 'parents': [id_folder_data]}
-    form_copied = services.drive.files().copy(fileId = id_template_form, body = body, fields = 'id, name, parents').execute()
+    form_copied = services.drive.files().copy(fileId=id_template_form, body=body, fields='id, name, parents').execute()
 
     # Update grid question rows
     id_form_copied = form_copied['id']
@@ -70,10 +73,10 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     l_request.append({"updateFormInfo": {"info": {"title": str_title},"updateMask": "title"}})
 
     # Execute the update
-    result = services.forms.forms().batchUpdate(formId = id_form_copied, body={"requests": l_request}).execute()
+    result = services.forms.forms().batchUpdate(formId=id_form_copied, body={"requests": l_request}).execute()
 
     # Print responding URL
-    str_responder_uri = services.forms.forms().get(formId = id_form_copied).execute().get('responderUri')
+    str_responder_uri = services.forms.forms().get(formId=id_form_copied).execute().get('responderUri')
     print('Form URL:', str_responder_uri)
 
     ###############################################################################
@@ -107,12 +110,12 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
             if len(l_email_active) == 0:
                 print('No active doctors with an email on file -- skipping notification email draft.')
             else:
-                str_body = str_email_template.format(form_url = str_responder_uri, deadline = str_deadline)
+                str_body = str_email_template.format(form_url=str_responder_uri, deadline=str_deadline)
                 message = MIMEText(str_body)
                 message['bcc'] = ', '.join(l_email_active)
                 message['subject'] = str_title
                 str_raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-                services.gmail.users().drafts().create(userId = 'me', body = {'message': {'raw': str_raw}}).execute()
+                services.gmail.users().drafts().create(userId='me', body={'message': {'raw': str_raw}}).execute()
                 print('Drafted notification email to', len(l_email_active), 'active doctor(s) (not sent).')
     except Exception:
         print('[WARNING] Could not draft the notification email:')

@@ -1,8 +1,7 @@
 
 import numpy as np, pandas as pd
-from script.helper import *
+from script.helper import read_form_response, convert_assignment
 from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, SCOPE_DRIVE_FORMS
-#from script.notify import *
 
 
 def _check_designation_pairing(d_replace_checked, d_member, d_assign_date_duty):
@@ -67,7 +66,7 @@ def _check_designation_pairing(d_replace_checked, d_member, d_assign_date_duty):
 
 def check_replacement(config, year_plan, month_plan):
     services = get_services(config, SCOPE_DRIVE_FORMS)
-    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir = '', make_data_dir = False)
+    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir='', make_data_dir=False)
 
 
     ###############################################################################
@@ -85,14 +84,14 @@ def check_replacement(config, year_plan, month_plan):
     path_form = '/dutyshift/result/replacement/replacement'
     d_replace = read_form_response(services, path_form)
 
-    d_replace = d_replace.sort_values(by = 'Timestamp')
+    d_replace = d_replace.sort_values(by='Timestamp')
     d_replace = d_replace[['交代する日付','交代する業務','交代後の担当者（敬称略）']]
     d_replace = d_replace.rename(columns={'交代する日付':'ymd','交代する業務':'duty','交代後の担当者（敬称略）':'name_jpn_full'})
     d_replace['year'] = [int(ymd.split('-')[0]) for ymd in d_replace['ymd']]
     d_replace['month'] = [int(ymd.split('-')[1]) for ymd in d_replace['ymd']]
     d_replace['date'] = [int(ymd.split('-')[2]) for ymd in d_replace['ymd']]
     d_replace = d_replace[(d_replace['year'] == year_plan) & (d_replace['month'] == month_plan)]
-    d_replace = pd.merge(d_replace, d_member[['name_jpn_full','id_member','name','name_jpn']], on = 'name_jpn_full', how = 'left')
+    d_replace = pd.merge(d_replace, d_member[['name_jpn_full','id_member','name','name_jpn']], on='name_jpn_full', how='left')
     dict_replace = {'午前日直':'am', '午後日直':'pm', '休日日直':'day', '当直':'night', '日直オンコール':'ocday','当直オンコール':'ocnight','ECT当番':'ect'}
     d_replace['duty'] = [dict_replace[duty] for duty in d_replace['duty']]
 
@@ -102,7 +101,7 @@ def check_replacement(config, year_plan, month_plan):
     # d_replace_checked as result
     ###############################################################################
     # Delete duplicate data in d_replace
-    d_replace_checked = pd.DataFrame(columns = d_replace.columns)
+    d_replace_checked = pd.DataFrame(columns=d_replace.columns)
     for id, row in d_replace.iterrows():
         row_duplicate = d_replace_checked.loc[(d_replace_checked['ymd'] == row['ymd']) & (d_replace_checked['duty'] == row['duty']), :]
         if len(row_duplicate) > 0: # Overwirte if duplicate
@@ -141,9 +140,9 @@ def check_replacement(config, year_plan, month_plan):
     return d_replace_checked
 
 
-def replace_assignment(config, year_plan, month_plan, dict_score_duty, l_class_duty, d_replace_checked = None):
+def replace_assignment(config, year_plan, month_plan, dict_score_duty, l_class_duty, d_replace_checked=None):
     services = get_services(config, SCOPE_DRIVE_FORMS)
-    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir = 'rplc')
+    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir='rplc')
 
     ###############################################################################
     # Replace data
@@ -167,10 +166,10 @@ def replace_assignment(config, year_plan, month_plan, dict_score_duty, l_class_d
             else:
                 d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member', 'status']] = [row['id_member'], 'assigned']
 
-    d_availability_noskip = read_csv(services.drive, dp.id_month, 'availability.csv', index_col = 0)
+    d_availability_noskip = read_csv(services.drive, dp.id_month, 'availability.csv', index_col=0)
     d_date_duty = read_csv(services.drive, dp.id_month, 'date_duty.csv')
-    d_lim_exact = read_csv(services.drive, dp.id_month, 'lim_exact.csv', index_col = 0)
-    d_lim_hard = read_csv(services.drive, dp.id_month, 'lim_hard.csv', index_col = 0)
+    d_lim_exact = read_csv(services.drive, dp.id_month, 'lim_exact.csv', index_col=0)
+    d_lim_hard = read_csv(services.drive, dp.id_month, 'lim_hard.csv', index_col=0)
     for index in d_lim_hard.index:
         for col in d_lim_hard.columns:
             src = d_lim_hard.loc[index, col]
@@ -180,7 +179,7 @@ def replace_assignment(config, year_plan, month_plan, dict_score_duty, l_class_d
             d_lim_hard.loc[index, col] = dst
 
     for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
-        write_csv(services.drive, id_folder, 'assign_date_duty.csv', d_assign_date_duty, index = False)
+        write_csv(services.drive, id_folder, 'assign_date_duty.csv', d_assign_date_duty, index=False)
 
     d_cal = read_csv(services.drive, dp.id_month, 'calendar.csv')
 

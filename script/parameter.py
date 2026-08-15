@@ -94,7 +94,13 @@ n_troubleshoot_infeasible_max = 10
 
 # Notification
 id_calendar = 'ht4svlr03krt7jcqho5guou32c@group.calendar.google.com'
-t_sleep = 600.0
+# Passed as num_retries to each Calendar API .execute() call: googleapiclient's built-in
+# randomized-exponential-backoff retry, which already treats 403 rateLimitExceeded/
+# userRateLimitExceeded (and 429/5xx) as retriable. Replaces a previous fixed 600s sleep
+# between per-member update batches, which was the actual cause of multi-hour calendar
+# publishes -- Calendar API's real quota (600 requests/minute/user) is far above a typical
+# month's duty count, so a preventive multi-minute pause per member was never necessary.
+n_retry_calendar = 5
 
 # Score weight per class_duty, per score axis. This is the same underlying weighting as
 # dict_score_duty (per-duty weights), just projected onto class_duty groups because the
@@ -122,9 +128,9 @@ def _derive_score_class_constants(dict_score_duty, dict_class_duty, ll_score_cla
         l_class = [class_duty for s, class_duty in ll_score_class if s == score]
         l_duty = sorted(set(d_class_duty_all.loc[d_class_duty_all['class'].isin(l_class), 'duty']))
         m_incidence = np.array([[duty in set(d_class_duty_all.loc[d_class_duty_all['class'] == class_duty, 'duty'])
-                                  for class_duty in l_class] for duty in l_duty], dtype = float)
-        v_target = d_score_duty.loc[l_duty, score].to_numpy(dtype = float)
-        v_constant, _, _, _ = np.linalg.lstsq(m_incidence, v_target, rcond = None)
+                                  for class_duty in l_class] for duty in l_duty], dtype=float)
+        v_target = d_score_duty.loc[l_duty, score].to_numpy(dtype=float)
+        v_constant, _, _, _ = np.linalg.lstsq(m_incidence, v_target, rcond=None)
         v_constant = np.round(v_constant, 6)
         if not np.allclose(m_incidence @ v_constant, v_target):
             raise ValueError(

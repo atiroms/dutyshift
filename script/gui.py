@@ -1,10 +1,10 @@
 
 ###############################################################################
-# ipywidgets GUI layer for main.ipynb
+# ipywidgets GUI layer, launched via main.py
 #
-# build_app(state) is the one entry point main.ipynb needs: it combines every stage below into
-# a single panel -- common parameters pinned on top (relevant to every stage), one Tab per
-# pipeline stage underneath:
+# build_app(state) is the one entry point main.py's generated notebook needs: it combines every
+# stage below into a single panel -- common parameters pinned on top (relevant to every stage),
+# one Tab per pipeline stage underneath:
 #   common params -> [form | collect | assign | notify | replace check | replace apply]
 #
 # Each build_*_panel() function returns a widgets.VBox for one stage and can still be
@@ -23,16 +23,21 @@ import calendar, datetime, traceback
 import ipywidgets as widgets
 from IPython.display import display
 
-from script.parameter import *
+from script.parameter import (
+    dict_jpnday, dict_duty, dict_duty_jpn, dict_title_duty, dict_class_duty, dict_score_duty,
+    dict_score_class, dict_time_duty, dict_itemid_form, id_template_form, str_email_template,
+    l_day_ect, day_em, l_week_em, l_class_duty, ll_avoid_adjacent, l_title_fulltime,
+    n_troubleshoot_infeasible_max, id_calendar, n_retry_calendar, year_start, month_start,
+)
 from script.drive_io import (
     load_config, get_services, prep_drive_paths, resolve_folder_id,
     read_json, write_json, month_folder_path, list_month_folders, SCOPE_DRIVE_FORMS,
 )
-from script.form import *
-from script.collect import *
-from script.assign import *
-from script.notify import *
-from script.replace import *
+from script.form import prepare_form
+from script.collect import collect_availability
+from script.assign import optimize_count_and_assign
+from script.notify import update_calendar
+from script.replace import check_replacement, replace_assignment
 
 _STYLE = {'description_width': 'initial'}
 
@@ -78,7 +83,7 @@ def _run_in_output(output, fn):
     """Clear output, run fn() with stdout/display captured into it, print a traceback on
     failure instead of losing the error silently (a bare raise inside an ipywidgets on_click
     handler is easy to miss)."""
-    output.clear_output(wait = True)
+    output.clear_output(wait=True)
     with output:
         try:
             fn()
@@ -96,25 +101,25 @@ def _day_options(year, month):
 
 
 ###############################################################################
-# Common parameters panel (replaces main.ipynb cell 0)
+# Common parameters panel (replaces the pre-GUI notebook's cell 0)
 ###############################################################################
 def build_common_params_panel(state):
     today = datetime.date.today()
-    state.w_year = widgets.Dropdown(options = list(range(today.year - 1, today.year + 3)),
-                                    value = today.year, description = 'Year:')
-    state.w_month = widgets.Dropdown(options = list(range(1, 13)),
-                                     value = today.month, description = 'Month:')
-    state.w_holiday = widgets.SelectMultiple(options = _day_options(state.w_year.value, state.w_month.value),
-                                             value = (), description = 'Holidays:', style = _STYLE)
-    state.w_ect_cancel = widgets.SelectMultiple(options = _day_options(state.w_year.value, state.w_month.value),
-                                                value = (), description = 'ECT cancel:', style = _STYLE)
+    state.w_year = widgets.Dropdown(options=list(range(today.year - 1, today.year + 3)),
+                                    value=today.year, description='Year:')
+    state.w_month = widgets.Dropdown(options=list(range(1, 13)),
+                                     value=today.month, description='Month:')
+    state.w_holiday = widgets.SelectMultiple(options=_day_options(state.w_year.value, state.w_month.value),
+                                             value=(), description='Holidays:', style=_STYLE)
+    state.w_ect_cancel = widgets.SelectMultiple(options=_day_options(state.w_year.value, state.w_month.value),
+                                                value=(), description='ECT cancel:', style=_STYLE)
 
     def _refresh_days(*_):
         options = _day_options(state.w_year.value, state.w_month.value)
         state.w_holiday.options = options
         state.w_ect_cancel.options = options
-    state.w_year.observe(_refresh_days, names = 'value')
-    state.w_month.observe(_refresh_days, names = 'value')
+    state.w_year.observe(_refresh_days, names='value')
+    state.w_month.observe(_refresh_days, names='value')
 
     return widgets.VBox([
         widgets.HTML('<h3>Common parameters</h3>'),
@@ -124,11 +129,11 @@ def build_common_params_panel(state):
 
 
 ###############################################################################
-# Create Google form (replaces main.ipynb cell 1)
+# Create Google form (replaces the pre-GUI notebook's cell 1)
 ###############################################################################
 def build_form_panel(state):
-    w_deadline = widgets.DatePicker(description = 'Response deadline', style = _STYLE)
-    button = widgets.Button(description = 'Create Google Form', button_style = 'primary')
+    w_deadline = widgets.DatePicker(description='Response deadline', style=_STYLE)
+    button = widgets.Button(description='Create Google Form', button_style='primary')
     output = widgets.Output()
 
     def on_click(_):
@@ -149,10 +154,10 @@ def build_form_panel(state):
 
 
 ###############################################################################
-# Collect Google form response (replaces main.ipynb cell 2)
+# Collect Google form response (replaces the pre-GUI notebook's cell 2)
 ###############################################################################
 def build_collect_panel(state):
-    button = widgets.Button(description = 'Collect Availability', button_style = 'primary')
+    button = widgets.Button(description='Collect Availability', button_style='primary')
     output = widgets.Output()
 
     def on_click(_):
@@ -230,30 +235,30 @@ def _load_last_month_solver_params(state):
     be able to break build_app()."""
     try:
         services = get_services(state.config, SCOPE_DRIVE_FORMS)
-        id_root = resolve_folder_id(services.drive, 'dutyshift', create = False)
+        id_root = resolve_folder_id(services.drive, 'dutyshift', create=False)
         l_dir_before_current = sorted(d for d in list_month_folders(services.drive, id_root)
                                       if d < '{:04d}{:02d}'.format(state.year_plan, state.month_plan))
         if not l_dir_before_current:
             return None
         dir_previous = l_dir_before_current[-1]
         id_month_previous = resolve_folder_id(
-            services.drive, month_folder_path(int(dir_previous[:4]), int(dir_previous[4:6])), create = False)
-        return read_json(services.drive, id_month_previous, 'solver_params.json', default = None)
+            services.drive, month_folder_path(int(dir_previous[:4]), int(dir_previous[4:6])), create=False)
+        return read_json(services.drive, id_month_previous, 'solver_params.json', default=None)
     except Exception:
         return None
 
 
 ###############################################################################
-# Optimize assignment count and assign members (replaces main.ipynb cell 3)
+# Optimize assignment count and assign members (replaces the pre-GUI notebook's cell 3)
 ###############################################################################
 def build_assign_panel(state):
     l_score_axis = ['ampm', 'daynight', 'ampmdaynight', 'oc', 'ect']
     dict_default_current = {'ampm': 0.001, 'daynight': 0.001, 'ampmdaynight': 0.001, 'oc': 0.001, 'ect': 0.01}
     dict_default_total = {'ampm': 0.01, 'daynight': 0.01, 'ampmdaynight': 0.01, 'oc': 0.01, 'ect': 0.1}
-    dict_w_current = {axis: widgets.FloatText(value = dict_default_current[axis], description = axis,
-                                              step = 0.001, style = _STYLE) for axis in l_score_axis}
-    dict_w_total = {axis: widgets.FloatText(value = dict_default_total[axis], description = axis,
-                                            step = 0.001, style = _STYLE) for axis in l_score_axis}
+    dict_w_current = {axis: widgets.FloatText(value=dict_default_current[axis], description=axis,
+                                              step=0.001, style=_STYLE) for axis in l_score_axis}
+    dict_w_total = {axis: widgets.FloatText(value=dict_default_total[axis], description=axis,
+                                            step=0.001, style=_STYLE) for axis in l_score_axis}
 
     # Close-duty groups: l_duty membership is structural (fixed in code), only the thresholds
     # are exposed as widgets.
@@ -263,20 +268,20 @@ def build_assign_panel(state):
     dict_w_closeduty = {}
     for group, default in dict_closeduty_default.items():
         dict_w_closeduty[group] = {
-            'thr_hard': widgets.IntText(value = default['thr_hard'], description = 'thr_hard', style = _STYLE),
-            'thr_soft': widgets.IntText(value = default['thr_soft'], description = 'thr_soft', style = _STYLE),
+            'thr_hard': widgets.IntText(value=default['thr_hard'], description='thr_hard', style=_STYLE),
+            'thr_soft': widgets.IntText(value=default['thr_soft'], description='thr_soft', style=_STYLE),
         }
 
-    w_c_assign_suboptimal = widgets.FloatText(value = 0.00001, description = 'c_assign_suboptimal', style = _STYLE)
-    w_c_cnt_deviation = widgets.FloatText(value = 0.1, description = 'c_cnt_deviation', style = _STYLE)
-    w_c_closeduty = widgets.FloatText(value = 0.00001, description = 'c_closeduty', style = _STYLE)
+    w_c_assign_suboptimal = widgets.FloatText(value=0.00001, description='c_assign_suboptimal', style=_STYLE)
+    w_c_cnt_deviation = widgets.FloatText(value=0.1, description='c_cnt_deviation', style=_STYLE)
+    w_c_closeduty = widgets.FloatText(value=0.00001, description='c_closeduty', style=_STYLE)
 
-    w_type_limit = widgets.Dropdown(options = ['soft', 'hard', 'ignore'], value = 'soft',
-                                    description = 'type_limit', style = _STYLE)
-    w_fulltime = widgets.Text(value = '', description = 'fulltime date_duty',
-                              placeholder = 'e.g. 8_night, 21_night', style = _STYLE)
-    w_skip = widgets.Text(value = '', description = 'skip date_duty',
-                          placeholder = 'e.g. 23_am, 23_', style = _STYLE)
+    w_type_limit = widgets.Dropdown(options=['soft', 'hard', 'ignore'], value='soft',
+                                    description='type_limit', style=_STYLE)
+    w_fulltime = widgets.Text(value='', description='fulltime date_duty',
+                              placeholder='e.g. 8_night, 21_night', style=_STYLE)
+    w_skip = widgets.Text(value='', description='skip date_duty',
+                          placeholder='e.g. 23_am, 23_', style=_STYLE)
 
     def _closeduty_box(group):
         return widgets.VBox([widgets.HTML('<b>' + group + '</b>'),
@@ -291,7 +296,7 @@ def build_assign_panel(state):
                              w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
                              w_type_limit, w_fulltime, w_skip)
 
-    advanced = widgets.Accordion(children = [widgets.VBox([
+    advanced = widgets.Accordion(children=[widgets.VBox([
         widgets.HTML('<b>Score-deviation weight, current month (dict_c_diff_score_current)</b>'),
         widgets.HBox(list(dict_w_current.values())),
         widgets.HTML('<b>Score-deviation weight, cumulative (dict_c_diff_score_total)</b>'),
@@ -307,19 +312,19 @@ def build_assign_panel(state):
     advanced.selected_index = None  # collapsed by default
 
     # --- Solver-parameter preset / last-month-config controls ---
-    w_preset_name = widgets.Text(value = '', description = 'Preset name',
-                                 placeholder = 'e.g. strict-fairness', style = _STYLE)
-    btn_save_preset = widgets.Button(description = 'Save as Preset')
-    w_preset_select = widgets.Dropdown(options = [], description = 'Load preset', style = _STYLE)
-    btn_load_preset = widgets.Button(description = 'Load Preset')
-    btn_load_last_month = widgets.Button(description = "Load Last Month's Config")
+    w_preset_name = widgets.Text(value='', description='Preset name',
+                                 placeholder='e.g. strict-fairness', style=_STYLE)
+    btn_save_preset = widgets.Button(description='Save as Preset')
+    w_preset_select = widgets.Dropdown(options=[], description='Load preset', style=_STYLE)
+    btn_load_preset = widgets.Button(description='Load Preset')
+    btn_load_last_month = widgets.Button(description="Load Last Month's Config")
     output_preset = widgets.Output()
 
     def _refresh_preset_options():
         try:
             services = get_services(state.config, SCOPE_DRIVE_FORMS)
-            id_config = resolve_folder_id(services.drive, 'dutyshift/config', create = False)
-            dict_presets = read_json(services.drive, id_config, 'solver_presets.json', default = {})
+            id_config = resolve_folder_id(services.drive, 'dutyshift/config', create=False)
+            dict_presets = read_json(services.drive, id_config, 'solver_presets.json', default={})
             w_preset_select.options = sorted(dict_presets.keys())
         except Exception:
             pass  # leave whatever options already exist; a passive refresh must not block the panel
@@ -337,8 +342,8 @@ def build_assign_panel(state):
                 print('Enter a preset name first.')
                 return
             services = get_services(state.config, SCOPE_DRIVE_FORMS)
-            id_config = resolve_folder_id(services.drive, 'dutyshift/config', create = True)
-            dict_presets = read_json(services.drive, id_config, 'solver_presets.json', default = {})
+            id_config = resolve_folder_id(services.drive, 'dutyshift/config', create=True)
+            dict_presets = read_json(services.drive, id_config, 'solver_presets.json', default={})
             dict_presets[name] = _current_params()
             write_json(services.drive, id_config, 'solver_presets.json', dict_presets)
             _refresh_preset_options()
@@ -353,8 +358,8 @@ def build_assign_panel(state):
                 print('No preset selected.')
                 return
             services = get_services(state.config, SCOPE_DRIVE_FORMS)
-            id_config = resolve_folder_id(services.drive, 'dutyshift/config', create = False)
-            dict_presets = read_json(services.drive, id_config, 'solver_presets.json', default = {})
+            id_config = resolve_folder_id(services.drive, 'dutyshift/config', create=False)
+            dict_presets = read_json(services.drive, id_config, 'solver_presets.json', default={})
             dict_params = dict_presets.get(w_preset_select.value)
             if dict_params is None:
                 print('Preset "' + w_preset_select.value + '" not found.')
@@ -379,7 +384,7 @@ def build_assign_panel(state):
         _run_in_output(output_preset, run)
     btn_load_last_month.on_click(on_load_last_month)
 
-    button = widgets.Button(description = 'Run Optimization', button_style = 'primary')
+    button = widgets.Button(description='Run Optimization', button_style='primary')
     output = widgets.Output()
 
     def on_click(_):
@@ -405,7 +410,7 @@ def build_assign_panel(state):
                 try:
                     services = get_services(state.config, SCOPE_DRIVE_FORMS)
                     dp = prep_drive_paths(state.config, services.drive, state.year_plan, state.month_plan,
-                                          prefix_dir = 'asgn', make_data_dir = False)
+                                          prefix_dir='asgn', make_data_dir=False)
                     write_json(services.drive, dp.id_month, 'solver_params.json', _current_params())
                 except Exception:
                     print('[WARNING] Optimization succeeded but failed to record solver_params.json:')
@@ -424,15 +429,15 @@ def build_assign_panel(state):
 
 
 ###############################################################################
-# Notify Google calendar (replaces main.ipynb cell 4)
+# Notify Google calendar (replaces the pre-GUI notebook's cell 4)
 ###############################################################################
 def build_notify_panel(state):
-    button = widgets.Button(description = 'Publish to Calendar', button_style = 'primary')
+    button = widgets.Button(description='Publish to Calendar', button_style='primary')
     output = widgets.Output()
 
     def on_click(_):
         def run():
-            update_calendar(state.config, state.year_plan, state.month_plan, id_calendar, dict_time_duty, t_sleep)
+            update_calendar(state.config, state.year_plan, state.month_plan, id_calendar, dict_time_duty, n_retry_calendar)
         _run_in_output(output, run)
     button.on_click(on_click)
 
@@ -440,10 +445,10 @@ def build_notify_panel(state):
 
 
 ###############################################################################
-# Collect replacement application (replaces main.ipynb cell 5)
+# Collect replacement application (replaces the pre-GUI notebook's cell 5)
 ###############################################################################
 def build_replace_check_panel(state):
-    button = widgets.Button(description = 'Check Replacement Requests', button_style = 'primary')
+    button = widgets.Button(description='Check Replacement Requests', button_style='primary')
     output = widgets.Output()
 
     def on_click(_):
@@ -457,10 +462,10 @@ def build_replace_check_panel(state):
 
 
 ###############################################################################
-# Apply checked replacement plan (replaces main.ipynb cell 6)
+# Apply checked replacement plan (replaces the pre-GUI notebook's cell 6)
 ###############################################################################
 def build_replace_apply_panel(state):
-    button = widgets.Button(description = 'Apply Replacement', button_style = 'primary')
+    button = widgets.Button(description='Apply Replacement', button_style='primary')
     output = widgets.Output()
 
     def on_click(_):
@@ -477,7 +482,7 @@ def build_replace_apply_panel(state):
 
 
 ###############################################################################
-# Combined app: one panel, all stages -- the function main.ipynb calls
+# Combined app: one panel, all stages -- the function main.py's generated notebook calls
 ###############################################################################
 def build_app(state):
     """Single combined panel for the whole pipeline: common parameters pinned above a Tab
@@ -493,7 +498,7 @@ def build_app(state):
         ('5. Check Replace', build_replace_check_panel(state)),
         ('6. Apply Replace', build_replace_apply_panel(state)),
     ]
-    tab = widgets.Tab(children = [panel for _, panel in l_tab])
+    tab = widgets.Tab(children=[panel for _, panel in l_tab])
     for i, (title, _) in enumerate(l_tab):
         tab.set_title(i, title)
 

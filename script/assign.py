@@ -1,9 +1,12 @@
 
 import numpy as np, pandas as pd
 import random
-from pulp import *
-from ortoolpy import addbinvars
-from script.helper import *
+from pulp import LpProblem, LpStatus, lpSum, lpDot, value
+from ortoolpy import addvars, addbinvars
+from script.helper import (
+    prep_member2, optimize_count, prep_assign_previous, skip_date_duty, extract_assignment,
+    convert_assignment, extract_closeduty, print_candidate_replacement,
+)
 from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, SCOPE_DRIVE_FORMS
 
 def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_member,
@@ -20,7 +23,7 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
 
     # Binary assignment variables to be optimized
     dv_assign = pd.DataFrame(np.array(addbinvars(len(d_date_duty), len(l_member))),
-                            index = d_date_duty['date_duty'].to_list(), columns = l_member)
+                            index=d_date_duty['date_duty'].to_list(), columns=l_member)
 
 
     ###############################################################################
@@ -73,7 +76,7 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
     # Force full-time doctor assignment
     ###############################################################################
     d_fulltime = pd.DataFrame({'id_member': l_member, 'fulltime': False})
-    d_fulltime = pd.merge(d_fulltime, d_member[['id_member', 'title_short']], on = 'id_member', how = 'left')
+    d_fulltime = pd.merge(d_fulltime, d_member[['id_member', 'title_short']], on='id_member', how='left')
     d_fulltime['fulltime'] = d_fulltime['title_short'].isin(l_title_fulltime)
     l_fulltime = d_fulltime['fulltime'].tolist()
     #l_fulltime = [(title in ['limterm_instr', 'assist']) for title in l_fulltime]
@@ -87,10 +90,10 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
     ###############################################################################
     # Variable dataframe of deviation from target
     dv_deviation_target = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
-                                    index = l_member, columns = l_class_duty)
+                                    index=l_member, columns=l_class_duty)
     # Variable dataframe of deviation from limit
     dv_deviation_limit = pd.DataFrame(np.array(addvars(len(l_member), len(l_class_duty))),
-                                    index = l_member, columns = l_class_duty)
+                                    index=l_member, columns=l_class_duty)
 
     for member in l_member:
         for class_duty in l_class_duty:
@@ -194,7 +197,7 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
         l_duty = dict_closeduty[closeduty]['l_duty']
         l_date_start = [d for d in range(-thr_interval_soft + 2, 1)] + d_cal['date'].tolist()
         # Variable dataframe of count of assignments within continuous date_duty's staring from date_start, per member, per closeduty
-        dict_dv_closeduty[closeduty] = pd.DataFrame(np.array(addvars(len(l_date_start),len(l_member))), index = l_date_start, columns = l_member)
+        dict_dv_closeduty[closeduty] = pd.DataFrame(np.array(addvars(len(l_date_start),len(l_member))), index=l_date_start, columns=l_member)
         for date_start in l_date_start:
             # Create list of continuous date_duty's
             l_date_duty_cont = []
@@ -277,17 +280,17 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
                               l_title_fulltime, l_date_duty_fulltime, type_limit,
                               c_assign_suboptimal, c_cnt_deviation, c_closeduty,
                               dict_score_duty, dict_score_class, dict_class_duty,
-                              n_troubleshoot_infeasible_max = 10):
+                              n_troubleshoot_infeasible_max=10):
 
     services = get_services(config, SCOPE_DRIVE_FORMS)
-    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir = 'asgn')
+    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir='asgn')
 
     ###############################################################################
     # Optimize exact assignment count
     ###############################################################################
     print('=' * 60 + '\nAssignment count optimization\n' + '-' * 60)
 
-    s_cnt_class_duty = read_csv(services.drive, dp.id_month, 'cnt_class_duty.csv', index_col = 0).squeeze(1)
+    s_cnt_class_duty = read_csv(services.drive, dp.id_month, 'cnt_class_duty.csv', index_col=0).squeeze(1)
 
     # Prepare data of member specs and assignment limits
     d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score \
@@ -303,8 +306,8 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     d_sigma_diff_score_current_notoc, d_sigma_diff_score_total_notoc = \
         optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past,
                        d_score_class, d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total,
-                       l_type_score = ['ampm', 'daynight', 'ampmdaynight', 'ect'],
-                       l_class_duty = ['ampm', 'daynight_tot', 'night_em', 'ect'])
+                       l_type_score=['ampm', 'daynight', 'ampmdaynight', 'ect'],
+                       l_class_duty=['ampm', 'daynight_tot', 'night_em', 'ect'])
 
     # Optimize assignment counts of OC
     ln_daynight = d_lim_exact_notoc['daynight_tot'].tolist()
@@ -318,17 +321,17 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     d_sigma_diff_score_current_oc, d_sigma_diff_score_total_oc = \
         optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past,
                     d_score_class, d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total,
-                    l_type_score = ['oc'],
-                    l_class_duty = ['oc_tot'])
+                    l_type_score=['oc'],
+                    l_class_duty=['oc_tot'])
 
-    d_lim_exact = pd.concat([d_lim_exact_notoc, d_lim_exact_oc], axis = 1)
+    d_lim_exact = pd.concat([d_lim_exact_notoc, d_lim_exact_oc], axis=1)
     for col in d_lim_hard.columns:
         if not col in d_lim_exact.columns:
             d_lim_exact[col] = [x[0] for x in d_lim_hard[col].tolist()]
     d_lim_exact = d_lim_exact[d_lim_hard.columns]
 
-    d_score_current = pd.concat([d_score_current_notoc, d_score_current_oc], axis = 1)
-    d_score_total = pd.concat([d_score_total_notoc, d_score_total_oc], axis = 1)
+    d_score_current = pd.concat([d_score_current_notoc, d_score_current_oc], axis=1)
+    d_score_total = pd.concat([d_score_total_notoc, d_score_total_oc], axis=1)
 
     if status_opt_notoc & status_opt_oc:
         print('Done, losses: ' + str(round(loss_opt_notoc, 2)) + '(non-OC), ' + str(round(loss_opt_oc, 2)) + '(OC)')
@@ -337,9 +340,9 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
 
     # Save data
     for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
-        write_csv(services.drive, id_folder, 'lim_exact.csv', d_lim_exact, index = True)
-        write_csv(services.drive, id_folder, 'score_current_plan.csv', d_score_current, index = True)
-        write_csv(services.drive, id_folder, 'score_total_plan.csv', d_score_total, index = True)
+        write_csv(services.drive, id_folder, 'lim_exact.csv', d_lim_exact, index=True)
+        write_csv(services.drive, id_folder, 'score_current_plan.csv', d_score_current, index=True)
+        write_csv(services.drive, id_folder, 'score_total_plan.csv', d_score_total, index=True)
 
 
     ###############################################################################
@@ -351,13 +354,13 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     d_cal = read_csv(services.drive, dp.id_month, 'calendar.csv')
     d_assign_manual = read_csv(services.drive, dp.id_month, 'assign_manual.csv')
     d_info = read_csv(services.drive, dp.id_month, 'info.csv')
-    d_availability_noskip = read_csv(services.drive, dp.id_month, 'availability.csv', index_col = 0)
+    d_availability_noskip = read_csv(services.drive, dp.id_month, 'availability.csv', index_col=0)
     #l_member = [int(member) for member in d_availability_noskip.columns]
     #d_availability_noskip.columns = l_member
     #print([int(member) for member in d_availability_noskip.columns])
     d_availability_noskip.columns = [int(member) for member in d_availability_noskip.columns]
     d_availability_noskip = d_availability_noskip[l_member]
-    d_availability_ratio = read_csv(services.drive, dp.id_month, 'availability_ratio.csv', index_col = 0)
+    d_availability_ratio = read_csv(services.drive, dp.id_month, 'availability_ratio.csv', index_col=0)
     d_assign_previous = prep_assign_previous(dp, year_plan, month_plan)
     d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_unavailable_notoc, l_date_duty_manual_assign, l_date_duty_skip =\
         skip_date_duty(d_date_duty_noskip, d_availability_noskip, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual, True)
