@@ -78,16 +78,24 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
 
     ###############################################################################
     # Copy forward next month's member.xlsx sheet, then draft (never send) a notification
-    # email to active doctors. Both best-effort: a failure here must not turn an
-    # otherwise-successful form creation into a reported failure.
+    # email to active doctors. Both best-effort and independently guarded: a failure in either
+    # must not turn an otherwise-successful form creation into a reported failure, AND must not
+    # be misattributed to the other step -- they use different Drive/Gmail scopes and can fail
+    # for unrelated reasons (e.g. Gmail's drafts.create failing with an insufficient-scope error
+    # has nothing to do with whether the member.xlsx sheet copy above it succeeded).
     ###############################################################################
     try:
         id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
         ensure_member_sheet(services.drive, id_config, year_plan, month_plan)
+    except Exception:
+        print('[WARNING] Could not copy forward next month\'s member.xlsx sheet:')
+        print(traceback.format_exc())
 
+    try:
         if not str_deadline:
             print('No response deadline set -- skipping notification email draft.')
         else:
+            id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
             d_member = read_member(services.drive, id_config, year_plan, month_plan)
             d_member_active = d_member.loc[d_member['active'] == True, :]
             l_email_active = [email for email in d_member_active['email'].tolist()
@@ -107,7 +115,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
                 services.gmail.users().drafts().create(userId = 'me', body = {'message': {'raw': str_raw}}).execute()
                 print('Drafted notification email to', len(l_email_active), 'active doctor(s) (not sent).')
     except Exception:
-        print('[WARNING] Could not complete member.xlsx sheet copy / notification email draft:')
+        print('[WARNING] Could not draft the notification email:')
         print(traceback.format_exc())
 
     return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty, d_cal_duty, d_form

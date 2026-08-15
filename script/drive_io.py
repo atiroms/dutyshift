@@ -77,14 +77,32 @@ def load_config():
 ###############################################################################
 def get_credentials(p_cred, p_token, l_scope):
     """Load and reuse an existing token, refreshing it if expired; only fall back to the
-    interactive browser consent flow if no valid/refreshable token exists. Unlike the old
-    prep_api_creds (which unconditionally re-ran the full InstalledAppFlow every call), this
-    means a normal run doesn't need a browser at all once token.json exists."""
+    interactive browser consent flow if no valid/refreshable token exists, OR the cached token
+    was granted for a narrower scope than l_scope now needs. Unlike the old prep_api_creds
+    (which unconditionally re-ran the full InstalledAppFlow every call), this means a normal run
+    doesn't need a browser at all once token.json exists.
+
+    The narrower-scope check matters because Credentials.from_authorized_user_file(path, scopes)
+    ADOPTS whatever `scopes` you pass in as the returned object's own .scopes -- it does not
+    validate that against what's actually recorded in the file (google-auth only falls back to
+    the file's own 'scopes' field when the scopes argument is None, which we never pass). A
+    token cached before some new scope was added to l_scope would otherwise be silently reused
+    or refreshed, producing credentials that report .scopes as the newly-requested (broader) set
+    while the underlying refresh token is still only actually authorized, server-side, for the
+    old (narrower) one -- Google's refresh endpoint can't expand a refresh token's scope after
+    the fact. That surfaces later as a confusing insufficient-scope error from whichever API
+    needed the new scope, not as an obvious auth failure here -- so check the file's own
+    recorded scopes directly before trusting it."""
     creds = None
     if os.path.exists(p_token):
         try:
-            creds = Credentials.from_authorized_user_file(p_token, l_scope)
-        except (ValueError, json.JSONDecodeError):
+            with open(p_token, 'r') as f:
+                dict_token_cached = json.load(f)
+            if set(l_scope) <= set(dict_token_cached.get('scopes') or []):
+                creds = Credentials.from_authorized_user_file(p_token, l_scope)
+            # else: cached token doesn't cover everything l_scope now needs -- leave creds=None
+            # so the interactive flow below runs and grants the full scope fresh.
+        except (ValueError, OSError, json.JSONDecodeError):
             creds = None
 
     if creds and not creds.valid and creds.expired and creds.refresh_token:
