@@ -2,13 +2,8 @@
 /__pycache__/
 /script/__pycache__/
 .DS_Store
-/.ipynb_checkpoints/
 
 # Per-machine local config (OAuth credential/token file locations) -- never versioned.
 # Copy config.local.example.json to config.local.json and fill in your local paths.
 /config.local.json
 /config/
-
-# Written by main.py at launch (the notebook main.ipynb used to be) and removed again when the
-# Jupyter Notebook server it starts exits -- never versioned.
-/.main.generated.ipynb

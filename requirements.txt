@@ -16,9 +16,5 @@ google-api-python-client==2.48.0
 google-auth==2.6.6
 google-auth-oauthlib==0.5.1
 
-# GUI (script/gui.py) -- ipywidgets needs a live Jupyter kernel to actually capture button
-# clicks/output, not just be importable; see CLAUDE.md's Tech stack section.
-ipywidgets==7.7.0
-ipython==8.2.0
-ipykernel==6.13.0
-notebook==6.4.11
+# GUI (script/gui.py, main.py) -- desktop app, no notebook/kernel involved.
+PyQt5==5.15.11

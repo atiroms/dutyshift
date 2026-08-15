@@ -8,10 +8,9 @@ Guidance for Claude Code when working in this repository.
 creates a Google Form to collect doctor availability, solves a two-stage mixed-integer linear
 program (PuLP/CBC) to decide who works which shift, publishes the result to a shared Google
 Calendar, and handles post-publication shift-swap requests. It's operated once a month via
-`python main.py`, not a deployed service; that entry point launches a Jupyter Notebook server
-against a generated single-cell notebook that displays one combined `ipywidgets` panel — common
-parameters on top, one `Tab` per pipeline stage below — rather than hand-edited code across
-multiple cells.
+`python main.py`, not a deployed service; that entry point opens a `PyQt5` desktop window with
+one combined panel — common parameters on top, one `Tab` per pipeline stage below — rather than
+hand-edited code across multiple cells.
 
 For a full deep-dive (data model, MILP formulation, module-by-module walkthrough, known issues),
 see [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md).
@@ -24,10 +23,9 @@ directories unless the user explicitly asks about archived history.
 
 ## Tech stack
 
-Pure Python + Jupyter. Dependencies are pinned in `requirements.txt` (`pip install -r
-requirements.txt`) — pinned to the versions this codebase is developed and tested against
-(Python 3.8.13); re-pin deliberately, don't let installs silently drift. Core libraries actually
-imported by the code:
+Pure Python. Dependencies are pinned in `requirements.txt` (`pip install -r requirements.txt`)
+— pinned to the versions this codebase is developed and tested against (Python 3.8.13); re-pin
+deliberately, don't let installs silently drift. Core libraries actually imported by the code:
 - `pulp`, `ortoolpy` — the MILP optimizer (PuLP modeling + CBC solver)
 - `pandas`, `numpy`, `openpyxl` — all data handling (`openpyxl` is pandas' engine for reading
   `config/member.xlsx`, and is also used directly by `script/drive_io.py` to copy a sheet
@@ -37,27 +35,19 @@ imported by the code:
   all live in a `dutyshift` Drive folder, accessed directly via the API (`script/drive_io.py`)
   — there is no local file mirror. Gmail is used only to create a **draft** (never sent) monthly
   notification email; see `script/form.py::prepare_form`.
-- `ipywidgets` — the GUI layer (`script/gui.py`); runs under classic Jupyter Notebook, which
-  must be running an actual `ipykernel` for widget `Button`/`Output` capture to work — running
-  cells via `nbconvert --execute` or a plain script only checks that panels *build*, not that
-  clicks/output-capture work end to end.
+- `PyQt5` — the GUI layer (`script/gui.py`), a plain desktop app with no notebook/kernel
+  involved. Every pipeline call (Google API round-trips, the MILP solve) can take a while, so
+  each button click runs its work on a background `QThread` (`_Worker`/`_run_async` in
+  `script/gui.py`) instead of the GUI thread; anything a worker needs from a widget is captured
+  into a plain value *before* dispatch, and anything its result needs to write back to a widget
+  happens in an `on_success` callback marshaled back onto the GUI thread — Qt widgets may only
+  be touched from the thread that owns them.
 
 ## How it runs
 
-`main.py` is the entry point: `python main.py`. The GUI itself (`script/gui.py::build_app`) is
-still built on `ipywidgets`, which needs a live Jupyter kernel to render and capture clicks, so
-`main.py` doesn't build/display it directly — it writes a gitignored one-cell notebook (the
-single cell `main.ipynb` used to be) to the repo root and launches the classic Jupyter Notebook
-server (`notebook`, pinned in `requirements.txt`) against it, cleaning the generated notebook up
-again once the server exits. That one cell is unchanged from the old `main.ipynb`:
-```python
-from script.gui import *
-state = AppState()
-display(build_app(state))
-```
-Run `python main.py --help` for its `--port`/`--no-browser` flags.
+`main.py` is the entry point: `python main.py` opens the `PyQt5` window directly (`script/gui.py::AppState` + `build_app(state)`), no notebook/kernel involved.
 
-`build_app` (`script/gui.py`) combines every stage into one panel — common parameters
+`build_app` (`script/gui.py`) combines every stage into one window — common parameters
 (year/month dropdowns, holiday/ECT-cancel multi-selects) pinned on top, one `Tab` below per
 stage:
 1. **1. Create Form** — `script/form.py::prepare_form`, creates the availability Google Form,
@@ -69,7 +59,8 @@ stage:
 2. **2. Collect** — `script/collect.py::collect_availability`, parses form responses.
 3. **3. Assign** — `script/assign.py::optimize_count_and_assign`, runs the two-stage MILP. Its
    hyperparameters (score-deviation weights, close-duty thresholds, `type_limit`, etc.) are
-   editable widgets in a collapsed "Advanced solver parameters" accordion. They persist via
+   editable widgets in a collapsed "Advanced solver parameters" section (`_CollapsibleBox`).
+   They persist via
    `drive_io.read_json`/`write_json`: named presets in `dutyshift/config/solver_presets.json`,
    and an automatic per-month audit record (`dutyshift/result/<year>/<month>/solver_params.json`)
    written on every successful run. The panel seeds its defaults from the nearest prior month's
@@ -81,9 +72,9 @@ stage:
    the apply-replacement tab.
 
 Each tab only wires widgets to these unchanged `script/*.py` functions — the pipeline logic
-itself did not change. Every `build_*_panel(state)` function (and `build_app` itself) can still
-be called/`display()`-ed directly from a plain script/notebook cell, exactly like the pre-GUI
-code, if needed for debugging just one stage.
+itself did not change. Every `build_*_panel(state)` function returns a plain `QWidget` and can
+still be embedded/shown on its own (e.g. from a scratch script) if needed for debugging just one
+stage.
 
 All runtime data (`config/member.xlsx` doctor roster, per-month generated CSVs) lives in a
 `dutyshift` folder on **Google Drive**, read/written directly via the Drive API
@@ -98,8 +89,8 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
 
 | File | Role |
 |---|---|
-| `main.py` | Entry point; launches a Jupyter Notebook server against a generated one-cell notebook that displays `script/gui.py::build_app(state)`. |
-| `script/gui.py` | `ipywidgets` GUI layer: `AppState` (shared widgets + cross-panel state, loads `config.local.json` once), one `build_*_panel()` function per pipeline stage, and `build_app()` combining them into the single panel `main.py`'s generated notebook displays. Wires widgets to the functions below; contains no pipeline logic itself. |
+| `main.py` | Entry point; opens the `PyQt5` window (`script/gui.py::AppState` + `build_app(state)`). |
+| `script/gui.py` | `PyQt5` GUI layer: `AppState` (shared widgets + cross-panel state, loads `config.local.json` once), one `build_*_panel()` function per pipeline stage, `build_app()` combining them into the single window `main.py` shows, and the `_Worker`/`_run_async` background-thread machinery every button click runs through. Wires widgets to the functions below; contains no pipeline logic itself. |
 | `script/drive_io.py` | Google Drive-backed data I/O layer: OAuth credential caching/reuse (`get_credentials`/`get_services`), Drive folder resolution/creation, `read_csv`/`write_csv`/`read_excel`/`list_month_folders`, and `prep_drive_paths` (replaces the old local-path resolver `prep_dirs`). No pipeline logic. |
 | `script/parameter.py` | Fixed config: duty types, scoring weights, per-title duty eligibility, Google resource IDs. Edited rarely. |
 | `script/helper.py` | Shared building blocks: calendar prep, roster loading/parsing, the Stage-1 count-optimization MILP (`optimize_count`), result extraction/CSV export (all via `script/drive_io.py`). |
@@ -142,5 +133,5 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
 
 `test/` contains 19 undocumented, ad hoc developer scripts (`test01.py`…`test19.py`) — not an
 automated test suite. There is no pytest/unittest setup and no test command to run. Treat
-changes to the optimizer as needing manual verification (re-run the relevant notebook cell
-against real or sample data) rather than assuming test coverage exists.
+changes to the optimizer as needing manual verification (re-run the relevant GUI panel against
+real or sample data) rather than assuming test coverage exists.

@@ -23,12 +23,12 @@ University of Tokyo Hospital). Each month it:
    Form.
 
 It is a personal automation tool (the author is also the operator), not a packaged/deployed
-application — there's no server or database. The UI is Jupyter (via `ipywidgets` panels, one
-per stage) plus Google's own UIs (Forms, Calendar).
+application — there's no server or database. The UI is a `PyQt5` desktop window (one panel per
+stage) plus Google's own UIs (Forms, Calendar).
 
 ## Tech stack
 
-Pure Python, driven interactively from a single Jupyter notebook.
+Pure Python, driven interactively from a `PyQt5` desktop app.
 
 - **[PuLP](https://github.com/coin-or/pulp)** — MILP modeling library, solved with the bundled
   CBC solver. This is the optimization engine.
@@ -48,10 +48,13 @@ Pure Python, driven interactively from a single Jupyter notebook.
   month via the `gmail.compose` scope, which is the narrowest scope Gmail offers for draft
   creation; the "never send" guarantee is enforced by this codebase simply never calling a
   send/`drafts.send` endpoint, not by the scope itself).
-- **ipywidgets** — the GUI layer (`script/gui.py`): dropdowns/buttons/output panels wired to
-  the pipeline functions below. Requires a live Jupyter kernel (`ipykernel`, `notebook`) to
-  actually capture button clicks and stage output — building the widgets themselves works
-  anywhere ipywidgets is importable, but the interactive parts don't.
+- **PyQt5** — the GUI layer (`script/gui.py`): dropdowns/buttons/output panels wired to the
+  pipeline functions below, a plain desktop app with no notebook/kernel involved. Every pipeline
+  call (Google API round-trips, the MILP solve) can take a while, so each button click runs its
+  work on a background `QThread` (`_Worker`/`_run_async`) instead of the GUI thread — Qt widgets
+  may only be touched from the thread that owns them, so anything a worker needs from a widget
+  is captured into a plain value before dispatch, and anything its result needs to write back to
+  a widget happens in an `on_success` callback marshaled back onto the GUI thread.
 - Standard library: `os`, `datetime`, `calendar`, `math.ceil`, `random`, `time.sleep`, `traceback`.
 
 Pinned in `requirements.txt` (`pip install -r requirements.txt`) — versions this codebase is
@@ -61,7 +64,7 @@ developed and tested against (Python 3.8.13).
 
 | Path | What it is |
 |---|---|
-| `main.py` | The live entry point (`python main.py`). Launches a Jupyter Notebook server against a generated one-cell notebook showing an `ipywidgets` panel per stage, re-run every month; no code editing needed for a normal month. |
+| `main.py` | The live entry point (`python main.py`). Opens a `PyQt5` window with one panel per stage, re-run every month; no code editing needed for a normal month. |
 | `requirements.txt` | Pinned dependency lockfile (`pip install -r requirements.txt`). |
 | `script/` | The Python package with all pipeline logic (see below). |
 | `test/test01.py` … `test19.py` | Ad hoc, undocumented developer scratch scripts — not an automated test suite (no pytest/unittest, no assertions framework). |
@@ -79,15 +82,14 @@ configure; nothing under it is checked into git.
 
 ## Pipeline walkthrough
 
-`python main.py` launches a Jupyter Notebook server against a generated, gitignored one-cell
-notebook (the single cell `main.ipynb` used to hold, before it was replaced by this launcher):
-it sets up an `AppState` and `display()`s one combined panel, `script/gui.py::build_app(state)`,
-covering the whole monthly pipeline. That panel is common parameters pinned on top, above a
-`Tab` with one tab per stage — so running `main.py` is enough to see the entire workflow, rather
-than running 7 cells in order. Every panel only wires widgets to the underlying `script/*.py`
-function below it — none of the pipeline logic lives in `script/gui.py` itself; `build_app` and
-each `build_*_panel` function can still be `display()`-ed individually (e.g. in a scratch cell) if
-useful for debugging just one stage.
+`python main.py` opens a `PyQt5` window directly (`script/gui.py::AppState` + `build_app(state)`,
+no notebook/kernel involved), covering the whole monthly pipeline. That window is common
+parameters pinned on top, above a `Tab` with one tab per stage — so running `main.py` is enough
+to see the entire workflow, rather than running 7 cells in order. Every panel only wires widgets
+to the underlying `script/*.py` function below it — none of the pipeline logic lives in
+`script/gui.py` itself; `build_app` and each `build_*_panel` function return a plain `QWidget`
+and can still be embedded/shown individually (e.g. from a scratch script) if useful for
+debugging just one stage.
 
 **Common parameters** (`build_common_params_panel`, pinned above the tabs): Year/Month
 dropdowns plus Holiday/ECT-cancel multi-selects, the latter two rebuilt from
@@ -145,16 +147,16 @@ regenerates the summary/score outputs, using `state.d_replace_checked` from the 
 
 | Module | Lines | Role |
 |---|---|---|
-| `script/parameter.py` | 125 | Fixed, rarely-edited config: duty type ↔ label maps, scoring weights, per-title duty eligibility, class_duty aggregation rules, Google Form/Calendar IDs, duty clock times. |
-| `script/drive_io.py` | 485 | Google Drive-backed data I/O: OAuth credential caching/reuse (`get_credentials`, `get_services`, now also building a Gmail client), Drive folder resolution/creation (`resolve_folder_id`, `DriveFolderCache`, plus the moved-from-`helper.py` `check_gdrive_path`/`create_gdrive_path`/etc.), `read_csv`/`write_csv`/`read_excel`/`read_json`/`write_json`/`list_month_folders`, `list_workbook_sheets`/`copy_excel_sheet` (openpyxl-based, for duplicating a sheet within `member.xlsx`), `month_folder_path` (single source of truth for the `dutyshift/result/<year>/<month>/` layout), and `prep_drive_paths` (the `(p_root, p_month, p_data)` → Drive-folder-id replacement for the old local-path resolver `prep_dirs`). |
-| `script/helper.py` | 923 | Shared building blocks: calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), `member_sheet_name`/`ensure_member_sheet` (copies next month's `member.xlsx` sheet forward from the nearest prior month), the count-optimization MILP (`optimize_count`), result extraction/scoring (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`) — all reading/writing via `script/drive_io.py`. |
-| `script/assign.py` | 461 | The assignment MILP (`optimize_assign`) and the orchestration function that runs both optimization stages and handles infeasibility (`optimize_count_and_assign`). |
-| `script/form.py` | 113 | `prepare_form` — builds the availability-survey Google Form for the month, ensures next month's `member.xlsx` sheet exists, and drafts a notification email to active doctors (never sent). |
+| `script/parameter.py` | 154 | Fixed, rarely-edited config: duty type ↔ label maps, scoring weights, per-title duty eligibility, class_duty aggregation rules, Google Form/Calendar IDs, duty clock times. |
+| `script/drive_io.py` | 503 | Google Drive-backed data I/O: OAuth credential caching/reuse (`get_credentials`, `get_services`, now also building a Gmail client), Drive folder resolution/creation (`resolve_folder_id`, `DriveFolderCache`, plus the moved-from-`helper.py` `check_gdrive_path`/`create_gdrive_path`/etc.), `read_csv`/`write_csv`/`read_excel`/`read_json`/`write_json`/`list_month_folders`, `list_workbook_sheets`/`copy_excel_sheet` (openpyxl-based, for duplicating a sheet within `member.xlsx`), `month_folder_path` (single source of truth for the `dutyshift/result/<year>/<month>/` layout), and `prep_drive_paths` (the `(p_root, p_month, p_data)` → Drive-folder-id replacement for the old local-path resolver `prep_dirs`). |
+| `script/helper.py` | 926 | Shared building blocks: calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), `member_sheet_name`/`ensure_member_sheet` (copies next month's `member.xlsx` sheet forward from the nearest prior month), the count-optimization MILP (`optimize_count`), result extraction/scoring (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`) — all reading/writing via `script/drive_io.py`. |
+| `script/assign.py` | 486 | The assignment MILP (`optimize_assign`) and the orchestration function that runs both optimization stages and handles infeasibility (`optimize_count_and_assign`). |
+| `script/form.py` | 124 | `prepare_form` — builds the availability-survey Google Form for the month, ensures next month's `member.xlsx` sheet exists, and drafts a notification email to active doctors (never sent). |
 | `script/collect.py` | 188 | `collect_availability` — parses Google Form responses into an availability matrix. |
-| `script/notify.py` | 209 | Google Calendar integration: `update_calendar`, `add_duty`, `delete_duty`, `list_duty`, `compare_event`. |
-| `script/replace.py` | 191 | Shift-swap flow: `check_replacement`, `replace_assignment`, and `_check_designation_pairing` (warns, doesn't block, if a swap breaks the day/night + on-call designated-physician pairing invariant). |
-| `script/check.py` | 47 | Small sanity-check helpers: `check_availability_duty`, `check_availability_member`. No Drive I/O. |
-| `script/gui.py` | 505 | `ipywidgets` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), one `build_*_panel()` function per stage above, and `build_app()` combining them into the single panel `main.py`'s generated notebook displays (params on top, stages as `Tab`s). The Assign panel also handles solver-parameter preset save/load/auto-default (`_pack_solver_params`/`_apply_solver_params`/`_load_last_month_solver_params`). No pipeline logic of its own. |
+| `script/notify.py` | 202 | Google Calendar integration: `update_calendar`, `add_duty`, `delete_duty`, `list_duty`, `compare_event`. |
+| `script/replace.py` | 190 | Shift-swap flow: `check_replacement`, `replace_assignment`, and `_check_designation_pairing` (warns, doesn't block, if a swap breaks the day/night + on-call designated-physician pairing invariant). |
+| `script/check.py` | 46 | Small sanity-check helpers: `check_availability_duty`, `check_availability_member`. No Drive I/O. |
+| `script/gui.py` | 798 | `PyQt5` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), the `_Worker`/`_run_async` background-`QThread` machinery every button click runs through, one `build_*_panel()` function per stage above, and `build_app()` combining them into the single window `main.py` shows (params on top, stages as `Tab`s). The Assign panel also handles solver-parameter preset save/load/auto-default (`_pack_solver_params`/`_apply_solver_params`/`_load_last_month_solver_params`). No pipeline logic of its own. |
 
 ## Data model
 
@@ -326,12 +328,12 @@ this loaded config as its first argument, replacing the old `lp_root` parameter.
 
 ## Operational cadence
 
-The notebook is re-run once per month. Historically, git history was dominated by small commits
-— often literally titled `param` — that appended one new `(year_plan, month_plan, l_holiday)`
-tuple to the growing commented-out history block in `main.ipynb` cell 0; since year/month/
-holidays are now set via the GUI's dropdowns rather than editing that tuple, a normal month no
-longer requires a code commit at all. Prior to the current consolidated design, each irregular
-scheduling period (New Year, Golden Week, summer/winter vacation weeks) had its own
+`main.py` is re-run once per month. Historically, git history was dominated by small commits —
+often literally titled `param` — that appended one new `(year_plan, month_plan, l_holiday)`
+tuple to a growing commented-out history block in what was then `main.ipynb`'s cell 0; since
+year/month/holidays are now set via the GUI's dropdowns rather than editing that tuple, a normal
+month no longer requires a code commit at all. Prior to the current consolidated design, each
+irregular scheduling period (New Year, Golden Week, summer/winter vacation weeks) had its own
 self-contained notebook; these are now archived under `arch/` once their period has passed, and
 are out of scope for this document.
 
@@ -351,8 +353,9 @@ a judgment of the project.
   resolve.
 - **~~Monthly params accumulate as dead code~~ (resolved).** Year/month/holidays are now set via
   dropdowns/multi-selects (`script/gui.py::build_common_params_panel`) instead of editing a
-  Python tuple each month; the old commented-out per-month history block is kept in cell 0
-  purely as an inert historical record, not something that grows via further hand-edits.
+  Python tuple each month; the old commented-out per-month history block no longer exists in the
+  live app at all (past months' tuples, back to 2024-06, are recoverable from git history if
+  ever needed, e.g. `git log -p -- main.ipynb`) — nothing grows via further hand-edits.
 - **~~Ad hoc solver-tuning presets~~ (resolved).** The "3. Assign" tab's solver hyperparameters
   (`dict_c_diff_score_current`/`_total`, `dict_closeduty` thresholds, objective weights,
   `type_limit`, fulltime/skip overrides) are editable widgets that now persist through
@@ -366,10 +369,10 @@ a judgment of the project.
     recorded `solver_params.json` on build (falling back to the original hardcoded defaults if
     none exists), rather than always resetting to hardcoded values; a "Load Last Month's Config"
     button re-triggers the same lookup on demand. This auto-load is the *first* Drive API call
-    `build_app()` makes (previously, opening the notebook was instant/offline until the first
+    `build_app()` makes (previously, opening the window was instant/offline until the first
     button click) — it's wrapped in a broad `try/except` and fails silently to the hardcoded
-    defaults, so a missing-credentials or network problem at notebook-open time can't prevent
-    the panel from rendering.
+    defaults, so a missing-credentials or network problem at window-open time can't prevent the
+    panel from rendering.
 - **~~Stale duplicate function~~ (resolved).** `script/assign.py` no longer contains
   `optimize_count_and_assign_old` — it was an unused, ~370-line near-copy of
   `optimize_count_and_assign`, left uncallable (referencing the removed `prep_dirs`) after the
@@ -399,12 +402,10 @@ a judgment of the project.
   has no automated coverage.
 - **~~No dependency lockfile~~ (resolved).** `requirements.txt` now pins every direct dependency
   (`pulp`, `ortoolpy`, `pandas`, `numpy`, `openpyxl`, `google-api-python-client`, `google-auth`,
-  `google-auth-oauthlib`, `ipywidgets`, `ipython`, `ipykernel`, `notebook`) to the exact versions
-  this codebase is developed and tested against — including `openpyxl`, which is never imported
-  by name but is pandas' engine for reading `config/member.xlsx`, and the Jupyter runtime pieces
-  (`ipykernel`/`notebook`) needed to actually *run* `script/gui.py`'s widgets interactively, not
-  just import them. Re-pin deliberately (e.g. after verifying a version bump still works), don't
-  let installs silently drift.
+  `google-auth-oauthlib`, `PyQt5`) to the exact versions this codebase is developed and tested
+  against — including `openpyxl`, which is never imported by name but is pandas' engine for
+  reading `config/member.xlsx`. Re-pin deliberately (e.g. after verifying a version bump still
+  works), don't let installs silently drift.
 - **Duplicated logic between the main pipeline and archived seasonal notebooks.** The
   now-archived per-season notebooks (summer/winter vacation assignment, etc.) reimplement their
   own inline PuLP model and their own result-extraction/CSV-saving/printing boilerplate rather
