@@ -27,14 +27,15 @@ Pure Python. Dependencies are pinned in `requirements.txt` (`pip install -r requ
 — pinned to the versions this codebase is developed and tested against (Python 3.8.13); re-pin
 deliberately, don't let installs silently drift. Core libraries actually imported by the code:
 - `pulp`, `ortoolpy` — the MILP optimizer (PuLP modeling + CBC solver)
-- `pandas`, `numpy`, `openpyxl` — all data handling (`openpyxl` is pandas' engine for reading
-  `config/member.xlsx`, and is also used directly by `script/drive_io.py` to copy a sheet
-  within that workbook without disturbing its other sheets/formatting)
-- `google-api-python-client`, `google-auth-oauthlib` — Google Forms/Drive/Calendar/Gmail APIs.
-  Drive is also the **data store**: doctor roster, per-month CSVs, and the Google Form itself
-  all live in a `dutyshift` Drive folder, accessed directly via the API (`script/drive_io.py`)
-  — there is no local file mirror. Gmail is used only to create a **draft** (never sent) monthly
-  notification email; see `script/form.py::prepare_form`.
+- `pandas`, `numpy` — all data handling
+- `google-api-python-client`, `google-auth-oauthlib` — Google Forms/Drive/Calendar/Sheets/Gmail
+  APIs. Drive is also the **data store**: doctor roster, per-month CSVs, and the Google Form
+  itself all live in a `dutyshift` Drive folder, accessed directly via the API
+  (`script/drive_io.py`) — there is no local file mirror. Sheets is used to read the doctor
+  roster `config/member` (a native Google Sheet with one tab per month) and to duplicate a tab
+  within it without disturbing its other tabs/formatting (`script/drive_io.py::read_gsheet`/
+  `copy_gsheet_tab`). Gmail is used only to create a **draft** (never sent) monthly notification
+  email; see `script/form.py::prepare_form`.
 - `PyQt5` — the GUI layer (`script/gui.py`), a plain desktop app with no notebook/kernel
   involved. Every pipeline call (Google API round-trips, the MILP solve) can take a while, so
   each button click runs its work on a background `QThread` (`_Worker`/`_run_async` in
@@ -51,8 +52,8 @@ deliberately, don't let installs silently drift. Core libraries actually importe
 (year/month dropdowns, holiday/ECT-cancel multi-selects) pinned on top, one `Tab` below per
 stage:
 1. **1. Create Form** — `script/form.py::prepare_form`, creates the availability Google Form,
-   copies forward next month's `dutyshift/config/member.xlsx` sheet from the nearest prior month
-   (`script/helper.py::ensure_member_sheet`, never overwrites an existing sheet), and drafts
+   copies forward next month's `dutyshift/config/member` tab from the nearest prior month
+   (`script/helper.py::ensure_member_sheet`, never overwrites an existing tab), and drafts
    (never sends) a notification email to active doctors via Gmail, using the response deadline
    entered in this tab's date picker and the template in `str_email_template`
    (`script/parameter.py`).
@@ -76,7 +77,7 @@ itself did not change. Every `build_*_panel(state)` function returns a plain `QW
 still be embedded/shown on its own (e.g. from a scratch script) if needed for debugging just one
 stage.
 
-All runtime data (`config/member.xlsx` doctor roster, per-month generated CSVs) lives in a
+All runtime data (`config/member` doctor roster, per-month generated CSVs) lives in a
 `dutyshift` folder on **Google Drive**, read/written directly via the Drive API
 (`script/drive_io.py`) — no local file mirror, no per-machine path guessing. The only thing
 still local per machine is `config.local.json` (gitignored; copy
@@ -91,7 +92,7 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
 |---|---|
 | `main.py` | Entry point; opens the `PyQt5` window (`script/gui.py::AppState` + `build_app(state)`). |
 | `script/gui.py` | `PyQt5` GUI layer: `AppState` (shared widgets + cross-panel state, loads `config.local.json` once), one `build_*_panel()` function per pipeline stage, `build_app()` combining them into the single window `main.py` shows, and the `_Worker`/`_run_async` background-thread machinery every button click runs through. Wires widgets to the functions below; contains no pipeline logic itself. |
-| `script/drive_io.py` | Google Drive-backed data I/O layer: OAuth credential caching/reuse (`get_credentials`/`get_services`), Drive folder resolution/creation, `read_csv`/`write_csv`/`read_excel`/`list_month_folders`, and `prep_drive_paths` (replaces the old local-path resolver `prep_dirs`). No pipeline logic. |
+| `script/drive_io.py` | Google Drive-backed data I/O layer: OAuth credential caching/reuse (`get_credentials`/`get_services`), Drive folder resolution/creation, `read_csv`/`write_csv`/`read_gsheet`/`list_month_folders`, and `prep_drive_paths` (replaces the old local-path resolver `prep_dirs`). No pipeline logic. |
 | `script/parameter.py` | Fixed config: duty types, scoring weights, per-title duty eligibility, Google resource IDs. Edited rarely. |
 | `script/helper.py` | Shared building blocks: calendar prep, roster loading/parsing, the Stage-1 count-optimization MILP (`optimize_count`), result extraction/CSV export (all via `script/drive_io.py`). |
 | `script/assign.py` | The Stage-2 assignment MILP (`optimize_assign`) and orchestration (`optimize_count_and_assign`), including infeasibility recovery. |
@@ -109,12 +110,13 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
 - **`class_duty`** is an aggregation layer above raw duty types (`am`, `pm`, `day`, `night`,
   `emnight`, `ocday`, `ocnight`, `ect`), used for per-doctor count limits — defined in
   `dict_class_duty` in `script/parameter.py`.
-- Per-doctor limits in `config/member.xlsx` are encoded as strings parsed by `split_lim`:
+- Per-doctor limits in `config/member` are encoded as strings parsed by `split_lim`:
   `"3"` = exact, `"2-4"` = hard range, `"2(1-3)"` = soft target with hard range, `"-"` =
   unconstrained.
 - Holidays are passed per-run as a plain list of day-of-month integers (`l_holiday`); weekends
   are always holidays automatically.
-- **Drive folder layout**: `dutyshift/config/member.xlsx` (roster); `dutyshift/result/<year>/
+- **Drive folder layout**: `dutyshift/config/member` (roster, a native Google Sheet with one
+  tab per month, `member_<yyyymm>`); `dutyshift/result/<year>/
   <month, zero-padded>/` (live per-month CSVs + that month's Google Form, e.g.
   `dutyshift/result/2026/08/`); `.../result/<prefix>_<timestamp>/` nested beneath it (a
   timestamped snapshot written on every pipeline run, alongside the live copy — the only audit

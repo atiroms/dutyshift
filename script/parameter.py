@@ -74,7 +74,7 @@ l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
 day_em, l_week_em = 2, [] # Wednesday, 1st and 3rd weeks
 
 # Unique class_duty names, in first-appearance order of dict_class_duty (order matters for
-# output column ordering, e.g. in member.xlsx / lim_*.csv). Derived rather than hand-listed a
+# output column ordering, e.g. in the member Google Sheet / lim_*.csv). Derived rather than hand-listed a
 # second time -- script/helper.py::date_duty2class already had a commented-out line doing the
 # same thing (`sorted(list(set(d_class_duty['class'].tolist())))`), just not order-preserving.
 l_class_duty = list(dict.fromkeys(dict_class_duty['class']))

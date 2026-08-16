@@ -13,7 +13,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
                  id_template_form, dict_itemid_form, str_email_template, str_deadline=None):
 
     services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
-    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir='form')
+    dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='form')
 
     # Prepare calendar and all duties of the month
     d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty \
@@ -80,18 +80,18 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     print('Form URL:', str_responder_uri)
 
     ###############################################################################
-    # Copy forward next month's member.xlsx sheet, then draft (never send) a notification
-    # email to active doctors. Both best-effort and independently guarded: a failure in either
-    # must not turn an otherwise-successful form creation into a reported failure, AND must not
-    # be misattributed to the other step -- they use different Drive/Gmail scopes and can fail
+    # Copy forward next month's member tab, then draft (never send) a notification email to
+    # active doctors. Both best-effort and independently guarded: a failure in either must not
+    # turn an otherwise-successful form creation into a reported failure, AND must not be
+    # misattributed to the other step -- they use different Drive/Gmail scopes and can fail
     # for unrelated reasons (e.g. Gmail's drafts.create failing with an insufficient-scope error
-    # has nothing to do with whether the member.xlsx sheet copy above it succeeded).
+    # has nothing to do with whether the member tab copy above it succeeded).
     ###############################################################################
     try:
         id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
-        ensure_member_sheet(services.drive, id_config, year_plan, month_plan)
+        ensure_member_sheet(services.drive, services.sheets, id_config, year_plan, month_plan)
     except Exception:
-        print('[WARNING] Could not copy forward next month\'s member.xlsx sheet:')
+        print('[WARNING] Could not copy forward next month\'s member tab:')
         print(traceback.format_exc())
 
     try:
@@ -99,7 +99,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
             print('No response deadline set -- skipping notification email draft.')
         else:
             id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
-            d_member = read_member(services.drive, id_config, year_plan, month_plan)
+            d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
             d_member_active = d_member.loc[d_member['active'] == True, :]
             l_email_active = [email for email in d_member_active['email'].tolist()
                               if isinstance(email, str) and email.strip()]

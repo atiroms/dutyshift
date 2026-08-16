@@ -652,7 +652,7 @@ def build_assign_panel(state):
             if result is not None and result[0] is not None:
                 try:
                     services = get_services(state.config, SCOPE_DRIVE_FORMS)
-                    dp = prep_drive_paths(state.config, services.drive, year_plan, month_plan,
+                    dp = prep_drive_paths(state.config, services, year_plan, month_plan,
                                           prefix_dir='asgn', make_data_dir=False)
                     write_json(services.drive, dp.id_month, 'solver_params.json', current_params)
                 except Exception:

@@ -283,7 +283,7 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
                               n_troubleshoot_infeasible_max=10):
 
     services = get_services(config, SCOPE_DRIVE_FORMS)
-    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir='asgn')
+    dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='asgn')
 
     ###############################################################################
     # Optimize exact assignment count

@@ -7,7 +7,7 @@ from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv,
 
 def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_jpn):
     services = get_services(config, SCOPE_DRIVE_FORMS)
-    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir='clct')
+    dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='clct')
 
     # Read data
     # Matches the "dutyshift/result/<year>/<month>/form_<yyyymm>" convention prepare_form
@@ -15,7 +15,7 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_j
     path_form = '/dutyshift/result/' + str(year_plan) + '/' + str(month_plan).zfill(2) + '/form_' + str(year_plan) + str(month_plan).zfill(2)
     d_availability_src = read_form_response(services, path_form)
     id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
-    d_member = read_member(services.drive, id_config, year_plan, month_plan)
+    d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
 
     # Check missing members
     l_member_ans = list(set(d_availability_src['お名前（敬称略）'].tolist()))

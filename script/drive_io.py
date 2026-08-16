@@ -12,7 +12,8 @@
 # Layout convention (mirrors the old local layout, normalized against the one place -- the
 # Google Form -- that used a different convention before this module existed):
 #   dutyshift/                    Drive root folder
-#     config/                     member.xlsx (doctor roster)
+#     config/                     member (doctor roster, native Google Sheet -- one tab per
+#                                  month, see script/helper.py::member_sheet_name)
 #     <yyyymm>/                   live per-month data (CSVs)
 #       result/<prefix>_<timestamp>/   timestamped snapshot of each pipeline run
 #
@@ -25,7 +26,6 @@ from pathlib import Path
 from dataclasses import dataclass
 
 import pandas as pd
-import openpyxl
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -127,17 +127,20 @@ class DriveServices:
     forms: object
     calendar: object
     gmail: object
+    sheets: object
 
 
 _dict_service_cache = {}
 
 def get_services(config, l_scope):
-    """Build {drive, forms, calendar, gmail} service objects from one set of credentials,
-    memoized per (scope-set, credentials path) so a pipeline stage authenticates once regardless
-    of how many I/O calls it makes. Building a client here doesn't require its scope to have
-    been granted -- only actually calling one of its methods does -- so all four are built
-    unconditionally regardless of which scopes l_scope actually requested, same as before gmail
-    was added."""
+    """Build {drive, forms, calendar, gmail, sheets} service objects from one set of
+    credentials, memoized per (scope-set, credentials path) so a pipeline stage authenticates
+    once regardless of how many I/O calls it makes. Building a client here doesn't require its
+    scope to have been granted -- only actually calling one of its methods does -- so all five
+    are built unconditionally regardless of which scopes l_scope actually requested, same as
+    before gmail was added. sheets needs no scope of its own: Google accepts the broad 'drive'
+    scope (already in both SCOPE_DRIVE_FORMS and SCOPE_DRIVE_CALENDAR) for Sheets API calls
+    too."""
     key = (tuple(sorted(l_scope)), config['credentials_path'])
     if key not in _dict_service_cache:
         creds = get_credentials(config['credentials_path'], config['token_path'], l_scope)
@@ -146,6 +149,7 @@ def get_services(config, l_scope):
             forms=build('forms', 'v1', credentials=creds),
             calendar=build('calendar', 'v3', credentials=creds),
             gmail=build('gmail', 'v1', credentials=creds),
+            sheets=build('sheets', 'v4', credentials=creds),
         )
     return _dict_service_cache[key]
 
@@ -363,53 +367,69 @@ def write_csv(service, id_folder, filename, df, **kwargs):
     return _upload_bytes(service, id_folder, filename, buf, mimetype='text/csv')
 
 
-def read_excel(service, id_folder, filename, **kwargs):
-    id_file = _find_file_id(service, id_folder, filename)
+def read_gsheet(service_sheets, service_drive, id_folder, filename, sheet_name, header=0):
+    """Read one tab of a native Google Sheet (e.g. config/member) into a DataFrame, mirroring
+    pandas.read_excel's header=0 default: the tab's `header`-th row becomes the DataFrame's
+    column labels and rows above it are discarded (pass header=None for a raw grid with no
+    column-label row consumed). Google Sheets' values.get trims trailing blank cells -- rows can
+    come back shorter than the widest row, or missing trailing blank rows/columns entirely -- so
+    rows are padded to a common width first."""
+    id_file = _find_file_id(service_drive, id_folder, filename)
     if id_file is None:
         raise FileNotFoundError(filename + ' not found in Drive folder ' + id_folder)
-    buf = _download_bytes(service, id_file)
-    return pd.read_excel(buf, **kwargs)
+    resp = service_sheets.spreadsheets().values().get(
+        spreadsheetId=id_file, range=sheet_name, valueRenderOption='UNFORMATTED_VALUE'
+    ).execute()
+    l_row = resp.get('values', [])
+    if not l_row:
+        return pd.DataFrame()
+    n_col = max(len(row) for row in l_row)
+    l_row = [row + [None] * (n_col - len(row)) for row in l_row]
+    if header is None:
+        return pd.DataFrame(l_row)
+    return pd.DataFrame(l_row[header + 1:], columns=l_row[header]).reset_index(drop=True)
 
 
-def list_workbook_sheets(service, id_folder, filename):
-    id_file = _find_file_id(service, id_folder, filename)
+def list_gsheet_tabs(service_sheets, service_drive, id_folder, filename):
+    id_file = _find_file_id(service_drive, id_folder, filename)
     if id_file is None:
         raise FileNotFoundError(filename + ' not found in Drive folder ' + id_folder)
-    buf = _download_bytes(service, id_file)
-    return openpyxl.load_workbook(buf, read_only=True).sheetnames
+    resp = service_sheets.spreadsheets().get(
+        spreadsheetId=id_file, fields='sheets.properties(title)'
+    ).execute()
+    return [sheet['properties']['title'] for sheet in resp.get('sheets', [])]
 
 
-def copy_excel_sheet(service, id_folder, filename, sheet_src, sheet_dst):
-    """Duplicate an existing sheet within an Excel workbook stored on Drive and rename the
-    copy, preserving every other sheet. Uses openpyxl directly (not pandas) so round-tripping
-    through Drive doesn't lose the workbook's other sheets or the copied sheet's own formatting
-    -- note openpyxl's copy_worksheet does not carry over charts/images, only cell
-    values/styles/merges, which is fine for a plain data table like config/member.xlsx.
+def copy_gsheet_tab(service_sheets, service_drive, id_folder, filename, sheet_src, sheet_dst):
+    """Duplicate an existing tab within a native Google Sheet and rename the copy, preserving
+    every other tab (Sheets API DuplicateSheetRequest carries over cell values/styles/merges/
+    formatting, same as the old openpyxl-based copy this replaces).
 
     Returns 'copied', 'exists' (sheet_dst already present -- left untouched, never overwritten,
     since clobbering an admin's already-edited per-doctor parameters would be destructive), or
     'missing_source' (sheet_src not found)."""
-    id_file = _find_file_id(service, id_folder, filename)
+    id_file = _find_file_id(service_drive, id_folder, filename)
     if id_file is None:
         raise FileNotFoundError(filename + ' not found in Drive folder ' + id_folder)
-    buf = _download_bytes(service, id_file)
-    wb = openpyxl.load_workbook(buf)
-    if sheet_dst in wb.sheetnames:
+    resp = service_sheets.spreadsheets().get(
+        spreadsheetId=id_file, fields='sheets.properties(sheetId,title)'
+    ).execute()
+    dict_title_to_id = {sheet['properties']['title']: sheet['properties']['sheetId']
+                         for sheet in resp.get('sheets', [])}
+    if sheet_dst in dict_title_to_id:
         return 'exists'
-    if sheet_src not in wb.sheetnames:
+    if sheet_src not in dict_title_to_id:
         return 'missing_source'
-    ws_new = wb.copy_worksheet(wb[sheet_src])
-    ws_new.title = sheet_dst
-    buf_out = io.BytesIO()
-    wb.save(buf_out)
-    buf_out.seek(0)
-    _upload_bytes(service, id_folder, filename, buf_out,
-                  mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    body = {'requests': [{'duplicateSheet': {
+        'sourceSheetId': dict_title_to_id[sheet_src],
+        'newSheetName': sheet_dst,
+    }}]}
+    service_sheets.spreadsheets().batchUpdate(spreadsheetId=id_file, body=body).execute()
     return 'copied'
 
 
 def read_json(service, id_folder, filename, default=None):
-    """Unlike read_csv/read_excel, returns `default` instead of raising when the file doesn't
+    """Unlike read_csv/read_gsheet, returns `default` instead of raising when the file doesn't
     exist -- callers (solver-preset/audit-record lookups) treat 'nothing recorded yet' as an
     expected, common state, not an error."""
     id_file = _find_file_id(service, id_folder, filename)
@@ -485,9 +505,15 @@ class DrivePaths:
     id_month: str
     id_data: object   # str, or None if make_data_dir=False
     cache: DriveFolderCache
+    service_sheets: object = None
 
 
-def prep_drive_paths(config, service_drive, year_plan, month_plan, prefix_dir, make_data_dir=True):
+def prep_drive_paths(config, services, year_plan, month_plan, prefix_dir, make_data_dir=True):
+    """`services` is a DriveServices (see get_services) -- takes the whole bundle, not just
+    .drive, so DrivePaths can also carry .sheets through for callers that end up needing
+    read_gsheet (e.g. script/helper.py::read_member) without every caller having to thread it
+    separately."""
+    service_drive = services.drive
     cache = DriveFolderCache()
     id_root = cache.get_or_create(service_drive, 'dutyshift')
 
@@ -500,4 +526,4 @@ def prep_drive_paths(config, service_drive, year_plan, month_plan, prefix_dir, m
     else:
         id_data = None
 
-    return DrivePaths(service_drive, id_root, id_month, id_data, cache)
+    return DrivePaths(service_drive, id_root, id_month, id_data, cache, services.sheets)

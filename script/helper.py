@@ -8,7 +8,7 @@ from math import ceil
 from pulp import LpProblem, LpVariable, LpStatus, lpSum, lpDot, value
 from ortoolpy import addvars
 from script.drive_io import (
-    read_csv, write_csv, read_excel, check_form_exists, list_workbook_sheets, copy_excel_sheet,
+    read_csv, write_csv, read_gsheet, check_form_exists, list_gsheet_tabs, copy_gsheet_tab,
     list_month_folders, month_folder_path,
 )
 
@@ -250,17 +250,19 @@ def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_m
 
 
 ################################################################################
-# Read config/member.xlsx file
+# Read config/member (native Google Sheet, one tab per month)
 ################################################################################
 def member_sheet_name(year, month):
-    """Single source of truth for config/member.xlsx's per-month sheet naming convention
-    (mirrors drive_io.py::month_folder_path's role for the Drive folder layout)."""
+    """Single source of truth for config/member's per-month tab naming convention (mirrors
+    drive_io.py::month_folder_path's role for the Drive folder layout)."""
     return 'member_' + str(year).zfill(4) + str(month).zfill(2)
 
 
-def read_member(service_drive, id_config, year_plan, month_plan):
+def read_member(service_drive, service_sheets, id_config, year_plan, month_plan):
     name_sheet = member_sheet_name(year_plan, month_plan)
-    d_member_src = read_excel(service_drive, id_config, 'member.xlsx', sheet_name=name_sheet)
+    # header=0 matches the pandas.read_excel default the old xlsx-based read_member relied on
+    # (via drive_io.py::read_excel) -- keeps this function's row offsets below unchanged.
+    d_member_src = read_gsheet(service_sheets, service_drive, id_config, 'member', name_sheet, header=0)
     d_member = d_member_src.iloc[3:,:]
     d_member.columns = d_member_src.iloc[2,:].tolist()
     d_member.index = [i for i in range(len(d_member))]
@@ -270,22 +272,22 @@ def read_member(service_drive, id_config, year_plan, month_plan):
     return d_member
 
 
-def ensure_member_sheet(service_drive, id_config, year_plan, month_plan):
-    """Best-effort: if config/member.xlsx doesn't yet have a sheet for year_plan/month_plan,
-    copy forward the nearest prior member_<yyyymm> sheet (skipping gaps, same pattern
+def ensure_member_sheet(service_drive, service_sheets, id_config, year_plan, month_plan):
+    """Best-effort: if config/member doesn't yet have a tab for year_plan/month_plan, copy
+    forward the nearest prior member_<yyyymm> tab (skipping gaps, same pattern
     script/gui.py::_load_last_month_solver_params uses for solver-parameter audit records) as a
     starting point for that month's per-doctor parameter edits. Never overwrites an existing
-    destination sheet, never raises -- this is a convenience, not a required step. Prints a
+    destination tab, never raises -- this is a convenience, not a required step. Prints a
     one-line status regardless of outcome."""
     name_dst = member_sheet_name(year_plan, month_plan)
     try:
-        l_sheet = list_workbook_sheets(service_drive, id_config, 'member.xlsx')
+        l_sheet = list_gsheet_tabs(service_sheets, service_drive, id_config, 'member')
     except Exception:
-        print('[WARNING] Could not read config/member.xlsx to check/copy this month\'s sheet.')
+        print('[WARNING] Could not read config/member to check/copy this month\'s tab.')
         return
 
     if name_dst in l_sheet:
-        print('member.xlsx already has a sheet for this month (' + name_dst + ').')
+        print('member already has a tab for this month (' + name_dst + ').')
         return
 
     dict_ym_to_sheet = {}
@@ -295,15 +297,15 @@ def ensure_member_sheet(service_drive, id_config, year_plan, month_plan):
     ym_dst = '{:04d}{:02d}'.format(year_plan, month_plan)
     l_ym_before = sorted(ym for ym in dict_ym_to_sheet if ym < ym_dst)
     if not l_ym_before:
-        print('[WARNING] No prior member_<yyyymm> sheet found to copy forward for ' + name_dst + '. Create it manually.')
+        print('[WARNING] No prior member_<yyyymm> tab found to copy forward for ' + name_dst + '. Create it manually.')
         return
 
     name_src = dict_ym_to_sheet[l_ym_before[-1]]
-    result = copy_excel_sheet(service_drive, id_config, 'member.xlsx', name_src, name_dst)
+    result = copy_gsheet_tab(service_sheets, service_drive, id_config, 'member', name_src, name_dst)
     if result == 'copied':
-        print('Copied member.xlsx sheet ' + name_src + ' -> ' + name_dst + '.')
+        print('Copied member tab ' + name_src + ' -> ' + name_dst + '.')
     else:
-        print('[WARNING] Could not copy member.xlsx sheet ' + name_src + ' -> ' + name_dst + ' (' + result + ').')
+        print('[WARNING] Could not copy member tab ' + name_src + ' -> ' + name_dst + ' (' + result + ').')
 
 
 ################################################################################
@@ -474,7 +476,7 @@ def prep_member2(dp, l_class_duty, year_plan, month_plan, year_start, month_star
 
     # Load source member and assignment limit of the month
     id_config = dp.cache.get_or_create(dp.service_drive, 'dutyshift/config')
-    d_src = read_member(dp.service_drive, id_config, year_plan, month_plan)
+    d_src = read_member(dp.service_drive, dp.service_sheets, id_config, year_plan, month_plan)
     d_src = d_src.loc[d_src['active'], ]
     l_col_member = [col for col in l_col_member if col in d_src.columns]
     d_member = d_src[l_col_member]

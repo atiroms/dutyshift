@@ -66,7 +66,7 @@ def _check_designation_pairing(d_replace_checked, d_member, d_assign_date_duty):
 
 def check_replacement(config, year_plan, month_plan):
     services = get_services(config, SCOPE_DRIVE_FORMS)
-    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir='', make_data_dir=False)
+    dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='', make_data_dir=False)
 
 
     ###############################################################################
@@ -142,7 +142,7 @@ def check_replacement(config, year_plan, month_plan):
 
 def replace_assignment(config, year_plan, month_plan, dict_score_duty, l_class_duty, d_replace_checked=None):
     services = get_services(config, SCOPE_DRIVE_FORMS)
-    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir='rplc')
+    dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='rplc')
 
     ###############################################################################
     # Replace data

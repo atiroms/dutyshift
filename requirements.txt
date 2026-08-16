@@ -9,9 +9,10 @@ ortoolpy==0.2.38
 # Data handling
 pandas==1.4.1
 numpy==1.22.3
-openpyxl==3.1.2       # pandas' engine for reading config/member.xlsx (script/helper.py::read_member)
 
-# Google Forms / Drive / Calendar APIs (script/drive_io.py, script/notify.py)
+# Google Forms / Drive / Calendar / Sheets APIs (script/drive_io.py, script/notify.py) --
+# Sheets client (build('sheets', 'v4', ...)) is part of google-api-python-client's discovery
+# mechanism, no separate package needed; used for reading config/member (script/helper.py::read_member).
 google-api-python-client==2.48.0
 google-auth==2.6.6
 google-auth-oauthlib==0.5.1

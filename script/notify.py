@@ -24,7 +24,7 @@ def compare_event(d_assign_date_duty, d_event_exist):
 
 def update_calendar(config, year_plan, month_plan, id_calendar, dict_time_duty, num_retries=5):
     services = get_services(config, SCOPE_DRIVE_CALENDAR)
-    dp = prep_drive_paths(config, services.drive, year_plan, month_plan, prefix_dir='', make_data_dir=False)
+    dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='', make_data_dir=False)
     d_member = read_csv(services.drive, dp.id_month, 'member.csv')
 
     # Access calendar
