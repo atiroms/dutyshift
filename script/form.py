@@ -10,7 +10,8 @@ from script.drive_io import get_services, prep_drive_paths, write_csv, SCOPE_DRI
 
 def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_day_ect, day_em, l_week_em,
                  l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn, dict_title_duty, dict_class_duty,
-                 id_template_form, dict_itemid_form, str_email_template, str_deadline=None):
+                 id_template_form, dict_itemid_form, str_email_template, str_email_subject_template,
+                 str_email_button_html, str_deadline=None):
 
     services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='form')
@@ -110,10 +111,11 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
             if len(l_email_active) == 0:
                 print('No active doctors with an email on file -- skipping notification email draft.')
             else:
-                str_body = str_email_template.format(form_url=str_responder_uri, deadline=str_deadline)
-                message = MIMEText(str_body)
+                str_button = str_email_button_html.format(form_url=str_responder_uri)
+                str_body = str_email_template.format(button=str_button, deadline=str_deadline)
+                message = MIMEText(str_body, 'html')
                 message['bcc'] = ', '.join(l_email_active)
-                message['subject'] = str_title
+                message['subject'] = str_email_subject_template.format(deadline=str_deadline)
                 str_raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
                 services.gmail.users().drafts().create(userId='me', body={'message': {'raw': str_raw}}).execute()
                 print('Drafted notification email to', len(l_email_active), 'active doctor(s) (not sent).')

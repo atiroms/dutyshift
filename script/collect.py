@@ -1,12 +1,18 @@
 
+import base64, traceback
+from email.mime.text import MIMEText
 import numpy as np, pandas as pd
 import datetime
 from script.helper import read_form_response, read_member
 from script.check import check_availability_duty, check_availability_member
-from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, SCOPE_DRIVE_FORMS
+from script.drive_io import (
+    get_services, prep_drive_paths, read_csv, write_csv, check_form_exists, SCOPE_DRIVE_FORMS_GMAIL,
+)
 
-def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_jpn):
-    services = get_services(config, SCOPE_DRIVE_FORMS)
+def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_jpn,
+                         str_email_reminder_template, str_email_subject_template,
+                         str_email_button_html, str_deadline=None):
+    services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='clct')
 
     # Read data
@@ -184,5 +190,31 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_j
         write_csv(services.drive, id_folder, 'member.csv', d_member, index=False)
         write_csv(services.drive, id_folder, 'availability_duty.csv', d_availability_duty, index=True)
         write_csv(services.drive, id_folder, 'availability_member.csv', d_availability_member, index=False)
+
+    ###############################################################################
+    # Best-effort, never-fatal: draft (never send) a reminder email Bcc'd to active doctors who
+    # haven't answered yet (l_mail_missing above). Mirrors script/form.py::prepare_form's
+    # notification-email draft -- same subject template, same failure isolation (a Gmail error
+    # here must not turn an otherwise-successful collection into a reported failure).
+    ###############################################################################
+    try:
+        if not str_deadline:
+            print('No response deadline set -- skipping reminder email draft.')
+        elif len(l_mail_missing) == 0:
+            print('No missing responses -- skipping reminder email draft.')
+        else:
+            id_form = check_form_exists(services.drive, path_form)
+            str_responder_uri = services.forms.forms().get(formId=id_form).execute().get('responderUri')
+            str_button = str_email_button_html.format(form_url=str_responder_uri)
+            str_body = str_email_reminder_template.format(button=str_button, deadline=str_deadline)
+            message = MIMEText(str_body, 'html')
+            message['bcc'] = ', '.join(l_mail_missing)
+            message['subject'] = str_email_subject_template.format(deadline=str_deadline)
+            str_raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+            services.gmail.users().drafts().create(userId='me', body={'message': {'raw': str_raw}}).execute()
+            print('Drafted reminder email to', len(l_mail_missing), 'not-yet-answered doctor(s) (not sent).')
+    except Exception:
+        print('[WARNING] Could not draft the reminder email:')
+        print(traceback.format_exc())
 
     return str_member_missing, str_mail_missing, d_availability, d_info, d_member

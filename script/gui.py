@@ -40,6 +40,7 @@ from PyQt5.QtWidgets import (
 from script.parameter import (
     dict_jpnday, dict_duty, dict_duty_jpn, dict_title_duty, dict_class_duty, dict_score_duty,
     dict_score_class, dict_time_duty, dict_itemid_form, id_template_form, str_email_template,
+    str_email_subject_template, str_email_button_html, str_email_reminder_template,
     l_day_ect, day_em, l_week_em, l_class_duty, ll_avoid_adjacent, l_title_fulltime,
     n_troubleshoot_infeasible_max, id_calendar, n_retry_calendar, year_start, month_start,
 )
@@ -320,7 +321,7 @@ def build_form_panel(state):
             prepare_form(state.config, year_plan, month_plan, l_holiday, l_date_ect_cancel,
                          l_day_ect, day_em, l_week_em, l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn,
                          dict_title_duty, dict_class_duty, id_template_form, dict_itemid_form,
-                         str_email_template, str_deadline)
+                         str_email_template, str_email_subject_template, str_email_button_html, str_deadline)
         _run_async(state, output, run)
     button.clicked.connect(on_click)
 
@@ -342,20 +343,39 @@ def build_form_panel(state):
 # Collect Google form response (replaces the pre-GUI notebook's cell 2)
 ###############################################################################
 def build_collect_panel(state):
+    w_set_deadline = QCheckBox('Draft reminder email (Bcc, not-yet-answered doctors)')
+    w_deadline = QDateEdit(QDate.currentDate())
+    w_deadline.setCalendarPopup(True)
+    w_deadline.setEnabled(False)
+    w_set_deadline.toggled.connect(w_deadline.setEnabled)
+
     button = QPushButton('Collect Availability')
     output = _make_output()
     state.l_button.append(button)
 
     def on_click():
         year_plan, month_plan = state.year_plan, state.month_plan
+        if w_set_deadline.isChecked():
+            d = w_deadline.date().toPyDate()
+            str_deadline = str(d.month) + '/' + str(d.day) + '(' + dict_jpnday[d.weekday()] + ')'
+        else:
+            str_deadline = None
 
         def run():
-            collect_availability(state.config, year_plan, month_plan, dict_jpnday, dict_duty_jpn)
+            collect_availability(state.config, year_plan, month_plan, dict_jpnday, dict_duty_jpn,
+                                 str_email_reminder_template, str_email_subject_template,
+                                 str_email_button_html, str_deadline)
         _run_async(state, output, run)
     button.clicked.connect(on_click)
 
+    row_deadline = QHBoxLayout()
+    row_deadline.addWidget(w_set_deadline)
+    row_deadline.addWidget(w_deadline)
+    row_deadline.addStretch()
+
     box = QGroupBox('Collect Availability')
     layout = QVBoxLayout()
+    layout.addLayout(row_deadline)
     layout.addWidget(button)
     layout.addWidget(output)
     box.setLayout(layout)

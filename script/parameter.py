@@ -54,20 +54,41 @@ dict_itemid_form = {'assoc_holiday': '3fd28d79', 'assoc_others': '03f37999',
                     'limtermclin_holiday': '02401b89', 'limtermclin_others': '0e55b20f',
                     'stud_holiday': '48b9378b', 'stud_others': '32b66da2'}
 
+# Subject line shared by both notification emails below -- script/form.py::prepare_form's
+# initial announcement and script/collect.py::collect_availability's not-yet-answered reminder
+# -- kept identical so both read as the same campaign. {deadline} is filled in per month, e.g.
+# '7/22(水)' (see script/gui.py's str_deadline, built from the tab's date picker).
+str_email_subject_template = '【{deadline}〆】東大当直希望調査'
+
+# HTML "回答" button embedded in both notification emails below, in place of a bare URL.
+# {form_url} is filled in per month.
+str_email_button_html = ('<a href="{form_url}" style="display:inline-block;padding:10px 24px;'
+                         'background-color:#1a73e8;color:#ffffff;text-decoration:none;'
+                         'border-radius:4px;font-weight:bold;">回答</a>')
+
 # Notification email drafted (never auto-sent) by script/form.py::prepare_form once a month's
-# Google Form is created. {form_url} and {deadline} are filled in per month; everything else
-# stays fixed.
-str_email_template = '''東大精神科の日当直をご担当される先生方
+# Google Form is created. Sent as HTML so {button} (str_email_button_html above) renders as a
+# clickable button rather than a bare link. {button} and {deadline} are filled in per month;
+# everything else stays fixed.
+str_email_template = '''東大精神科の日当直をご担当される先生方<br><br>
+平素より大変お世話になっております。<br>
+下記のフォームより、来月分の日当直の希望のご入力をお願いいたします。<br>
+{button}<br><br>
+締切は{deadline}とさせていただきます。<br>
+よろしくお願いいたします。<br><br>
+当直係　森田　進<br>
+調整用プログラム：<a href="https://github.com/atiroms/dutyshift">https://github.com/atiroms/dutyshift</a>'''
 
-平素より大変お世話になっております。
-下記のフォームより、来月分の日当直の希望のご入力をお願いいたします。
-{form_url}
-
-締切は{deadline}とさせていただきます。
-よろしくお願いいたします。
-
-当直係　森田　進
-調整用プログラム：https://github.com/atiroms/dutyshift'''
+# Reminder email drafted (never auto-sent) by script/collect.py::collect_availability, Bcc'd to
+# active doctors who have not yet answered the month's Google Form. Sent as HTML for the same
+# {button} reason as str_email_template above. {button} and {deadline} are filled in per month;
+# everything else stays fixed.
+str_email_reminder_template = '''先生方<br><br>
+お世話になっております。<br>
+こちらの回答期限を{deadline}までとさせていただいておりました。<br>
+{button}<br><br>
+お忙しいところ誠に恐縮ですが、お早めにご回答をお願いいたします。<br><br>
+森田'''
 
 # Optimizing assignment count
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
