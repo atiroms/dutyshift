@@ -27,6 +27,9 @@ Pure Python. Dependencies are pinned in `requirements.txt` (`pip install -r requ
 — pinned to the versions this codebase is developed and tested against (Python 3.8.13); re-pin
 deliberately, don't let installs silently drift. Core libraries actually imported by the code:
 - `pulp`, `ortoolpy` — the MILP optimizer (PuLP modeling + CBC solver)
+- `jpholiday` — Japanese national-holiday lookup, used only to default the "1. Create Form"
+  tab's Holidays calendar. Pinned to `0.1.10` (not the current `1.0.x` line, which requires
+  Python 3.9+ and breaks import on this codebase's pinned Python 3.8.13).
 - `pandas`, `numpy` — all data handling
 - `google-api-python-client`, `google-auth-oauthlib` — Google Forms/Drive/Calendar/Sheets/Gmail
   APIs. Drive is also the **data store**: doctor roster, per-month CSVs, and the Google Form
@@ -48,16 +51,26 @@ deliberately, don't let installs silently drift. Core libraries actually importe
 
 `main.py` is the entry point: `python main.py` opens the `PyQt5` window directly (`script/gui.py::AppState` + `build_app(state)`), no notebook/kernel involved.
 
-`build_app` (`script/gui.py`) combines every stage into one window — common parameters
-(year/month dropdowns, holiday/ECT-cancel multi-selects) pinned on top, one `Tab` below per
-stage:
+`build_app` (`script/gui.py`) combines every stage into one window — just Year/Month dropdowns
+pinned on top (the only inputs every stage shares), one `Tab` below per stage. No tab wraps its
+content in a titled `QGroupBox` any more (the Tab already names the stage); each is a plain
+`_panel()` holding its inputs, a "Run" button paired with a Running/Done/Failed status pill
+(`_make_status_label()` / `_run_async(..., status=...)`), and its live output log — the pipeline
+functions themselves print their own stage-by-stage progress (e.g. `[2/4] Creating Google
+Form...`, ending `Done`):
 1. **1. Create Form** — `script/form.py::prepare_form`, creates the availability Google Form,
    copies forward next month's `dutyshift/config/member` tab from the nearest prior month
    (`script/helper.py::ensure_member_sheet`, never overwrites an existing tab), and drafts
-   (never sends) a notification email to active doctors via Gmail, using the response deadline
-   entered in this tab's date picker and the template in `str_email_template`
-   (`script/parameter.py`).
-2. **2. Collect** — `script/collect.py::collect_availability`, parses form responses.
+   (never sends) a notification email to active doctors via Gmail, using a required response
+   deadline date picker and the template in `str_email_template` (`script/parameter.py`).
+   Holidays and ECT-cancel — only ever used by this stage — are picked here as two
+   week-per-row calendar grids (`script/gui.py::_CalendarSelector`); Holidays defaults to that
+   month's official Japanese holidays via `jpholiday`, with weekend cells locked on since
+   weekends are always holidays automatically regardless of this selection. The deadline is also
+   saved to Drive (`dutyshift/result/<year>/<month>/deadline.json`) for "2. Collect" to reuse.
+2. **2. Collect** — `script/collect.py::collect_availability`, parses form responses and drafts
+   (never sends) a reminder email Bcc'd to not-yet-answered doctors, reusing the deadline saved
+   by "1. Create Form" — no separate opt-in checkbox; it's a no-op once everyone has answered.
 3. **3. Assign** — `script/assign.py::optimize_count_and_assign`, runs the two-stage MILP. Its
    hyperparameters (score-deviation weights, close-duty thresholds, `type_limit`, etc.) are
    editable widgets in a collapsed "Advanced solver parameters" section (`_CollapsibleBox`).
@@ -67,10 +80,10 @@ stage:
    written on every successful run. The panel seeds its defaults from the nearest prior month's
    audit record on build, falling back to hardcoded defaults if none exists.
 4. **4. Notify** — `script/notify.py::update_calendar`, publishes to Google Calendar.
-5. **5. Check Replace** / **6. Apply Replace** — `script/replace.py::check_replacement` /
-   `replace_assignment`, handle shift-swap requests. `check_replacement`'s result is held on
-   `state.d_replace_checked` (the only value that flows between tabs in memory) and consumed by
-   the apply-replacement tab.
+5. **5. Replace** — one tab holding both check and apply steps stacked, since apply always needs
+   a specific check's result: `script/replace.py::check_replacement` /`replace_assignment` handle
+   shift-swap requests. `check_replacement`'s result is held on `state.d_replace_checked` (the
+   only value that flows between steps in memory) and consumed by the apply step below it.
 
 Each tab only wires widgets to these unchanged `script/*.py` functions — the pipeline logic
 itself did not change. Every `build_*_panel(state)` function returns a plain `QWidget` and can

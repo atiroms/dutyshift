@@ -3,19 +3,30 @@
 # PyQt5 GUI layer, launched via main.py
 #
 # build_app(state) is the one entry point main.py needs: it combines every stage below into a
-# single window -- common parameters pinned on top (relevant to every stage), one Tab per
-# pipeline stage underneath:
-#   common params -> [form | collect | assign | notify | replace check | replace apply]
+# single window -- common parameters (year/month only; every other stage-specific input lives on
+# its own tab) pinned on top, one Tab per pipeline stage underneath:
+#   common params -> [1. form | 2. collect | 3. assign | 4. notify | 5. replace]
+# "5. Replace" holds both the check-requests and apply-replacement steps, stacked in one panel
+# (build_replace_panel), since apply always needs a prior check's result.
 #
-# Each build_*_panel() function returns a QWidget for one stage.
+# Each build_*_panel() function returns a QWidget for one stage. None of them wrap their content
+# in a titled QGroupBox any more -- the Tab itself already names the stage, so an identical label
+# repeated inside it would be redundant; each panel is a plain, borderless container (_panel())
+# holding just its inputs, one 'Run' button paired with a Running/Done/Failed status pill
+# (_make_status_label() / _run_async(..., status=...)), and its live output log. The pipeline
+# functions themselves (script/*.py) print their own progress as they go (e.g. "[2/4] Creating
+# Google Form...", ending "Done") -- the status pill is only a quick-glance summary of that same
+# run, not a separate source of truth.
 #
 # This module only wires widgets to the existing script/*.py functions -- it does not change
 # any pipeline logic. AppState carries the one thing that genuinely has to flow between panels
-# in memory (d_replace_checked, produced by the "check replacement" panel and consumed by the
-# "apply replacement" panel); every other stage re-reads its inputs from Google Drive via
+# in memory (d_replace_checked, produced by the "check" step and consumed by the "apply" step,
+# both inside build_replace_panel); every other stage re-reads its inputs from Google Drive via
 # script/drive_io.py (state.config, loaded once at AppState() construction time), so panels only
-# need state.year_plan / state.month_plan / state.l_holiday / state.l_date_ect_cancel at click
-# time.
+# need state.year_plan / state.month_plan at click time -- state.l_holiday / state.l_date_ect_cancel
+# (read from the Create Form tab's own calendars) are only used by build_form_panel itself, and
+# the Create Form tab's response deadline is persisted to Drive and re-read automatically by the
+# Collect tab (_save_deadline / _load_deadline) rather than flowing through AppState.
 #
 # Every pipeline call (Google API round-trips, the MILP solve) can take a while, so each button
 # click runs its work on a background QThread (_Worker/_run_async below) instead of the GUI
@@ -29,12 +40,14 @@
 
 import calendar, contextlib, datetime, traceback
 
+import jpholiday
+
 from PyQt5.QtCore import Qt, QDate, QThread, pyqtSignal
 from PyQt5.QtGui import QFontDatabase, QTextCursor
 from PyQt5.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QDateEdit, QDoubleSpinBox, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QPushButton, QSpinBox,
-    QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+    QComboBox, QDateEdit, QDoubleSpinBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
+    QLabel, QLineEdit, QMainWindow, QPushButton, QSpinBox, QTabWidget, QTextEdit, QVBoxLayout,
+    QWidget,
 )
 
 from script.parameter import (
@@ -59,9 +72,11 @@ from script.replace import check_replacement, replace_assignment
 # Shared state and helpers
 ###############################################################################
 class AppState:
-    """Holds the widgets built by build_common_params_panel() plus d_replace_checked, the one
-    value that has to flow in memory from the 'check replacement' panel to the 'apply
-    replacement' panel. Construct once per app session, pass to every build_*_panel().
+    """Holds the shared year/month widgets (built by build_common_params_panel()), the Create
+    Form tab's Holidays/ECT-cancel calendars (built by build_form_panel(), read by nothing else),
+    and d_replace_checked, the one value that has to flow in memory from the 'check' step to the
+    'apply' step inside build_replace_panel(). Construct once per app session, pass to every
+    build_*_panel().
 
     Also loads config.local.json once (self.config) -- failing fast and visibly here, at
     AppState() construction time, rather than deep inside some button's click handler if
@@ -71,8 +86,8 @@ class AppState:
         self.config = load_config()
         self.w_year = None
         self.w_month = None
-        self.w_holiday = None
-        self.w_ect_cancel = None
+        self.w_holiday = None       # _CalendarSelector, built by build_form_panel
+        self.w_ect_cancel = None    # _CalendarSelector, built by build_form_panel
         self.d_replace_checked = None
         self.l_button = []   # every action button in the app -- _run_async() disables/enables
                               # all of them together so only one pipeline stage ever runs at a
@@ -90,11 +105,11 @@ class AppState:
 
     @property
     def l_holiday(self):
-        return sorted(item.data(Qt.UserRole) for item in self.w_holiday.selectedItems())
+        return self.w_holiday.selected_days()
 
     @property
     def l_date_ect_cancel(self):
-        return sorted(item.data(Qt.UserRole) for item in self.w_ect_cancel.selectedItems())
+        return self.w_ect_cancel.selected_days()
 
 
 class _StreamToSignal:
@@ -145,21 +160,59 @@ def _append_text(output, text):
     output.insertPlainText(text)
 
 
-def _run_async(state, output, fn, on_success=None):
+_DICT_STATUS_STYLE = {
+    'ready':   'color: #888;',
+    'running': 'color: #b8860b; font-weight: bold;',
+    'done':    'color: #2e7d32; font-weight: bold;',
+    'failed':  'color: #c0392b; font-weight: bold;',
+}
+_DICT_STATUS_TEXT = {
+    'ready': '', 'running': '● Running…', 'done': '● Done', 'failed': '● Failed',
+}
+
+
+def _make_status_label():
+    """A small 'Running.../Done/Failed' indicator that _run_async drives -- a quick-glance
+    complement to the detailed stage-by-stage progress each pipeline function prints into its
+    output box."""
+    label = QLabel('')
+    label.setStyleSheet(_DICT_STATUS_STYLE['ready'])
+    return label
+
+
+def _set_status(label, kind):
+    if label is None:
+        return
+    label.setStyleSheet(_DICT_STATUS_STYLE[kind])
+    label.setText(_DICT_STATUS_TEXT[kind])
+
+
+def _run_async(state, output, fn, on_success=None, status=None):
     """Run fn() on a background QThread so a long Google API call or the MILP solve doesn't
     freeze the GUI, streaming its stdout into `output` live. Disables every action button in the
     app for the duration (state.l_button). If given, on_success(result) runs back on the GUI
     thread once fn() returns successfully -- use it for anything that needs to write back to a
-    widget; fn() itself must never touch widgets, since it runs on the background thread."""
+    widget; fn() itself must never touch widgets, since it runs on the background thread. If
+    given, `status` (a _make_status_label()) is set to Running at the start and Done/Failed once
+    fn() finishes."""
     output.clear()
+    _set_status(status, 'running')
     for button in state.l_button:
         button.setEnabled(False)
 
     worker = _Worker(fn)
     worker.output.connect(lambda text: _append_text(output, text), Qt.QueuedConnection)
-    worker.failed.connect(lambda tb: _append_text(output, tb), Qt.QueuedConnection)
-    if on_success is not None:
-        worker.succeeded.connect(on_success, Qt.QueuedConnection)
+
+    def _on_failed(tb):
+        _append_text(output, tb)
+        _set_status(status, 'failed')
+    worker.failed.connect(_on_failed, Qt.QueuedConnection)
+
+    def _on_succeeded(result):
+        _set_status(status, 'done')
+        if on_success is not None:
+            on_success(result)
+    worker.succeeded.connect(_on_succeeded, Qt.QueuedConnection)
 
     def _on_finished():
         for button in state.l_button:
@@ -177,6 +230,30 @@ def _make_output(min_height=160):
     output.setFont(QFontDatabase.systemFont(QFontDatabase.FixedFont))
     output.setMinimumHeight(min_height)
     return output
+
+
+def _action_row(button, status):
+    """Button + its status indicator, left-aligned, for the top of an action panel."""
+    row = QHBoxLayout()
+    row.addWidget(button)
+    row.addWidget(status)
+    row.addStretch()
+    return row
+
+
+def _panel(*items):
+    """A plain, unlabeled, unbordered container stacking `items` vertically -- replaces the old
+    per-tab QGroupBox(title) wrapper so tabs no longer repeat their own name as a heading inside
+    themselves."""
+    widget = QWidget()
+    layout = QVBoxLayout(widget)
+    layout.setContentsMargins(8, 8, 8, 8)
+    for item in items:
+        if isinstance(item, QHBoxLayout) or isinstance(item, QVBoxLayout):
+            layout.addLayout(item)
+        else:
+            layout.addWidget(item)
+    return widget
 
 
 def _labeled(text, widget):
@@ -232,13 +309,81 @@ class _CollapsibleBox(QWidget):
         self._toggle.setText(title)
 
 
-def _day_options(year, month):
+def _jp_holiday_days(year, month):
+    """Days of the month (1-indexed) that are official Japanese national holidays, per the
+    `jpholiday` package -- used to seed the Holidays calendar's default selection."""
     _, n_days = calendar.monthrange(year, month)
-    l_options = []
-    for day in range(1, n_days + 1):
-        wday = datetime.date(year, month, day).weekday()
-        l_options.append((str(day) + ' (' + dict_jpnday[wday] + ')', day))
-    return l_options
+    return [day for day in range(1, n_days + 1)
+            if jpholiday.is_holiday(datetime.date(year, month, day))]
+
+
+def _day_button_style(col):
+    """Stylesheet for one day-toggle button in a _CalendarSelector, colored by weekday column
+    (Sunday red, Saturday blue, weekdays neutral) -- matches common Japanese calendar
+    convention. `:checked` gets a filled highlight; `:disabled` (locked weekend cells in the
+    Holidays calendar) keeps its weekday color but flattens into the background."""
+    color = '#c0392b' if col == 0 else ('#2c6fbb' if col == 6 else '#333')
+    return (
+        'QPushButton { border: 1px solid #ccc; border-radius: 4px; background: white;'
+        ' color: ' + color + '; padding: 2px; }'
+        'QPushButton:checked { background: #fbe27a; border-color: #d9a520; color: #333; font-weight: bold; }'
+        'QPushButton:disabled { background: #f2f2f2; border-color: #eee; color: ' + color + '; }'
+    )
+
+
+class _CalendarSelector(QWidget):
+    """A week-per-row calendar of day-toggle buttons for one month -- used for the Holidays and
+    ECT-cancel pickers in the Create Form tab. Sun-Sat header, Sunday-first weeks (standard
+    Japanese calendar layout).
+
+    lock_weekend=True (used for Holidays) renders Saturday/Sunday cells as permanently-checked,
+    disabled buttons rather than toggles: weekends are always holidays regardless of this
+    selection (script/helper.py::prep_calendar), so leaving them clickable here would just
+    invite a meaningless click -- they're excluded from selected_days()."""
+
+    def __init__(self, lock_weekend=False, parent=None):
+        super().__init__(parent)
+        self._lock_weekend = lock_weekend
+        self._dict_button = {}
+        self._grid = QGridLayout(self)
+        self._grid.setSpacing(3)
+        for col, label in enumerate(['日', '月', '火', '水', '木', '金', '土']):
+            lbl = QLabel(label)
+            lbl.setAlignment(Qt.AlignCenter)
+            color = '#c0392b' if col == 0 else ('#2c6fbb' if col == 6 else '#666')
+            lbl.setStyleSheet('font-weight: bold; color: ' + color + ';')
+            self._grid.addWidget(lbl, 0, col)
+
+    def rebuild(self, year, month, l_default_selected=()):
+        """Rebuild for (year, month), pre-checking l_default_selected (day-of-month ints).
+        Always resets the selection -- there is no meaningful "same selection" to carry over
+        across a month change."""
+        for button in self._dict_button.values():
+            self._grid.removeWidget(button)
+            button.deleteLater()
+        self._dict_button = {}
+
+        set_default = set(l_default_selected)
+        _, n_days = calendar.monthrange(year, month)
+        col_first = (datetime.date(year, month, 1).weekday() + 1) % 7  # Sun=0 .. Sat=6
+        for day in range(1, n_days + 1):
+            position = col_first + day - 1
+            row, col = 1 + position // 7, position % 7
+            btn = QPushButton(str(day))
+            btn.setCheckable(True)
+            btn.setFixedSize(34, 26)
+            btn.setStyleSheet(_day_button_style(col))
+            is_weekend = col in (0, 6)
+            if is_weekend and self._lock_weekend:
+                btn.setChecked(True)
+                btn.setEnabled(False)
+            else:
+                btn.setChecked(day in set_default)
+                self._dict_button[day] = btn
+            self._grid.addWidget(btn, row, col)
+
+    def selected_days(self):
+        return sorted(day for day, button in self._dict_button.items() if button.isChecked())
 
 
 ###############################################################################
@@ -256,130 +401,141 @@ def build_common_params_panel(state):
         state.w_month.addItem(str(month), month)
     state.w_month.setCurrentIndex(state.w_month.findData(today.month))
 
-    state.w_holiday = QListWidget()
-    state.w_holiday.setSelectionMode(QAbstractItemView.MultiSelection)
-    state.w_ect_cancel = QListWidget()
-    state.w_ect_cancel.setSelectionMode(QAbstractItemView.MultiSelection)
-
-    def _refresh_days():
-        for w in (state.w_holiday, state.w_ect_cancel):
-            l_selected = {item.data(Qt.UserRole) for item in w.selectedItems()}
-            w.clear()
-            for label, day in _day_options(state.w_year.currentData(), state.w_month.currentData()):
-                item = QListWidgetItem(label)
-                item.setData(Qt.UserRole, day)
-                w.addItem(item)
-                if day in l_selected:
-                    item.setSelected(True)
-    _refresh_days()
-    state.w_year.currentIndexChanged.connect(_refresh_days)
-    state.w_month.currentIndexChanged.connect(_refresh_days)
+    label_year = QLabel('Year:')
+    label_year.setStyleSheet('font-weight: bold;')
+    label_month = QLabel('Month:')
+    label_month.setStyleSheet('font-weight: bold;')
 
     row_dropdown = QHBoxLayout()
-    row_dropdown.addWidget(QLabel('Year:'))
+    row_dropdown.addWidget(label_year)
     row_dropdown.addWidget(state.w_year)
-    row_dropdown.addWidget(QLabel('Month:'))
+    row_dropdown.addWidget(label_month)
     row_dropdown.addWidget(state.w_month)
     row_dropdown.addStretch()
 
-    row_list = QHBoxLayout()
-    row_list.addWidget(_labeled('Holidays:', state.w_holiday))
-    row_list.addWidget(_labeled('ECT cancel:', state.w_ect_cancel))
+    widget = QWidget()
+    widget.setLayout(row_dropdown)
+    line = QFrame()
+    line.setFrameShape(QFrame.HLine)
+    line.setStyleSheet('color: #ddd;')
 
-    box = QGroupBox('Common parameters')
-    layout = QVBoxLayout()
-    layout.addLayout(row_dropdown)
-    layout.addLayout(row_list)
-    box.setLayout(layout)
-    return box
+    container = QWidget()
+    layout = QVBoxLayout(container)
+    layout.setContentsMargins(8, 6, 8, 0)
+    layout.addWidget(widget)
+    layout.addWidget(line)
+    return container
 
 
 ###############################################################################
 # Create Google form (replaces the pre-GUI notebook's cell 1)
 ###############################################################################
+def _format_deadline(qdate):
+    d = qdate.toPyDate()
+    return str(d.month) + '/' + str(d.day) + '(' + dict_jpnday[d.weekday()] + ')'
+
+
+def _save_deadline(config, year_plan, month_plan, str_deadline):
+    """Best-effort: record this month's response deadline on Drive so build_collect_panel can
+    automatically pick it up for its reminder-email draft, without the user re-entering it."""
+    try:
+        services = get_services(config, SCOPE_DRIVE_FORMS)
+        id_month = resolve_folder_id(services.drive, month_folder_path(year_plan, month_plan), create=True)
+        write_json(services.drive, id_month, 'deadline.json', {'str_deadline': str_deadline})
+    except Exception:
+        print('[WARNING] Could not save the response deadline for later reuse:')
+        print(traceback.format_exc())
+
+
+def _load_deadline(config, year_plan, month_plan):
+    """Best-effort load of this month's response deadline, as recorded by the 'Create Google
+    Form' step above -- returns None on any failure (nothing recorded yet, network issue), never
+    raises. Safe to call from a worker thread."""
+    try:
+        services = get_services(config, SCOPE_DRIVE_FORMS)
+        id_month = resolve_folder_id(services.drive, month_folder_path(year_plan, month_plan), create=False)
+        dict_deadline = read_json(services.drive, id_month, 'deadline.json', default=None)
+        return dict_deadline['str_deadline'] if dict_deadline else None
+    except Exception:
+        return None
+
+
 def build_form_panel(state):
-    w_set_deadline = QCheckBox('Set response deadline')
     w_deadline = QDateEdit(QDate.currentDate())
     w_deadline.setCalendarPopup(True)
-    w_deadline.setEnabled(False)
-    w_set_deadline.toggled.connect(w_deadline.setEnabled)
+
+    # Holidays/ECT-cancel only ever matter to this stage (script/form.py::prepare_form), so they
+    # live here rather than in the common params bar above the tabs.
+    state.w_holiday = _CalendarSelector(lock_weekend=True)
+    state.w_ect_cancel = _CalendarSelector(lock_weekend=False)
+
+    def _refresh_calendars():
+        year, month = state.year_plan, state.month_plan
+        state.w_holiday.rebuild(year, month, _jp_holiday_days(year, month))
+        state.w_ect_cancel.rebuild(year, month)
+    _refresh_calendars()
+    state.w_year.currentIndexChanged.connect(_refresh_calendars)
+    state.w_month.currentIndexChanged.connect(_refresh_calendars)
 
     button = QPushButton('Create Google Form')
+    status = _make_status_label()
     output = _make_output()
     state.l_button.append(button)
 
     def on_click():
         year_plan, month_plan = state.year_plan, state.month_plan
         l_holiday, l_date_ect_cancel = state.l_holiday, state.l_date_ect_cancel
-        if w_set_deadline.isChecked():
-            d = w_deadline.date().toPyDate()
-            str_deadline = str(d.month) + '/' + str(d.day) + '(' + dict_jpnday[d.weekday()] + ')'
-        else:
-            str_deadline = None
+        str_deadline = _format_deadline(w_deadline.date())
 
         def run():
             prepare_form(state.config, year_plan, month_plan, l_holiday, l_date_ect_cancel,
                          l_day_ect, day_em, l_week_em, l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn,
                          dict_title_duty, dict_class_duty, id_template_form, dict_itemid_form,
                          str_email_template, str_email_subject_template, str_email_button_html, str_deadline)
-        _run_async(state, output, run)
+            _save_deadline(state.config, year_plan, month_plan, str_deadline)
+        _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
 
+    label_deadline = QLabel('Response deadline:')
+    label_deadline.setStyleSheet('font-weight: bold;')
     row_deadline = QHBoxLayout()
-    row_deadline.addWidget(w_set_deadline)
+    row_deadline.addWidget(label_deadline)
     row_deadline.addWidget(w_deadline)
     row_deadline.addStretch()
 
-    box = QGroupBox('Create Google Form')
-    layout = QVBoxLayout()
-    layout.addLayout(row_deadline)
-    layout.addWidget(button)
-    layout.addWidget(output)
-    box.setLayout(layout)
-    return box
+    row_calendar = QHBoxLayout()
+    row_calendar.addWidget(_labeled('Holidays', state.w_holiday))
+    row_calendar.addWidget(_labeled('ECT cancel', state.w_ect_cancel))
+
+    return _panel(row_deadline, row_calendar, _action_row(button, status), output)
 
 
 ###############################################################################
 # Collect Google form response (replaces the pre-GUI notebook's cell 2)
 ###############################################################################
 def build_collect_panel(state):
-    w_set_deadline = QCheckBox('Draft reminder email (Bcc, not-yet-answered doctors)')
-    w_deadline = QDateEdit(QDate.currentDate())
-    w_deadline.setCalendarPopup(True)
-    w_deadline.setEnabled(False)
-    w_set_deadline.toggled.connect(w_deadline.setEnabled)
-
     button = QPushButton('Collect Availability')
+    status = _make_status_label()
     output = _make_output()
     state.l_button.append(button)
 
     def on_click():
         year_plan, month_plan = state.year_plan, state.month_plan
-        if w_set_deadline.isChecked():
-            d = w_deadline.date().toPyDate()
-            str_deadline = str(d.month) + '/' + str(d.day) + '(' + dict_jpnday[d.weekday()] + ')'
-        else:
-            str_deadline = None
 
         def run():
+            # The response deadline set on the Create Form tab is reused automatically here
+            # (script/gui.py::_save_deadline / _load_deadline via dutyshift/result/<year>/
+            # <month>/deadline.json) -- collect_availability itself only drafts a reminder email
+            # when there is at least one not-yet-answered doctor, so this stays a no-op the rest
+            # of the time.
+            str_deadline = _load_deadline(state.config, year_plan, month_plan)
             collect_availability(state.config, year_plan, month_plan, dict_jpnday, dict_duty_jpn,
                                  str_email_reminder_template, str_email_subject_template,
                                  str_email_button_html, str_deadline)
-        _run_async(state, output, run)
+        _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
 
-    row_deadline = QHBoxLayout()
-    row_deadline.addWidget(w_set_deadline)
-    row_deadline.addWidget(w_deadline)
-    row_deadline.addStretch()
-
-    box = QGroupBox('Collect Availability')
-    layout = QVBoxLayout()
-    layout.addLayout(row_deadline)
-    layout.addWidget(button)
-    layout.addWidget(output)
-    box.setLayout(layout)
-    return box
+    return _panel(_action_row(button, status), output)
 
 
 ###############################################################################
@@ -640,6 +796,7 @@ def build_assign_panel(state):
     btn_load_last_month.clicked.connect(on_load_last_month)
 
     button = QPushButton('Run Optimization')
+    status = _make_status_label()
     output = _make_output()
     state.l_button.append(button)
 
@@ -678,7 +835,7 @@ def build_assign_panel(state):
                 except Exception:
                     print('[WARNING] Optimization succeeded but failed to record solver_params.json:')
                     print(traceback.format_exc())
-        _run_async(state, output, run)
+        _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
 
     preset_controls = QGroupBox('Solver-parameter presets')
@@ -695,14 +852,7 @@ def build_assign_panel(state):
     preset_layout.addWidget(output_preset)
     preset_controls.setLayout(preset_layout)
 
-    box = QGroupBox('Optimize Assignment')
-    layout = QVBoxLayout()
-    layout.addWidget(preset_controls)
-    layout.addWidget(advanced)
-    layout.addWidget(button)
-    layout.addWidget(output)
-    box.setLayout(layout)
-    return box
+    return _panel(preset_controls, advanced, _action_row(button, status), output)
 
 
 ###############################################################################
@@ -710,6 +860,7 @@ def build_assign_panel(state):
 ###############################################################################
 def build_notify_panel(state):
     button = QPushButton('Publish to Calendar')
+    status = _make_status_label()
     output = _make_output()
     state.l_button.append(button)
 
@@ -718,26 +869,25 @@ def build_notify_panel(state):
 
         def run():
             update_calendar(state.config, year_plan, month_plan, id_calendar, dict_time_duty, n_retry_calendar)
-        _run_async(state, output, run)
+        _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
 
-    box = QGroupBox('Publish to Calendar')
-    layout = QVBoxLayout()
-    layout.addWidget(button)
-    layout.addWidget(output)
-    box.setLayout(layout)
-    return box
+    return _panel(_action_row(button, status), output)
 
 
 ###############################################################################
-# Collect replacement application (replaces the pre-GUI notebook's cell 5)
+# Replacement requests: check incoming swap requests, then apply the checked plan -- one tab
+# (replaces the pre-GUI notebook's cells 5 and 6). Kept as two clearly-ordered steps rather than
+# one button since "Apply" must run against a specific "Check" result the user has read and
+# accepted (state.d_replace_checked) -- a fresh Check is required before every Apply.
 ###############################################################################
-def build_replace_check_panel(state):
-    button = QPushButton('Check Replacement Requests')
-    output = _make_output()
-    state.l_button.append(button)
+def build_replace_panel(state):
+    button_check = QPushButton('Check Replacement Requests')
+    status_check = _make_status_label()
+    output_check = _make_output(min_height=120)
+    state.l_button.append(button_check)
 
-    def on_click():
+    def on_check():
         year_plan, month_plan = state.year_plan, state.month_plan
 
         def run():
@@ -747,26 +897,19 @@ def build_replace_check_panel(state):
 
         def apply(d_replace_checked):
             state.d_replace_checked = d_replace_checked
-        _run_async(state, output, run, apply)
-    button.clicked.connect(on_click)
+        _run_async(state, output_check, run, apply, status=status_check)
+    button_check.clicked.connect(on_check)
 
-    box = QGroupBox('Check Replacement Requests')
-    layout = QVBoxLayout()
-    layout.addWidget(button)
-    layout.addWidget(output)
-    box.setLayout(layout)
-    return box
+    line = QFrame()
+    line.setFrameShape(QFrame.HLine)
+    line.setStyleSheet('color: #ddd;')
 
+    button_apply = QPushButton('Apply Replacement')
+    status_apply = _make_status_label()
+    output_apply = _make_output(min_height=120)
+    state.l_button.append(button_apply)
 
-###############################################################################
-# Apply checked replacement plan (replaces the pre-GUI notebook's cell 6)
-###############################################################################
-def build_replace_apply_panel(state):
-    button = QPushButton('Apply Replacement')
-    output = _make_output()
-    state.l_button.append(button)
-
-    def on_click():
+    def on_apply():
         year_plan, month_plan = state.year_plan, state.month_plan
         d_replace_checked = state.d_replace_checked
 
@@ -775,15 +918,12 @@ def build_replace_apply_panel(state):
                 print("Run 'Check Replacement Requests' first.")
                 return
             replace_assignment(state.config, year_plan, month_plan, dict_score_duty, l_class_duty, d_replace_checked)
-        _run_async(state, output, run)
-    button.clicked.connect(on_click)
+        _run_async(state, output_apply, run, status=status_apply)
+    button_apply.clicked.connect(on_apply)
 
-    box = QGroupBox('Apply Replacement')
-    layout = QVBoxLayout()
-    layout.addWidget(button)
-    layout.addWidget(output)
-    box.setLayout(layout)
-    return box
+    return _panel(_action_row(button_check, status_check), output_check,
+                 line,
+                 _action_row(button_apply, status_apply), output_apply)
 
 
 ###############################################################################
@@ -805,8 +945,7 @@ def build_app(state):
         ('2. Collect', build_collect_panel(state)),
         ('3. Assign', build_assign_panel(state)),
         ('4. Notify', build_notify_panel(state)),
-        ('5. Check Replace', build_replace_check_panel(state)),
-        ('6. Apply Replace', build_replace_apply_panel(state)),
+        ('5. Replace', build_replace_panel(state)),
     ]
     tabs = QTabWidget()
     for title, panel in l_tab:

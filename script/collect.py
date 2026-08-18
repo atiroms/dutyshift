@@ -12,6 +12,7 @@ from script.drive_io import (
 def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_jpn,
                          str_email_reminder_template, str_email_subject_template,
                          str_email_button_html, str_deadline=None):
+    print('[1/3] Reading form responses...')
     services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='clct')
 
@@ -32,6 +33,7 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_j
     str_mail_missing = ', '.join(l_mail_missing)
 
     # Format answer
+    print('[2/3] Parsing availability...')
     d_cal_duty = read_csv(services.drive, dp.id_month, 'duty.csv')
     l_col = d_availability_src.columns.tolist()
 
@@ -183,6 +185,7 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_j
     d_availability_duty = check_availability_duty(d_member, d_availability)
     d_availability_member = check_availability_member(d_member, d_availability)
 
+    print('[3/3] Saving results and drafting reminder email...')
     for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
         write_csv(services.drive, id_folder, 'availability.csv', d_availability, index=True)
         write_csv(services.drive, id_folder, 'availability_ratio.csv', d_availability_ratio, index=True)
@@ -217,4 +220,5 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_j
         print('[WARNING] Could not draft the reminder email:')
         print(traceback.format_exc())
 
+    print('Done')
     return str_member_missing, str_mail_missing, d_availability, d_info, d_member

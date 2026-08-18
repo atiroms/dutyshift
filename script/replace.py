@@ -137,6 +137,7 @@ def check_replacement(config, year_plan, month_plan):
     else:
         print('No new data detected')
 
+    print('Done')
     return d_replace_checked
 
 
@@ -187,4 +188,5 @@ def replace_assignment(config, year_plan, month_plan, dict_score_duty, l_class_d
         convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
                         d_member, d_date_duty, d_cal, l_class_duty, dict_score_duty, d_lim_exact, d_lim_hard)
 
+    print('Done')
     return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print

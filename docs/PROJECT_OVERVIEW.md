@@ -56,6 +56,10 @@ Pure Python, driven interactively from a `PyQt5` desktop app.
   may only be touched from the thread that owns them, so anything a worker needs from a widget
   is captured into a plain value before dispatch, and anything its result needs to write back to
   a widget happens in an `on_success` callback marshaled back onto the GUI thread.
+- **[jpholiday](https://pypi.org/project/jpholiday/)** — Japanese national-holiday lookup, used
+  only to default the "1. Create Form" tab's Holidays calendar to that month's official holidays;
+  pinned to `0.1.10`, since `jpholiday>=1.0` requires Python 3.9+ and breaks import on this
+  codebase's pinned Python 3.8.13.
 - Standard library: `os`, `datetime`, `calendar`, `math.ceil`, `random`, `time.sleep`, `traceback`.
 
 Pinned in `requirements.txt` (`pip install -r requirements.txt`) — versions this codebase is
@@ -92,34 +96,38 @@ to the underlying `script/*.py` function below it — none of the pipeline logic
 and can still be embedded/shown individually (e.g. from a scratch script) if useful for
 debugging just one stage.
 
-**Common parameters** (`build_common_params_panel`, pinned above the tabs): Year/Month
-dropdowns plus Holiday/ECT-cancel multi-selects, the latter two rebuilt from
-`calendar.monthrange` whenever year or month changes. These replace what used to be a
+**Common parameters** (`build_common_params_panel`, pinned above the tabs): just the Year/Month
+dropdowns — the only inputs every stage actually shares. These replace what used to be a
 hand-edited `year_plan, month_plan, l_holiday = ...` tuple (past months' tuples, back to
-2024-06, are recoverable from git history if ever needed, e.g. `git log -p -- main.ipynb`) —
-weekends are always holidays automatically regardless of the selection (see
-[Data model](#data-model)). Populates the `AppState` (`state`) that every tab reads
-`year_plan`/`month_plan`/`l_holiday`/`l_date_ect_cancel` from at click time, plus the one value
-that genuinely flows between tabs in memory, `d_replace_checked` (see "5. Check Replace" →
-"6. Apply Replace" below). `script/gui.py` itself explicitly imports the fixed, rarely-changing
-configuration (duty types, scoring weights, per-title duty eligibility, Google resource IDs) it
-needs from `script/parameter.py`.
+2024-06, are recoverable from git history if ever needed, e.g. `git log -p -- main.ipynb`).
+Populates the `AppState` (`state`) that every tab reads `year_plan`/`month_plan` from at click
+time, plus the one value that genuinely flows between steps in memory, `d_replace_checked` (see
+"5. Replace" below).
 
 **Tab "1. Create Form"** (`build_form_panel` → `script/form.py::prepare_form`): builds the
 month's calendar and duty-slot structure, then creates (from a template) a Google Form asking
 each doctor their availability, printing the form's response URL for distribution into the
-tab's output area. Also, best-effort (a failure here doesn't fail the form creation itself):
-copies forward next month's `dutyshift/config/member` tab from the nearest prior month
-(`script/helper.py::ensure_member_sheet` — skips gaps, never overwrites an existing tab) as a
-starting point for that month's per-doctor parameter edits, then drafts (never sends) a
-notification email to every active doctor via Gmail, using the response deadline entered in
-this tab's date picker (auto-formatted `M/D(曜)` via `dict_jpnday`) and the template in
-`script/parameter.py::str_email_template`.
+tab's output area (which also shows each stage's progress, e.g. `[1/4] Preparing calendar...`,
+ending `Done`). Holidays and ECT-cancel dates — only ever used by this stage — are picked here as
+two week-per-row calendar grids (`script/gui.py::_CalendarSelector`), Sunday-first with
+Sunday/Saturday tinted red/blue; Holidays defaults to that month's official Japanese holidays
+(`jpholiday`), with weekend cells locked on (weekends are always holidays automatically
+regardless of this selection — see [Data model](#data-model)), both grids rebuilding whenever
+year/month changes. The response deadline (a required date picker, auto-formatted `M/D(曜)` via
+`dict_jpnday`) is used for the notification email drafted here (never sent, via
+`script/parameter.py::str_email_template`) — copying forward next month's
+`dutyshift/config/member` tab from the nearest prior month
+(`script/helper.py::ensure_member_sheet` — skips gaps, never overwrites an existing tab) is a
+separate, independently best-effort step — and is also persisted to Drive
+(`dutyshift/result/<year>/<month>/deadline.json` via `script/gui.py::_save_deadline`) so "2.
+Collect" can reuse it automatically.
 
 **Tab "2. Collect"** (`build_collect_panel` → `script/collect.py::collect_availability`): reads
 form responses plus the member roster, builds an availability matrix, flags doctors who haven't
 responded or whose "designated physician" status doesn't match the roster, and prints any
-free-text requests doctors left in the form.
+free-text requests doctors left in the form. Drafts (never sends) a reminder email Bcc'd to
+not-yet-answered doctors automatically — no separate opt-in checkbox — reusing the deadline saved
+by "1. Create Form" (`script/gui.py::_load_deadline`); it's a no-op once everyone has answered.
 
 **Tab "3. Assign"** (`build_assign_panel` → `script/assign.py`): the core stage. Solver-tuning
 hyperparameters (weights for score-deviation penalties, closeness thresholds, objective-term
@@ -134,15 +142,21 @@ schedule against existing events on the shared Google Calendar and adds/deletes/
 (one per duty per doctor), including substitute-candidate info and a link to the shift-swap
 request form in each event's description.
 
-**Tab "5. Check Replace"** (`build_replace_check_panel` →
-`script/replace.py::check_replacement`): reads a second, separate Google Form used for
-shift-swap requests, prints a proposed before → after diff, and stores the result on
-`state.d_replace_checked` for the next tab.
+**Tab "5. Replace"** (`build_replace_panel`) holds both former "check" and "apply" steps
+stacked in one panel, each with its own button/status/output, since applying a swap always needs
+a specific check's result read and accepted first:
+- **Check** (→ `script/replace.py::check_replacement`): reads a second, separate Google Form
+  used for shift-swap requests, prints a proposed before → after diff, and stores the result on
+  `state.d_replace_checked` for the Apply step below.
+- **Apply** (→ `script/replace.py::replace_assignment`): re-applies the swap to the assignment
+  tables and regenerates the summary/score outputs, using `state.d_replace_checked` from the
+  Check step above (prints a friendly reminder instead of erroring if Check hasn't been run
+  yet).
 
-**Tab "6. Apply Replace"** (`build_replace_apply_panel` →
-`script/replace.py::replace_assignment`): re-applies the swap to the assignment tables and
-regenerates the summary/score outputs, using `state.d_replace_checked` from the previous tab
-(prints a friendly reminder instead of erroring if that tab hasn't been run yet).
+Every tab's action button is paired with a small Running/Done/Failed status pill
+(`script/gui.py::_make_status_label` / `_run_async(..., status=...)`) as a quick-glance
+complement to the detailed stage-by-stage log each pipeline function prints into that tab's
+output box.
 
 ### `script/` module map
 
@@ -157,7 +171,7 @@ regenerates the summary/score outputs, using `state.d_replace_checked` from the 
 | `script/notify.py` | 202 | Google Calendar integration: `update_calendar`, `add_duty`, `delete_duty`, `list_duty`, `compare_event`. |
 | `script/replace.py` | 190 | Shift-swap flow: `check_replacement`, `replace_assignment`, and `_check_designation_pairing` (warns, doesn't block, if a swap breaks the day/night + on-call designated-physician pairing invariant). |
 | `script/check.py` | 46 | Small sanity-check helpers: `check_availability_duty`, `check_availability_member`. No Drive I/O. |
-| `script/gui.py` | 798 | `PyQt5` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), the `_Worker`/`_run_async` background-`QThread` machinery every button click runs through, one `build_*_panel()` function per stage above, and `build_app()` combining them into the single window `main.py` shows (params on top, stages as `Tab`s). The Assign panel also handles solver-parameter preset save/load/auto-default (`_pack_solver_params`/`_apply_solver_params`/`_load_last_month_solver_params`). No pipeline logic of its own. |
+| `script/gui.py` | 957 | `PyQt5` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), the `_Worker`/`_run_async` background-`QThread` machinery every button click runs through (with an optional Running/Done/Failed status pill), `_CalendarSelector` (the week-per-row Holidays/ECT-cancel day picker), one `build_*_panel()` function per stage above (5 tabs; "5. Replace" covers both check and apply), and `build_app()` combining them into the single window `main.py` shows (Year/Month on top, stages as `Tab`s). The Assign panel also handles solver-parameter preset save/load/auto-default (`_pack_solver_params`/`_apply_solver_params`/`_load_last_month_solver_params`). No pipeline logic of its own. |
 
 ## Data model
 
@@ -352,11 +366,13 @@ a judgment of the project.
   separate hardcoded assumption (`<p_root>/GitHub/dutyshift` as the repo checkout location, plus
   a process-wide `os.chdir`) is also gone — nothing needs it once there's no local data path to
   resolve.
-- **~~Monthly params accumulate as dead code~~ (resolved).** Year/month/holidays are now set via
-  dropdowns/multi-selects (`script/gui.py::build_common_params_panel`) instead of editing a
-  Python tuple each month; the old commented-out per-month history block no longer exists in the
-  live app at all (past months' tuples, back to 2024-06, are recoverable from git history if
-  ever needed, e.g. `git log -p -- main.ipynb`) — nothing grows via further hand-edits.
+- **~~Monthly params accumulate as dead code~~ (resolved).** Year/month are now set via
+  dropdowns (`script/gui.py::build_common_params_panel`) and holidays/ECT-cancel via
+  week-per-row calendar grids on the "1. Create Form" tab (`script/gui.py::_CalendarSelector`)
+  instead of editing a Python tuple each month; the old commented-out per-month history block no
+  longer exists in the live app at all (past months' tuples, back to 2024-06, are recoverable
+  from git history if ever needed, e.g. `git log -p -- main.ipynb`) — nothing grows via further
+  hand-edits.
 - **~~Ad hoc solver-tuning presets~~ (resolved).** The "3. Assign" tab's solver hyperparameters
   (`dict_c_diff_score_current`/`_total`, `dict_closeduty` thresholds, objective weights,
   `type_limit`, fulltime/skip overrides) are editable widgets that now persist through
@@ -403,9 +419,9 @@ a judgment of the project.
   has no automated coverage.
 - **~~No dependency lockfile~~ (resolved).** `requirements.txt` now pins every direct dependency
   (`pulp`, `ortoolpy`, `pandas`, `numpy`, `google-api-python-client`, `google-auth`,
-  `google-auth-oauthlib`, `PyQt5`) to the exact versions this codebase is developed and tested
-  against. Re-pin deliberately (e.g. after verifying a version bump still works), don't let
-  installs silently drift.
+  `google-auth-oauthlib`, `PyQt5`, `jpholiday`) to the exact versions this codebase is developed
+  and tested against. Re-pin deliberately (e.g. after verifying a version bump still works),
+  don't let installs silently drift.
 - **Duplicated logic between the main pipeline and archived seasonal notebooks.** The
   now-archived per-season notebooks (summer/winter vacation assignment, etc.) reimplement their
   own inline PuLP model and their own result-extraction/CSV-saving/printing boilerplate rather

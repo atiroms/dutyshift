@@ -13,6 +13,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
                  id_template_form, dict_itemid_form, str_email_template, str_email_subject_template,
                  str_email_button_html, str_deadline=None):
 
+    print('[1/4] Preparing calendar and duty list...')
     services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='form')
 
@@ -58,6 +59,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     # The month's live Drive folder (dp.id_month, "dutyshift/result/<year>/<month>/") is where
     # the form's supporting data already lives -- the form artifact itself is created directly
     # inside it.
+    print('[2/4] Creating Google Form...')
     id_folder_data = dp.id_month
     body = {'name':'form_' + str(year_plan) + str(month_plan).zfill(2), 'parents': [id_folder_data]}
     form_copied = services.drive.files().copy(fileId=id_template_form, body=body, fields='id, name, parents').execute()
@@ -88,6 +90,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     # for unrelated reasons (e.g. Gmail's drafts.create failing with an insufficient-scope error
     # has nothing to do with whether the member tab copy above it succeeded).
     ###############################################################################
+    print('[3/4] Copying forward next month\'s roster...')
     try:
         id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
         ensure_member_sheet(services.drive, services.sheets, id_config, year_plan, month_plan)
@@ -95,6 +98,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
         print('[WARNING] Could not copy forward next month\'s member tab:')
         print(traceback.format_exc())
 
+    print('[4/4] Drafting notification email...')
     try:
         if not str_deadline:
             print('No response deadline set -- skipping notification email draft.')
@@ -123,4 +127,5 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
         print('[WARNING] Could not draft the notification email:')
         print(traceback.format_exc())
 
+    print('Done')
     return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty, d_cal_duty, d_form

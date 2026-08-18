@@ -19,3 +19,9 @@ google-auth-oauthlib==0.5.1
 
 # GUI (script/gui.py, main.py) -- desktop app, no notebook/kernel involved.
 PyQt5==5.15.11
+
+# Japanese national-holiday lookup, used to default the "Holidays" calendar in the Create Form
+# tab (script/gui.py) to Japan's official holidays. Pinned to 0.1.10, not a newer release --
+# jpholiday>=1.0 uses `tuple[...]` builtin-generic syntax that requires Python 3.9+, which
+# breaks import on this codebase's pinned Python 3.8.13.
+jpholiday==0.1.10

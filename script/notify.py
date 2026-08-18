@@ -65,6 +65,7 @@ def update_calendar(config, year_plan, month_plan, id_calendar, dict_time_duty, 
         print('Duty not added ', l_date_duty_add)
     if len(l_date_duty_delete) + len(l_date_duty_change) + len(l_date_duty_add) == 0:
         print('Confirmed update')
+    print('Done')
 
 
 def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availability, num_retries=5):
