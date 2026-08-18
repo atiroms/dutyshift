@@ -346,6 +346,10 @@ class _CalendarSelector(QWidget):
         self._lock_weekend = lock_weekend
         self._dict_button = {}
         self._grid = QGridLayout(self)
+        # Zero out Qt's default layout margin (otherwise the grid renders indented a good
+        # ~10px from its own top-left, making it look like it has drifted away from the
+        # "Holidays"/"ECT cancel" QLabel caption sitting flush above it in _labeled()).
+        self._grid.setContentsMargins(0, 2, 0, 0)
         self._grid.setSpacing(3)
         for col, label in enumerate(['日', '月', '火', '水', '木', '金', '土']):
             lbl = QLabel(label)
@@ -504,8 +508,9 @@ def build_form_panel(state):
     row_deadline.addStretch()
 
     row_calendar = QHBoxLayout()
-    row_calendar.addWidget(_labeled('Holidays', state.w_holiday))
-    row_calendar.addWidget(_labeled('ECT cancel', state.w_ect_cancel))
+    row_calendar.addWidget(_labeled('Holidays', state.w_holiday), 0, Qt.AlignTop)
+    row_calendar.addWidget(_labeled('ECT cancel', state.w_ect_cancel), 0, Qt.AlignTop)
+    row_calendar.addStretch()
 
     return _panel(row_deadline, row_calendar, _action_row(button, status), output)
 
