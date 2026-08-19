@@ -1,7 +1,164 @@
 
 import numpy as np
 import pandas as pd, datetime as dt
-from script.drive_io import get_services, prep_drive_paths, read_csv, SCOPE_DRIVE_CALENDAR
+from script.drive_io import get_services, prep_drive_paths, read_csv, ensure_gsheet_tab, SCOPE_DRIVE_CALENDAR
+
+
+###############################################################################
+# Create the "調整結果" (adjustment result) Google Sheet -- a human-readable duty table for the
+# month (tab 'ver.<today>', from assign_print.csv) plus a per-doctor score breakdown (tab
+# 'score', from score_print.csv), both written by script/helper.py::convert_assignment during
+# "3. Assign". Column widths/colors/borders/merges below were reverse-engineered from a hand-
+# built reference sheet for this same roster to match its look exactly -- see git history for
+# the reference this was matched against if these ever need re-deriving.
+#
+# Columns 'B当直' and the left half of the merged 'ECT' header are duty slots staffed by a
+# separate, non-dutyshift process (e.g. a hospital team-leader rotation) -- they are always left
+# blank here, on purpose, for someone to fill in by hand afterward.
+###############################################################################
+_COLOR_BORDER = {'red': 0.8509804, 'green': 0.8509804, 'blue': 0.8509804}
+_COLOR_HEADER_BG = {'red': 0.34901962, 'green': 0.34901962, 'blue': 0.34901962}
+_COLOR_HEADER_FG = {'red': 1, 'green': 1, 'blue': 1}
+_COLOR_HOLIDAY_BG = {'red': 0.7176471, 'green': 0.7176471, 'blue': 0.7176471}
+_ASSIGN_COL_WIDTH = [90, 71, 64, 86, 145, 47, 55, 59, 59]  # 日付,am,pm,A当直,B当直,ocday,ocnight,ECT(左右)
+_BORDER_ALL_SIDES = {side: {'style': 'SOLID', 'width': 1, 'color': _COLOR_BORDER}
+                     for side in ('top', 'bottom', 'left', 'right')}
+
+
+def _is_holiday_title_date(title_date):
+    """title_date is script/helper.py::prep_calendar's '8/1(土)' / '8/11(火・祝)' style string --
+    holiday rows (weekends and jpholiday-flagged dates) are the ones whose weekday/holiday marker
+    is 土, 日 or 祝, which only ever appears inside that trailing parenthetical."""
+    return any(marker in title_date for marker in ('土', '日', '祝'))
+
+
+_ZENKAKU_DIGIT = str.maketrans('0123456789', '０１２３４５６７８９')
+
+
+def _repeat_cell(id_sheet, r0, r1, c0, c1, fmt, fields):
+    return {'repeatCell': {
+        'range': {'sheetId': id_sheet, 'startRowIndex': r0, 'endRowIndex': r1,
+                 'startColumnIndex': c0, 'endColumnIndex': c1},
+        'cell': {'userEnteredFormat': fmt},
+        'fields': fields,
+    }}
+
+
+def _merge(id_sheet, r0, r1, c0, c1):
+    return {'mergeCells': {'range': {'sheetId': id_sheet, 'startRowIndex': r0, 'endRowIndex': r1,
+                                     'startColumnIndex': c0, 'endColumnIndex': c1},
+                           'mergeType': 'MERGE_ALL'}}
+
+
+def _build_assignment_requests(id_sheet, l_title_date):
+    """id_sheet: real sheetId of the 'ver.<today>' tab. l_title_date: this month's '日付' column
+    values in row order, used only to find which rows are holidays (get the gray row fill and the
+    am/pm cell merge)."""
+    n_row_data = len(l_title_date)
+    n_row_total = 2 + n_row_data  # row0 title, row1 header, rows2.. data
+    n_col = len(_ASSIGN_COL_WIDTH)
+
+    l_request = [
+        {'updateSheetProperties': {'properties': {'sheetId': id_sheet, 'gridProperties': {'hideGridlines': True}},
+                                   'fields': 'gridProperties.hideGridlines'}},
+    ]
+    for idx, width in enumerate(_ASSIGN_COL_WIDTH):
+        l_request.append({'updateDimensionProperties': {
+            'range': {'sheetId': id_sheet, 'dimension': 'COLUMNS', 'startIndex': idx, 'endIndex': idx + 1},
+            'properties': {'pixelSize': width}, 'fields': 'pixelSize'}})
+
+    # Base look for every header+data cell: font, bottom-aligned text, light-gray border. Applied
+    # first so the more specific requests below only need to override what actually differs.
+    l_request.append(_repeat_cell(id_sheet, 1, n_row_total, 0, n_col,
+        {'textFormat': {'fontFamily': 'Calibri', 'fontSize': 11}, 'verticalAlignment': 'BOTTOM',
+         'borders': _BORDER_ALL_SIDES},
+        'userEnteredFormat(textFormat,verticalAlignment,borders)'))
+    # Title row: bold, larger, centered, no border/background.
+    l_request.append(_repeat_cell(id_sheet, 0, 1, 0, n_col,
+        {'horizontalAlignment': 'CENTER', 'textFormat': {'fontFamily': 'Calibri', 'fontSize': 18, 'bold': True}},
+        'userEnteredFormat(horizontalAlignment,textFormat)'))
+    # Header row: dark background, white centered text.
+    l_request.append(_repeat_cell(id_sheet, 1, 2, 0, n_col,
+        {'backgroundColor': _COLOR_HEADER_BG, 'horizontalAlignment': 'CENTER',
+         'textFormat': {'foregroundColor': _COLOR_HEADER_FG, 'fontFamily': 'Calibri', 'fontSize': 11}},
+        'userEnteredFormat(backgroundColor,horizontalAlignment,textFormat)'))
+    # Data cells: every column but the date one is centered.
+    l_request.append(_repeat_cell(id_sheet, 2, n_row_total, 1, n_col,
+        {'horizontalAlignment': 'CENTER'}, 'userEnteredFormat.horizontalAlignment'))
+
+    # Title cell, and the merged 'ECT' header.
+    l_request.append(_merge(id_sheet, 0, 1, 0, n_col))
+    l_request.append(_merge(id_sheet, 1, 2, 7, 9))
+
+    # Holiday rows (weekends/national holidays): gray row fill, and the am/pm cells merged into
+    # one (this system's 'day' duty already puts the same name in both, see convert_assignment).
+    for i, title_date in enumerate(l_title_date):
+        if not _is_holiday_title_date(title_date):
+            continue
+        r = 2 + i
+        l_request.append(_repeat_cell(id_sheet, r, r + 1, 0, n_col,
+            {'backgroundColor': _COLOR_HOLIDAY_BG}, 'userEnteredFormat.backgroundColor'))
+        l_request.append(_merge(id_sheet, r, r + 1, 1, 3))
+
+    return l_request
+
+
+def _build_score_requests(id_sheet):
+    l_request = [{'updateDimensionProperties': {
+        'range': {'sheetId': id_sheet, 'dimension': 'COLUMNS', 'startIndex': 0, 'endIndex': 12},
+        'properties': {'pixelSize': 100}, 'fields': 'pixelSize'}}]
+    l_request.append(_merge(id_sheet, 0, 1, 2, 7))   # '当月分' group header
+    l_request.append(_merge(id_sheet, 0, 1, 7, 12))  # '今年度分' group header
+    return l_request
+
+
+def create_assignment_sheet(config, year_plan, month_plan):
+    print('[1/3] Reading assignment and score...')
+    services = get_services(config, SCOPE_DRIVE_CALENDAR)
+    dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='', make_data_dir=False)
+    d_assign_print = read_csv(services.drive, dp.id_month, 'assign_print.csv')
+    d_score_print = read_csv(services.drive, dp.id_month, 'score_print.csv')
+
+    def cell(v):
+        return '' if pd.isna(v) else v
+
+    print('[2/3] Creating assignment table...')
+    # 'A当直' here is script/helper.py::convert_assignment's '当直' column (night duty, folding
+    # in emnight) -- named 'A当直' to distinguish it from the separately-staffed 'B当直' rotation.
+    # 'ECT' is a header merged across two columns in the reference sheet this mirrors: the left
+    # (team-leader) half is filled by hand, the right half is this system's own 'ect' assignment.
+    title = str(month_plan).translate(_ZENKAKU_DIGIT) + '月　精神神経科　日当直'
+    header = ['日付', '午前日直', '午後日直', 'A当直', 'B当直', '日直OC', '当直OC', 'ECT', '']
+    values_assign = [[title], header]
+    l_title_date = d_assign_print['日付'].tolist()
+    for _, row in d_assign_print.iterrows():
+        values_assign.append([cell(row['日付']), cell(row['午前日直']), cell(row['午後日直']), cell(row['当直']),
+                              '', cell(row['日直OC']), cell(row['当直OC']), '', cell(row['ECT'])])
+
+    filename = 'assignment_{:04d}{:02d}'.format(year_plan, month_plan)
+    sheet_name_assign = 'ver.' + dt.date.today().strftime('%Y%m%d')
+    result_assign, _ = ensure_gsheet_tab(
+        services.sheets, services.drive, dp.id_month, filename, sheet_name_assign, values_assign,
+        build_requests=lambda id_sheet: _build_assignment_requests(id_sheet, l_title_date))
+    if result_assign == 'tab_exists':
+        print(sheet_name_assign + ' tab already exists in ' + filename + ' -- left untouched (avoids clobbering any hand edits).')
+    else:
+        print('Wrote ' + filename + ' tab ' + sheet_name_assign + '.')
+
+    print('[3/3] Creating score table...')
+    header_group1 = ['', '', '当月分', '', '', '', '', '今年度分']
+    header_group2 = ['', '', '平日日直', '当直・休日日直', '日当直計', 'オンコール', 'ECT当番',
+                     '平日日直', '当直・休日日直', '日当直計', 'オンコール', 'ECT当番']
+    values_score = [header_group1, header_group2, d_score_print.columns.tolist()]
+    for _, row in d_score_print.iterrows():
+        values_score.append([cell(v) for v in row.tolist()])
+    # A purely computed table (no hand-editable columns) -- safe to overwrite in place on rerun,
+    # unlike the assignment tab above.
+    result_score, _ = ensure_gsheet_tab(
+        services.sheets, services.drive, dp.id_month, filename, 'score', values_score,
+        build_requests=_build_score_requests, overwrite=True)
+    print(filename + " tab 'score' " + ('overwritten' if result_score == 'tab_overwritten' else 'written') + '.')
+    print('Done')
 
 
 def compare_event(d_assign_date_duty, d_event_exist):

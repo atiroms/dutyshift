@@ -428,6 +428,75 @@ def copy_gsheet_tab(service_sheets, service_drive, id_folder, filename, sheet_sr
     return 'copied'
 
 
+def ensure_gsheet_tab(service_sheets, service_drive, id_folder, filename, sheet_name, values,
+                      build_requests=None, overwrite=False):
+    """Ensure a native Google Sheet named `filename` exists in Drive folder `id_folder` and has a
+    tab `sheet_name` populated with `values` (list of rows, each a list of cell values -- row 0
+    is typically the header). Creates the spreadsheet (moving it into id_folder) if it doesn't
+    exist yet; adds the tab within it if the spreadsheet already exists but the tab doesn't.
+
+    If the tab already exists: left untouched (returns 'tab_exists') unless overwrite=True, in
+    which case its content and formatting are replaced in place. Pass overwrite=True only for
+    tabs with no hand-editable content (e.g. a purely computed score table) -- never for a tab a
+    human might have since hand-edited, same non-destructive convention as copy_gsheet_tab.
+
+    `build_requests(id_sheet)`, given the tab's real sheetId once it exists, may optionally
+    return a list of further Sheets API batchUpdate request dicts (repeatCell for
+    colors/fonts/borders, mergeCells, updateDimensionProperties for column widths, ...), applied
+    right after the values are written.
+
+    Returns ('file_and_tab_created' | 'tab_created' | 'tab_overwritten' | 'tab_exists', id_file).
+    """
+    id_file = _find_file_id(service_drive, id_folder, filename)
+    file_created = False
+    if id_file is None:
+        body_create = {'properties': {'title': filename},
+                       'sheets': [{'properties': {'title': sheet_name}}]}
+        result = service_sheets.spreadsheets().create(
+            body=body_create, fields='spreadsheetId,sheets.properties.sheetId'
+        ).execute()
+        id_file = result['spreadsheetId']
+        id_sheet = result['sheets'][0]['properties']['sheetId']
+
+        # spreadsheets().create() always creates the file in the caller's My Drive root -- move
+        # it into id_folder to match every other Drive-backed file this codebase writes.
+        file_meta = service_drive.files().get(fileId=id_file, fields='parents').execute()
+        str_parent_prev = ','.join(file_meta.get('parents', []))
+        service_drive.files().update(fileId=id_file, addParents=id_folder,
+                                     removeParents=str_parent_prev, fields='id').execute()
+        file_created = True
+    else:
+        resp = service_sheets.spreadsheets().get(
+            spreadsheetId=id_file, fields='sheets.properties(sheetId,title)'
+        ).execute()
+        dict_title_to_id = {s['properties']['title']: s['properties']['sheetId']
+                            for s in resp.get('sheets', [])}
+        if sheet_name in dict_title_to_id:
+            if not overwrite:
+                return 'tab_exists', id_file
+            id_sheet = dict_title_to_id[sheet_name]
+            service_sheets.spreadsheets().values().clear(
+                spreadsheetId=id_file, range=sheet_name, body={}
+            ).execute()
+        else:
+            body_add = {'requests': [{'addSheet': {'properties': {'title': sheet_name}}}]}
+            resp_add = service_sheets.spreadsheets().batchUpdate(spreadsheetId=id_file, body=body_add).execute()
+            id_sheet = resp_add['replies'][0]['addSheet']['properties']['sheetId']
+
+    service_sheets.spreadsheets().values().update(
+        spreadsheetId=id_file, range=sheet_name, valueInputOption='RAW', body={'values': values}
+    ).execute()
+
+    if build_requests:
+        requests = build_requests(id_sheet)
+        if requests:
+            service_sheets.spreadsheets().batchUpdate(spreadsheetId=id_file, body={'requests': requests}).execute()
+
+    if file_created:
+        return 'file_and_tab_created', id_file
+    return ('tab_overwritten' if overwrite else 'tab_created'), id_file
+
+
 def read_json(service, id_folder, filename, default=None):
     """Unlike read_csv/read_gsheet, returns `default` instead of raising when the file doesn't
     exist -- callers (solver-preset/audit-record lookups) treat 'nothing recorded yet' as an

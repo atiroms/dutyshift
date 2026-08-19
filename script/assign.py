@@ -29,11 +29,13 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
     ###############################################################################
     # Manual assignment
     ###############################################################################
+    l_date_duty_manual = []
     for i_date_duty in d_assign_manual.loc[~d_assign_manual['id_member'].isna(), :].index.to_list():
         date_duty = d_assign_manual.loc[i_date_duty, 'date_duty']
         id_member = d_assign_manual.loc[i_date_duty, 'id_member']
         if date_duty in d_date_duty['date_duty'].tolist():
             prob_assign += (dv_assign.loc[date_duty, id_member] == 1)
+            l_date_duty_manual.append(date_duty)
 
 
     ###############################################################################
@@ -183,6 +185,16 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
                             l_date_duty_cont.append(date_duty)
                         if date_duty in d_assign_previous.index:
                             l_date_duty_cont_previous.append(date_duty)
+
+                # Skip this closeness constraint when 2+ of the date_duty's in this group are
+                # themselves manually designated (assign_manual.csv) -- same exemption as
+                # ll_avoid_adjacent below: a deliberate manual override between two
+                # manually-fixed slots should not be second-guessed by this hard limit. A single
+                # manual slot paired with an open one is unaffected -- the constraint still keeps
+                # other members away from being close to it.
+                if sum(date_duty in l_date_duty_manual for date_duty in l_date_duty_cont) >= 2:
+                    continue
+
                 # If the list of continuous date_duty's has more than one item
                 if (len(l_date_duty_cont) + len(l_date_duty_cont_previous)) >= 2:
                     for member in l_member:
@@ -232,6 +244,14 @@ def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_me
                     l_date_duty_cont.append(date_duty)
                 if date_duty in d_assign_previous.index:
                     l_date_duty_cont_previous.append(date_duty)
+
+            # Skip this adjacency-avoidance constraint when 2+ of the date_duty's in this group
+            # are themselves manually designated (assign_manual.csv): a deliberate manual
+            # override between two manually-fixed slots should not be second-guessed by
+            # ll_avoid_adjacent. A single manual slot paired with an open one is unaffected --
+            # the constraint still keeps other members away from being adjacent to it.
+            if sum(date_duty in l_date_duty_manual for date_duty in l_date_duty_cont) >= 2:
+                continue
 
             if (len(l_date_duty_cont) + len(l_date_duty_cont_previous)) >= 2:
                 for member in l_member:
@@ -288,7 +308,7 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     ###############################################################################
     # Optimize exact assignment count
     ###############################################################################
-    print('=' * 60 + '\nAssignment count optimization\n' + '-' * 60)
+    print('[1/4] Optimizing assignment counts...')
 
     s_cnt_class_duty = read_csv(services.drive, dp.id_month, 'cnt_class_duty.csv', index_col=0).squeeze(1)
 
@@ -334,9 +354,9 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     d_score_total = pd.concat([d_score_total_notoc, d_score_total_oc], axis=1)
 
     if status_opt_notoc & status_opt_oc:
-        print('Done, losses: ' + str(round(loss_opt_notoc, 2)) + '(non-OC), ' + str(round(loss_opt_oc, 2)) + '(OC)')
+        print('  Done (losses: ' + str(round(loss_opt_notoc, 2)) + ' non-OC, ' + str(round(loss_opt_oc, 2)) + ' OC)')
     else:
-        print('Failed assignment count optimization')
+        print('  [WARNING] Assignment count optimization failed')
 
     # Save data
     for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
@@ -348,7 +368,7 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     ###############################################################################
     # Load and prepare data for duty assignment
     ###############################################################################
-    print('=' * 60 + '\nMember assignment optimization\n' + '-' * 60)
+    print('[2/4] Preparing assignment data...')
     # Prepare data of member availability
     d_date_duty_noskip = read_csv(services.drive, dp.id_month, 'date_duty.csv')
     d_cal = read_csv(services.drive, dp.id_month, 'calendar.csv')
@@ -364,11 +384,11 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     d_assign_previous = prep_assign_previous(dp, year_plan, month_plan)
     d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_unavailable_notoc, l_date_duty_manual_assign, l_date_duty_skip =\
         skip_date_duty(d_date_duty_noskip, d_availability_noskip, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual, True)
-    print('-' * 60)
 
     ###############################################################################
     # Optimize assignment
     ###############################################################################
+    print('[3/4] Solving member assignment...')
 
     prob_assign, dv_assign, v_assign_suboptimal, v_cnt_deviation, v_closeduty, dict_dv_closeduty =\
         optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_member,
@@ -454,12 +474,13 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     ###############################################################################
     # Result output
     ###############################################################################
-    print('=' * 60 + '\nResult\n' + '-' * 60)
+    print('[4/4] Extracting and saving results...')
 
     if str(LpStatus[prob_assign.status]) == 'Optimal':
-        print('Done, losses: ' + str(round(value(prob_assign.objective), 2)) + ' = ' + str(round(c_assign_suboptimal * value(v_assign_suboptimal), 2)) + ' + '
-              + str(round(c_cnt_deviation * value(v_cnt_deviation), 2)) + ' + ' + str(round(c_closeduty * value(v_closeduty), 2)))
-        print('(Total = Suboptimality + Count Deviation + Close duty)')
+        print('  Done (losses: total=' + str(round(value(prob_assign.objective), 2)) + ' = suboptimality '
+              + str(round(c_assign_suboptimal * value(v_assign_suboptimal), 2)) + ' + count deviation '
+              + str(round(c_cnt_deviation * value(v_cnt_deviation), 2)) + ' + close duty '
+              + str(round(c_closeduty * value(v_closeduty), 2)) + ')')
         # Extract data
         #d_assign, d_assign_date_duty =\
         d_assign_date_duty =\
@@ -471,16 +492,20 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
 
         d_closeduty = extract_closeduty(dp, dict_dv_closeduty, d_assign_date_duty, d_member, dict_closeduty)
 
-        print('-' * 60 + '\nDeviation from target:\n' + '-' * 60)
-        print(d_deviation_summary)
-        print('-' * 60 + '\nClose duties:\n' + '-' * 60)
-        print(d_closeduty)
-        print('-' * 60 + '\nCandidate replacement:\n' + '-' * 60)
+        print()
+        print('Deviation from target:')
+        print(d_deviation_summary.to_string(index=False) if len(d_deviation_summary) > 0 else '  (none)')
+        print()
+        print('Close duties:')
+        print(d_closeduty.to_string(index=False) if len(d_closeduty) > 0 else '  (none)')
+        print()
+        print('Candidate replacement:')
         print_candidate_replacement(services.drive, dp.id_month, dict_class_duty, d_deviation_summary, d_assign_date_duty, d_assign_member, d_closeduty)
-        print('-' * 60)
+        print()
+        print('Done')
 
         return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_score_print, d_closeduty, d_deviation_summary, d_assign_date_duty
     else:
-        print('Failed to solve')
+        print('  [ERROR] Failed to solve')
 
         return [None] * 6

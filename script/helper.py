@@ -9,7 +9,7 @@ from pulp import LpProblem, LpVariable, LpStatus, lpSum, lpDot, value
 from ortoolpy import addvars
 from script.drive_io import (
     read_csv, write_csv, read_gsheet, check_form_exists, list_gsheet_tabs, copy_gsheet_tab,
-    list_month_folders, month_folder_path,
+    list_month_folders, month_folder_path, get_services, prep_drive_paths, SCOPE_DRIVE_FORMS,
 )
 
 
@@ -31,10 +31,16 @@ def print_candidate_replacement(service_drive, id_month, dict_class_duty, d_devi
             l_result = []
             for i1, col1 in duty_assigned.iterrows():
                 date_duty = col1['date_duty']
-                l_member = d_availability_duty.loc[date_duty, 'l_member'].split(', ')
-                l_member_jpn = d_availability_duty.loc[date_duty, 'l_member_jpn'].split(', ')
-                l_member_proxy = [i2 + '_' + name for i2, name in zip(l_member, l_member_jpn) if int(i2) != int(id_member)]
-                str_member_proxy = ', '.join(l_member_proxy)
+                # availability_duty.csv has a blank (NaN, not str) 'l_member' for a date_duty no
+                # one was available for -- can still show up here if it was only filled via a
+                # manual override (assign_manual.csv). No one to suggest as a proxy in that case.
+                if type(d_availability_duty.loc[date_duty, 'l_member']) == str:
+                    l_member = d_availability_duty.loc[date_duty, 'l_member'].split(', ')
+                    l_member_jpn = d_availability_duty.loc[date_duty, 'l_member_jpn'].split(', ')
+                    l_member_proxy = [i2 + '_' + name for i2, name in zip(l_member, l_member_jpn) if int(i2) != int(id_member)]
+                    str_member_proxy = ', '.join(l_member_proxy)
+                else:
+                    str_member_proxy = ''
                 l_result.append([date_duty, str_member_proxy])
             ll_result.append(['excess', str_member, class_deviant, l_result])
         elif col0['deviation_exact'] < 0:
@@ -210,18 +216,20 @@ def skip_date_duty(d_date_duty, d_availability, d_availability_ratio, d_assign_m
     l_date_duty_unavailable = d_availability_ratio.loc[d_availability_ratio['available'] == 0,:].index.tolist()
     l_date_duty_unavailable_notoc = [date_duty for date_duty in l_date_duty_unavailable if not 'oc' in date_duty]
     l_date_duty_manual_assign = d_assign_manual.loc[~d_assign_manual['id_member'].isna(), 'date_duty'].tolist()
-    if len(l_date_duty_unavailable) > 0:
+    # Slots with a manual assignment aren't actually short of members -- exclude them from what
+    # gets reported as "no member available for" (they're reported separately below instead).
+    l_date_duty_unavailable_print = [date_duty for date_duty in l_date_duty_unavailable if date_duty not in l_date_duty_manual_assign]
+    l_date_duty_unavailable_notoc_print = [date_duty for date_duty in l_date_duty_unavailable_notoc if date_duty not in l_date_duty_manual_assign]
+    if len(l_date_duty_unavailable_print) > 0:
         if verbose:
-            print('No member available for:', l_date_duty_unavailable)
-            print('of which', l_date_duty_unavailable_notoc, 'are not OC')
+            print('No member available for:', l_date_duty_unavailable_print)
+            print('of which', l_date_duty_unavailable_notoc_print, 'are not OC')
     if len(l_date_duty_manual_assign) > 0:
         if verbose:
             print('Manually assigned member(s) for:', l_date_duty_manual_assign)
         for date_duty in l_date_duty_manual_assign:
             id_member = d_assign_manual.loc[d_assign_manual['date_duty'] == date_duty, 'id_member'].tolist()[0]
             d_availability.loc[date_duty, id_member] = 1
-            if verbose:
-                print(date_duty, ' manually set to ', id_member)
     # Skip date_duty for which (no one is available, except OC), and not manually assigned
     l_date_duty_skip = [date_duty for date_duty in l_date_duty_unavailable_notoc if not date_duty in l_date_duty_manual_assign]
 
@@ -567,6 +575,10 @@ def extract_closeduty(dp, dict_dv_closeduty, d_assign_date_duty, d_member, dict_
     d_closeduty = d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_close), ['id_member', 'date_duty']]
     d_closeduty = pd.merge(d_closeduty, d_member[['id_member', 'name_jpn']], on='id_member', how='left')
     d_closeduty['id_member'] = d_closeduty['id_member'].astype('int')
+    # Sort 1. by id_member, 2. by date_duty. d_assign_date_duty (and so d_closeduty, filtered
+    # from it above) is already in chronological date_duty order, so a stable sort on id_member
+    # alone is enough to layer that ordering in as the secondary key.
+    d_closeduty = d_closeduty.sort_values('id_member', kind='stable').reset_index(drop=True)
     d_closeduty = d_closeduty[['id_member', 'name_jpn', 'date_duty']]
 
     for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
@@ -811,6 +823,60 @@ def prep_calendar(dp, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day
         write_csv(dp.service_drive, id_folder, 'cnt_class_duty.csv', s_cnt_class_duty, index=True)
 
     return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty
+
+
+################################################################################
+# Manual assignment (assign_manual.csv) helpers for the '3. Assign' tab's Manual Assignment
+# controls, which let the user designate/undesignate members per date_duty from the GUI instead
+# of hand-editing assign_manual.csv on Drive. optimize_assign (script/assign.py) then reads
+# assign_manual.csv as before -- these helpers only change how it gets populated.
+################################################################################
+def load_manual_assign_options(config, year_plan, month_plan):
+    """Read-only: fetches everything the Manual Assignment controls need to build their
+    date/duty/member dropdowns and to show designations already recorded (from a previous GUI
+    session, or a direct CSV edit) -- the valid date_duty combinations for the month
+    (date_duty.csv, written by prep_calendar/script/form.py::prepare_form), the roster of active
+    doctors (id_member -> Japanese full name), and the current contents of assign_manual.csv.
+    Raises if date_duty.csv / config/member for this month don't exist yet (i.e. '1. Create
+    Form' hasn't been run for year_plan/month_plan) -- the caller reports that as a failure."""
+    services = get_services(config, SCOPE_DRIVE_FORMS)
+    dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='asgn', make_data_dir=False)
+
+    d_date_duty = read_csv(services.drive, dp.id_month, 'date_duty.csv')
+    d_assign_manual = read_csv(services.drive, dp.id_month, 'assign_manual.csv')
+
+    id_config = dp.cache.get_or_create(dp.service_drive, 'dutyshift/config')
+    d_member = read_member(dp.service_drive, dp.service_sheets, id_config, year_plan, month_plan)
+    d_member = d_member.loc[d_member['active'], ['id_member', 'name_jpn_full']]
+    dict_member_name = {int(id_member): name for id_member, name in
+                        zip(d_member['id_member'], d_member['name_jpn_full'])}
+
+    l_date_duty = d_date_duty['date_duty'].tolist()
+
+    l_manual = []
+    for _, row in d_assign_manual.loc[~d_assign_manual['id_member'].isna(), :].iterrows():
+        l_manual.append({'date_duty': row['date_duty'], 'id_member': int(row['id_member'])})
+
+    return l_date_duty, dict_member_name, l_manual
+
+
+def write_manual_assign(config, year_plan, month_plan, l_manual):
+    """Writes l_manual (a list of {'date_duty', 'id_member'} dicts, as edited by the Manual
+    Assignment controls) to assign_manual.csv, replacing whatever was there before -- called
+    right before 'Run Optimization' so optimize_count_and_assign's read of assign_manual.csv
+    picks up the GUI's current designations. Any date_duty not in l_manual is written back with
+    an empty id_member, same as prep_calendar's original blank assign_manual.csv."""
+    services = get_services(config, SCOPE_DRIVE_FORMS)
+    dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='asgn', make_data_dir=False)
+
+    d_date_duty = read_csv(services.drive, dp.id_month, 'date_duty.csv')
+    dict_manual = {d['date_duty']: d['id_member'] for d in l_manual}
+    l_date_duty = d_date_duty['date_duty'].tolist()
+    d_assign_manual = pd.DataFrame({
+        'date_duty': l_date_duty,
+        'id_member': [dict_manual.get(date_duty) for date_duty in l_date_duty],
+    })
+    write_csv(dp.service_drive, dp.id_month, 'assign_manual.csv', d_assign_manual, index=False)
 
 
 ################################################################################

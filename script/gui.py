@@ -45,9 +45,9 @@ import jpholiday
 from PyQt5.QtCore import Qt, QDate, QThread, pyqtSignal
 from PyQt5.QtGui import QFontDatabase, QTextCursor
 from PyQt5.QtWidgets import (
-    QComboBox, QDateEdit, QDoubleSpinBox, QFrame, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QMainWindow, QPushButton, QSpinBox, QTabWidget, QTextEdit, QVBoxLayout,
-    QWidget,
+    QAbstractItemView, QComboBox, QDateEdit, QDoubleSpinBox, QFrame, QGridLayout, QGroupBox,
+    QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QPushButton,
+    QSpinBox, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
 )
 
 from script.parameter import (
@@ -63,8 +63,9 @@ from script.drive_io import (
 )
 from script.form import prepare_form
 from script.collect import collect_availability
+from script.helper import load_manual_assign_options, write_manual_assign
 from script.assign import optimize_count_and_assign
-from script.notify import update_calendar
+from script.notify import update_calendar, create_assignment_sheet
 from script.replace import check_replacement, replace_assignment
 
 
@@ -800,6 +801,128 @@ def build_assign_panel(state):
         _run_async(state, output_preset, run, apply)
     btn_load_last_month.clicked.connect(on_load_last_month)
 
+    # --- Manual assignment (assign_manual.csv) controls ---
+    # Lets the user fix specific date_duty -> member designations from the GUI instead of
+    # hand-editing assign_manual.csv on Drive. l_manual_designation (a plain list of
+    # {'date_duty', 'id_member'} dicts) is the in-memory staging area the assign/remove buttons
+    # edit; it's only written to Drive (write_manual_assign, script/helper.py) right before 'Run
+    # Optimization' actually runs, so optimize_count_and_assign's read of assign_manual.csv picks
+    # up whatever is staged at that moment.
+    dict_duty_jpn_full = dict(zip(dict_time_duty['duty'], dict_time_duty['duty_jpn']))  # includes 'ect', unlike dict_duty_jpn
+    l_manual_designation = []
+    dict_manual_date_duty = {}    # date (int) -> [duty, ...] valid that date, from date_duty.csv
+    dict_manual_member_name = {}  # id_member (int) -> name_jpn_full
+
+    w_manual_date = QComboBox()
+    w_manual_duty = QComboBox()
+    w_manual_member = QComboBox()
+    btn_manual_load = QPushButton('Load Duties / Members')
+    btn_manual_assign = QPushButton('assign')
+    btn_manual_unassign = QPushButton('remove')
+    w_manual_list = QListWidget()
+    w_manual_list.setSelectionMode(QAbstractItemView.ExtendedSelection)  # allow batch remove
+    output_manual = _make_output(min_height=60)
+    state.l_button += [btn_manual_load, btn_manual_assign, btn_manual_unassign]
+
+    def _manual_item_label(date_duty, id_member):
+        date, duty = date_duty.split('_', 1)
+        return (date + '日 ' + dict_duty_jpn_full.get(duty, duty) + ' (' + date_duty + ')  →  '
+                + dict_manual_member_name.get(id_member, str(id_member)))
+
+    def _refresh_manual_list():
+        w_manual_list.clear()
+        for designation in l_manual_designation:
+            item = QListWidgetItem(_manual_item_label(designation['date_duty'], designation['id_member']))
+            item.setData(Qt.UserRole, designation['date_duty'])
+            w_manual_list.addItem(item)
+
+    def _refresh_manual_duty_options():
+        w_manual_duty.clear()
+        for duty in dict_manual_date_duty.get(w_manual_date.currentData(), []):
+            w_manual_duty.addItem(dict_duty_jpn_full.get(duty, duty), duty)
+    w_manual_date.currentIndexChanged.connect(lambda _: _refresh_manual_duty_options())
+
+    def on_manual_load():
+        year_plan, month_plan = state.year_plan, state.month_plan
+
+        def run():
+            return load_manual_assign_options(state.config, year_plan, month_plan)
+
+        def apply(result):
+            l_date_duty, dict_member_name, l_manual = result
+
+            dict_manual_member_name.clear()
+            dict_manual_member_name.update(dict_member_name)
+
+            dict_manual_date_duty.clear()
+            for date_duty in l_date_duty:
+                str_date, duty = date_duty.split('_', 1)
+                dict_manual_date_duty.setdefault(int(str_date), []).append(duty)
+            for date in dict_manual_date_duty:
+                dict_manual_date_duty[date].sort(key=lambda duty: dict_duty.get(duty, 99))
+
+            w_manual_date.clear()
+            for date in sorted(dict_manual_date_duty.keys()):
+                w_manual_date.addItem(str(date) + '日', date)
+            _refresh_manual_duty_options()
+
+            w_manual_member.clear()
+            for id_member in sorted(dict_manual_member_name.keys()):
+                w_manual_member.addItem(dict_manual_member_name[id_member], id_member)
+
+            l_manual_designation.clear()
+            l_manual_designation.extend(l_manual)
+            _refresh_manual_list()
+            _append_text(output_manual, 'Loaded ' + str(len(l_date_duty)) + ' date_duty options, '
+                        + str(len(dict_member_name)) + ' members, ' + str(len(l_manual)) + ' existing designation(s).\n')
+        _run_async(state, output_manual, run, apply)
+    btn_manual_load.clicked.connect(on_manual_load)
+
+    def on_manual_assign():
+        date, duty, id_member = w_manual_date.currentData(), w_manual_duty.currentData(), w_manual_member.currentData()
+        if date is None or duty is None or id_member is None:
+            _append_text(output_manual, "Click 'Load Duties / Members' first, then pick a date, duty and member.\n")
+            return
+        date_duty = str(date) + '_' + duty
+        for designation in l_manual_designation:
+            if designation['date_duty'] == date_duty:
+                designation['id_member'] = id_member
+                break
+        else:
+            l_manual_designation.append({'date_duty': date_duty, 'id_member': id_member})
+        _refresh_manual_list()
+    btn_manual_assign.clicked.connect(on_manual_assign)
+
+    def on_manual_unassign():
+        l_date_duty_selected = [item.data(Qt.UserRole) for item in w_manual_list.selectedItems()]
+        l_manual_designation[:] = [d for d in l_manual_designation if d['date_duty'] not in l_date_duty_selected]
+        _refresh_manual_list()
+    btn_manual_unassign.clicked.connect(on_manual_unassign)
+
+    manual_controls = QGroupBox('Manual Assignment (assign_manual.csv)')
+    manual_layout = QVBoxLayout()
+    row_manual_load = QHBoxLayout()
+    row_manual_load.addWidget(btn_manual_load)
+    row_manual_load.addStretch()
+    row_manual_pick = QHBoxLayout()
+    row_manual_pick.addWidget(QLabel('Date'))
+    row_manual_pick.addWidget(w_manual_date)
+    row_manual_pick.addWidget(QLabel('Duty'))
+    row_manual_pick.addWidget(w_manual_duty)
+    row_manual_pick.addWidget(QLabel('Member'))
+    row_manual_pick.addWidget(w_manual_member)
+    row_manual_pick.addStretch()
+    row_manual_buttons = QHBoxLayout()
+    row_manual_buttons.addWidget(btn_manual_assign)
+    row_manual_buttons.addWidget(btn_manual_unassign)
+    row_manual_buttons.addStretch()
+    manual_layout.addLayout(row_manual_load)
+    manual_layout.addLayout(row_manual_pick)
+    manual_layout.addLayout(row_manual_buttons)
+    manual_layout.addWidget(w_manual_list)
+    manual_layout.addWidget(output_manual)
+    manual_controls.setLayout(manual_layout)
+
     button = QPushButton('Run Optimization')
     status = _make_status_label()
     output = _make_output()
@@ -807,6 +930,7 @@ def build_assign_panel(state):
 
     def on_click():
         year_plan, month_plan = state.year_plan, state.month_plan
+        l_manual_designation_snapshot = list(l_manual_designation)
         dict_c_diff_score_current = {axis: w.value() for axis, w in dict_w_current.items()}
         dict_c_diff_score_total = {axis: w.value() for axis, w in dict_w_total.items()}
         dict_closeduty = {group: {'l_duty': dict_closeduty_default[group]['l_duty'],
@@ -822,6 +946,8 @@ def build_assign_panel(state):
         current_params = _current_params()  # snapshot for the post-run solver_params.json audit write
 
         def run():
+            write_manual_assign(state.config, year_plan, month_plan, l_manual_designation_snapshot)
+            print('Wrote', len(l_manual_designation_snapshot), 'manual assignment(s) to assign_manual.csv')
             result = optimize_count_and_assign(state.config, year_plan, month_plan, year_start, month_start,
                                       l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,
                                       l_date_duty_skip_manual, dict_closeduty, ll_avoid_adjacent,
@@ -857,13 +983,30 @@ def build_assign_panel(state):
     preset_layout.addWidget(output_preset)
     preset_controls.setLayout(preset_layout)
 
-    return _panel(preset_controls, advanced, _action_row(button, status), output)
+    return _panel(manual_controls, preset_controls, advanced, _action_row(button, status), output)
 
 
 ###############################################################################
 # Notify Google calendar (replaces the pre-GUI notebook's cell 4)
 ###############################################################################
 def build_notify_panel(state):
+    button_sheet = QPushButton('Create Assignment Sheet')
+    status_sheet = _make_status_label()
+    output_sheet = _make_output(min_height=120)
+    state.l_button.append(button_sheet)
+
+    def on_click_sheet():
+        year_plan, month_plan = state.year_plan, state.month_plan
+
+        def run():
+            create_assignment_sheet(state.config, year_plan, month_plan)
+        _run_async(state, output_sheet, run, status=status_sheet)
+    button_sheet.clicked.connect(on_click_sheet)
+
+    line = QFrame()
+    line.setFrameShape(QFrame.HLine)
+    line.setStyleSheet('color: #ddd;')
+
     button = QPushButton('Publish to Calendar')
     status = _make_status_label()
     output = _make_output()
@@ -877,7 +1020,9 @@ def build_notify_panel(state):
         _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
 
-    return _panel(_action_row(button, status), output)
+    return _panel(_action_row(button_sheet, status_sheet), output_sheet,
+                 line,
+                 _action_row(button, status), output)
 
 
 ###############################################################################
