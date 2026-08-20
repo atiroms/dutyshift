@@ -1,0 +1,4 @@
+{
+  "credentials_path": "./config/credentials.json",
+  "token_path": "./config/token.json"
+}

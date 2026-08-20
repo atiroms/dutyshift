@@ -2,3 +2,8 @@
 /__pycache__/
 /script/__pycache__/
 .DS_Store
+
+# Per-machine local config (OAuth credential/token file locations) -- never versioned.
+# Copy config.local.example.json to config.local.json and fill in your local paths.
+/config.local.json
+/config/

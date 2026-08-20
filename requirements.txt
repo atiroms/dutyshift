@@ -1,0 +1,27 @@
+# dutyshift's dependency lockfile. Pinned to the versions this codebase is developed and
+# tested against (Python 3.8.13). Install with: pip install -r requirements.txt
+# See CLAUDE.md / docs/PROJECT_OVERVIEW.md for what each dependency is used for.
+
+# MILP optimizer (script/helper.py, script/assign.py)
+pulp==2.6.0
+ortoolpy==0.2.38
+
+# Data handling
+pandas==1.4.1
+numpy==1.22.3
+
+# Google Forms / Drive / Calendar / Sheets APIs (script/drive_io.py, script/notify.py) --
+# Sheets client (build('sheets', 'v4', ...)) is part of google-api-python-client's discovery
+# mechanism, no separate package needed; used for reading config/member (script/helper.py::read_member).
+google-api-python-client==2.48.0
+google-auth==2.6.6
+google-auth-oauthlib==0.5.1
+
+# GUI (script/gui.py, main.py) -- desktop app, no notebook/kernel involved.
+PyQt5==5.15.11
+
+# Japanese national-holiday lookup, used to default the "Holidays" calendar in the Create Form
+# tab (script/gui.py) to Japan's official holidays. Pinned to 0.1.10, not a newer release --
+# jpholiday>=1.0 uses `tuple[...]` builtin-generic syntax that requires Python 3.9+, which
+# breaks import on this codebase's pinned Python 3.8.13.
+jpholiday==0.1.10
