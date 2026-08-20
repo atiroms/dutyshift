@@ -46,49 +46,23 @@ dict_title_duty = {'assoc':            ['ocday', 'ocnight'],
 dict_class_duty = {'class': ['ampm', 'ampm', 'daynight_tot', 'daynight_tot', 'daynight_tot', 'night_em', 'night_wd', 'night_wd', 'daynight_hd', 'daynight_hd', 'oc_tot', 'oc_tot', 'oc_day', 'oc_night', 'ect'],
                    'date':  ['all', 'all', 'all', 'all', 'all', 'all', 'wd', 'all', 'all', 'hd', 'all', 'all', 'all', 'all', 'all'],
                    'duty':  ['am', 'pm', 'day', 'night', 'emnight', 'emnight', 'night', 'emnight', 'day', 'night', 'ocday', 'ocnight', 'ocday', 'ocnight', 'ect']}
-id_template_form   = '1JweYEQfU93Ts2k2ZCvfezj01MYYtdyeyRiZ2I99zbjo'
-dict_itemid_form = {'assoc_holiday': '3fd28d79', 'assoc_others': '03f37999',
-                    'instr_holiday': '49978020', 'instr_others': '015bf8cf',
-                    'assist_leader_holiday': '6f8a4c28', 'assist_leader_others': '5a3e91e3',
-                    'assist_subleader_holiday': '3f06625b', 'assist_subleader_others': '5301996a',
-                    'limtermclin_holiday': '02401b89', 'limtermclin_others': '0e55b20f',
-                    'stud_holiday': '48b9378b', 'stud_others': '32b66da2'}
+# id_template_form, dict_itemid_form (the Google Form template to copy each month and that
+# template's grid-question item IDs) used to be hardcoded here. They're now stored on Drive at
+# dutyshift/config/config.json, edited without a code change, and read fresh on every "1. Create
+# Form" click -- see script/helper.py::load_drive_config (which also seeds that file with this
+# codebase's original values the first time it's read). Same for id_calendar (below,
+# dutyshift/config/config.json's id_calendar) and every email-notification template (below,
+# dutyshift/template/<name>.json -- see script/helper.py::load_email_template).
 
-# Subject line shared by both notification emails below -- script/form.py::prepare_form's
-# initial announcement and script/collect.py::collect_availability's not-yet-answered reminder
-# -- kept identical so both read as the same campaign. {deadline} is filled in per month, e.g.
-# '7/22(水)' (see script/gui.py's str_deadline, built from the tab's date picker).
-str_email_subject_template = '【{deadline}〆】東大当直希望調査'
-
-# HTML "回答" button embedded in both notification emails below, in place of a bare URL.
-# {form_url} is filled in per month.
-str_email_button_html = ('<a href="{form_url}" style="display:inline-block;padding:10px 24px;'
+# HTML button embedded in every notification email drafted by script/form.py, script/collect.py
+# and script/notify.py, in place of a bare URL. {url} and {label} are filled in per email --
+# {label} comes from that email's Drive template (dutyshift/template/<name>.json's
+# 'button_label'), {url} from whatever the email is linking to (the Google Form's responder URL,
+# or the assignment Google Sheet's URL). This stays a fixed, hand-edited style constant rather
+# than moving to Drive with the email wording -- it's visual styling, not "email text".
+str_email_button_html = ('<a href="{url}" style="display:inline-block;padding:10px 24px;'
                          'background-color:#1a73e8;color:#ffffff;text-decoration:none;'
-                         'border-radius:4px;font-weight:bold;">回答</a>')
-
-# Notification email drafted (never auto-sent) by script/form.py::prepare_form once a month's
-# Google Form is created. Sent as HTML so {button} (str_email_button_html above) renders as a
-# clickable button rather than a bare link. {button} and {deadline} are filled in per month;
-# everything else stays fixed.
-str_email_template = '''東大精神科の日当直をご担当される先生方<br><br>
-平素より大変お世話になっております。<br>
-下記のフォームより、来月分の日当直の希望のご入力をお願いいたします。<br>
-{button}<br><br>
-締切は{deadline}とさせていただきます。<br>
-よろしくお願いいたします。<br><br>
-当直係　森田　進<br>
-調整用プログラム：<a href="https://github.com/atiroms/dutyshift">https://github.com/atiroms/dutyshift</a>'''
-
-# Reminder email drafted (never auto-sent) by script/collect.py::collect_availability, Bcc'd to
-# active doctors who have not yet answered the month's Google Form. Sent as HTML for the same
-# {button} reason as str_email_template above. {button} and {deadline} are filled in per month;
-# everything else stays fixed.
-str_email_reminder_template = '''先生方<br><br>
-お世話になっております。<br>
-こちらの回答期限を{deadline}までとさせていただいておりました。<br>
-{button}<br><br>
-お忙しいところ誠に恐縮ですが、お早めにご回答をお願いいたします。<br><br>
-森田'''
+                         'border-radius:4px;font-weight:bold;">{label}</a>')
 
 # Optimizing assignment count
 l_day_ect = [0, 2, 3] # Monday, Wednesday, Thursday
@@ -114,7 +88,8 @@ l_title_fulltime = ['assist', 'limtermclin'] # ['limterm_instr', 'assist', 'limt
 n_troubleshoot_infeasible_max = 10
 
 # Notification
-id_calendar = 'ht4svlr03krt7jcqho5guou32c@group.calendar.google.com'
+# id_calendar (target Google Calendar for "4. Notify") now lives in dutyshift/config/config.json
+# on Drive -- see the id_template_form/dict_itemid_form comment above.
 # Passed as num_retries to each Calendar API .execute() call: googleapiclient's built-in
 # randomized-exponential-backoff retry, which already treats 403 rateLimitExceeded/
 # userRateLimitExceeded (and 429/5xx) as retriable. Replaces a previous fixed 600s sleep

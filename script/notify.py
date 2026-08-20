@@ -1,7 +1,14 @@
 
+import base64
+from email.mime.text import MIMEText
 import numpy as np
 import pandas as pd, datetime as dt
-from script.drive_io import get_services, prep_drive_paths, read_csv, ensure_gsheet_tab, SCOPE_DRIVE_CALENDAR
+from script.helper import read_member, load_drive_config, load_email_template
+from script.parameter import str_email_button_html
+from script.drive_io import (
+    get_services, prep_drive_paths, read_csv, ensure_gsheet_tab, get_file_web_link,
+    SCOPE_DRIVE_CALENDAR, SCOPE_DRIVE_GMAIL,
+)
 
 
 ###############################################################################
@@ -161,6 +168,114 @@ def create_assignment_sheet(config, year_plan, month_plan):
     print('Done')
 
 
+###############################################################################
+# Draft (never send) notification emails linking to the 'assignment_<yyyymm>' Google Sheet
+# create_assignment_sheet above creates -- one before publishing (a still-editable draft roster,
+# soliciting a last look) and one after (the finalized roster). Both live in the "4. Notify" tab,
+# between "Create Assignment Sheet" and "Publish to Calendar" (drop-in) and at the bottom (fixed)
+# -- see script/gui.py::build_notify_panel. Neither touches the calendar itself.
+###############################################################################
+def _assignment_sheet_filename(year_plan, month_plan):
+    return 'assignment_{:04d}{:02d}'.format(year_plan, month_plan)
+
+
+def _button_pair(services, id_config, url_sheet, dict_email):
+    """Build the two HTML buttons every drop-in/fixed notification body embeds: {button} (links
+    to the assignment Google Sheet) and {button_replace} (links to the shift-swap request form,
+    dutyshift/config/config.json's url_replace_form -- see script/helper.py::load_drive_config)."""
+    url_replace_form = load_drive_config(services.drive, id_config)['url_replace_form']
+    str_button = str_email_button_html.format(url=url_sheet, label=dict_email['button_label'])
+    str_button_replace = str_email_button_html.format(url=url_replace_form, label=dict_email['button_label_replace'])
+    return str_button, str_button_replace
+
+
+def draft_dropin_notification(config, year_plan, month_plan, str_deadline):
+    """Draft a notification email to active doctors linking to this month's assignment Google
+    Sheet, meant to be sent while the roster is still a work-in-progress draft -- i.e. any time
+    after 'Create Assignment Sheet' and before 'Publish to Calendar'. str_deadline (the
+    correction deadline set next to the 'Draft Drop-in Notification' button, see
+    script/gui.py::build_notify_panel) is embedded in the subject."""
+    services = get_services(config, SCOPE_DRIVE_GMAIL)
+    dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='', make_data_dir=False)
+
+    print('[1/2] Looking up the assignment sheet...')
+    filename = _assignment_sheet_filename(year_plan, month_plan)
+    url_sheet = get_file_web_link(services.drive, dp.id_month, filename)
+    if not url_sheet:
+        print('Assignment sheet not found -- run "Create Assignment Sheet" first.')
+        return
+
+    print('[2/2] Drafting notification email...')
+    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
+    d_member_active = d_member.loc[d_member['active'] == True, :]
+    l_email_active = [email for email in d_member_active['email'].tolist()
+                      if isinstance(email, str) and email.strip()]
+    n_missing_email = len(d_member_active) - len(l_email_active)
+    if n_missing_email > 0:
+        print('[WARNING]', n_missing_email, 'active doctor(s) have no email on file -- excluded from the draft.')
+    if len(l_email_active) == 0:
+        print('No active doctors with an email on file -- skipping notification email draft.')
+        return
+
+    id_template = dp.cache.get_or_create(services.drive, 'dutyshift/template')
+    dict_email = load_email_template(services.drive, id_template, 'dropin')
+    str_button, str_button_replace = _button_pair(services, id_config, url_sheet, dict_email)
+    str_body = dict_email['body'].format(button=str_button, button_replace=str_button_replace,
+                                         deadline=str_deadline, year=year_plan, month=month_plan)
+    message = MIMEText(str_body, 'html')
+    message['bcc'] = ', '.join(l_email_active)
+    message['subject'] = dict_email['subject'].format(deadline=str_deadline, year=year_plan, month=month_plan)
+    str_raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    services.gmail.users().drafts().create(userId='me', body={'message': {'raw': str_raw}}).execute()
+    print('Drafted drop-in notification email to', len(l_email_active), 'active doctor(s) (not sent).')
+    print('Done')
+
+
+def draft_fixed_notification(config, year_plan, month_plan):
+    """Draft a notification email to active doctors plus any extra recipients configured in
+    dutyshift/config/config.json's l_email_extra_fixed (see script/helper.py::load_drive_config),
+    announcing the finalized duty roster and linking to this month's assignment Google Sheet."""
+    services = get_services(config, SCOPE_DRIVE_GMAIL)
+    dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='', make_data_dir=False)
+
+    print('[1/2] Looking up the assignment sheet...')
+    filename = _assignment_sheet_filename(year_plan, month_plan)
+    url_sheet = get_file_web_link(services.drive, dp.id_month, filename)
+    if not url_sheet:
+        print('Assignment sheet not found -- run "Create Assignment Sheet" first.')
+        return
+
+    print('[2/2] Drafting notification email...')
+    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    l_email_extra = load_drive_config(services.drive, id_config).get('l_email_extra_fixed', [])
+    d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
+    d_member_active = d_member.loc[d_member['active'] == True, :]
+    l_email_active = [email for email in d_member_active['email'].tolist()
+                      if isinstance(email, str) and email.strip()]
+    n_missing_email = len(d_member_active) - len(l_email_active)
+    if n_missing_email > 0:
+        print('[WARNING]', n_missing_email, 'active doctor(s) have no email on file -- excluded from the draft.')
+    l_email_all = l_email_active + [email for email in l_email_extra if email not in l_email_active]
+    if len(l_email_all) == 0:
+        print('No recipients (active doctors or configured extras) with an email on file -- skipping notification email draft.')
+        return
+
+    id_template = dp.cache.get_or_create(services.drive, 'dutyshift/template')
+    dict_email = load_email_template(services.drive, id_template, 'fixed')
+    str_button, str_button_replace = _button_pair(services, id_config, url_sheet, dict_email)
+    str_body = dict_email['body'].format(button=str_button, button_replace=str_button_replace,
+                                         year=year_plan, month=month_plan)
+    message = MIMEText(str_body, 'html')
+    message['bcc'] = ', '.join(l_email_all)
+    message['subject'] = dict_email['subject'].format(year=year_plan, month=month_plan)
+    str_raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    services.gmail.users().drafts().create(userId='me', body={'message': {'raw': str_raw}}).execute()
+    print('Drafted fixed notification email to', len(l_email_all), 'recipient(s) (',
+         len(l_email_active), 'active doctor(s) +', len(l_email_extra), 'extra) (not sent).')
+    print('Done')
+
+
 def compare_event(d_assign_date_duty, d_event_exist):
     l_date_duty_assigned = d_assign_date_duty.loc[~np.isnan(d_assign_date_duty['id_member']), 'date_duty'].tolist()
     l_date_duty_delete = [dd for dd in d_event_exist['date_duty'].tolist() if dd not in l_date_duty_assigned]
@@ -179,9 +294,16 @@ def compare_event(d_assign_date_duty, d_event_exist):
     return l_date_duty_delete, l_date_duty_change, l_date_duty_add
 
 
-def update_calendar(config, year_plan, month_plan, id_calendar, dict_time_duty, num_retries=5):
+def update_calendar(config, year_plan, month_plan, dict_time_duty, num_retries=5):
     services = get_services(config, SCOPE_DRIVE_CALENDAR)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='', make_data_dir=False)
+    # id_calendar (target Google Calendar) and url_replace_form (embedded in each event's
+    # description) live on Drive (dutyshift/config/config.json), not in code -- see
+    # script/helper.py::load_drive_config. Read fresh on every publish.
+    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    dict_drive_config = load_drive_config(services.drive, id_config)
+    id_calendar = dict_drive_config['id_calendar']
+    url_replace_form = dict_drive_config['url_replace_form']
     d_member = read_csv(services.drive, dp.id_month, 'member.csv')
 
     # Access calendar
@@ -209,7 +331,7 @@ def update_calendar(config, year_plan, month_plan, id_calendar, dict_time_duty, 
     # randomized-exponential-backoff to each call (see script/parameter.py::n_retry_calendar),
     # a genuine rate-limit hit is retried in place within seconds rather than needing a
     # preventive multi-minute pause between member-sized batches.
-    l_result_add = add_duty(service_calendar, id_calendar, d_date_duty_add, d_member, d_time_duty, d_availability, num_retries)
+    l_result_add = add_duty(service_calendar, id_calendar, d_date_duty_add, d_member, d_time_duty, d_availability, num_retries, url_replace_form)
 
     # Assert result
     d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, dict_time_duty, num_retries)
@@ -225,7 +347,8 @@ def update_calendar(config, year_plan, month_plan, id_calendar, dict_time_duty, 
     print('Done')
 
 
-def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availability, num_retries=5):
+def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availability, num_retries=5,
+            url_replace_form='https://forms.gle/oxvdt8CNkW6iPPFm6'):
 
     #d_member['id_member'] = d_member.index
     #d_member = d_member.reset_index()
@@ -275,7 +398,7 @@ def add_duty(service, id_calendar, d_date_duty, d_member, d_time_duty, d_availab
             str_member_proxy == 'なし'
 
         description = name_member + '先生ご担当\n代理候補(敬称略): ' + str_member_proxy +\
-                    '\n変更申請: https://forms.gle/oxvdt8CNkW6iPPFm6' +\
+                    '\n変更申請: ' + url_replace_form +\
                     '\nhttps://github.com/atiroms/dutyshift で自動生成'
 
         body_event = {'summary': title_duty,

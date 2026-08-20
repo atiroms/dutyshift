@@ -52,10 +52,9 @@ from PyQt5.QtWidgets import (
 
 from script.parameter import (
     dict_jpnday, dict_duty, dict_duty_jpn, dict_title_duty, dict_class_duty, dict_score_duty,
-    dict_score_class, dict_time_duty, dict_itemid_form, id_template_form, str_email_template,
-    str_email_subject_template, str_email_button_html, str_email_reminder_template,
+    dict_score_class, dict_time_duty,
     l_day_ect, day_em, l_week_em, l_class_duty, ll_avoid_adjacent, l_title_fulltime,
-    n_troubleshoot_infeasible_max, id_calendar, n_retry_calendar, year_start, month_start,
+    n_troubleshoot_infeasible_max, n_retry_calendar, year_start, month_start,
 )
 from script.drive_io import (
     load_config, get_services, prep_drive_paths, resolve_folder_id,
@@ -65,7 +64,7 @@ from script.form import prepare_form
 from script.collect import collect_availability
 from script.helper import load_manual_assign_options, write_manual_assign
 from script.assign import optimize_count_and_assign
-from script.notify import update_calendar, create_assignment_sheet
+from script.notify import update_calendar, create_assignment_sheet, draft_dropin_notification, draft_fixed_notification
 from script.replace import check_replacement, replace_assignment
 
 
@@ -495,8 +494,7 @@ def build_form_panel(state):
         def run():
             prepare_form(state.config, year_plan, month_plan, l_holiday, l_date_ect_cancel,
                          l_day_ect, day_em, l_week_em, l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn,
-                         dict_title_duty, dict_class_duty, id_template_form, dict_itemid_form,
-                         str_email_template, str_email_subject_template, str_email_button_html, str_deadline)
+                         dict_title_duty, dict_class_duty, str_deadline)
             _save_deadline(state.config, year_plan, month_plan, str_deadline)
         _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
@@ -535,9 +533,7 @@ def build_collect_panel(state):
             # when there is at least one not-yet-answered doctor, so this stays a no-op the rest
             # of the time.
             str_deadline = _load_deadline(state.config, year_plan, month_plan)
-            collect_availability(state.config, year_plan, month_plan, dict_jpnday, dict_duty_jpn,
-                                 str_email_reminder_template, str_email_subject_template,
-                                 str_email_button_html, str_deadline)
+            collect_availability(state.config, year_plan, month_plan, dict_jpnday, dict_duty_jpn, str_deadline)
         _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
 
@@ -1003,9 +999,37 @@ def build_notify_panel(state):
         _run_async(state, output_sheet, run, status=status_sheet)
     button_sheet.clicked.connect(on_click_sheet)
 
-    line = QFrame()
-    line.setFrameShape(QFrame.HLine)
-    line.setStyleSheet('color: #ddd;')
+    line1 = QFrame()
+    line1.setFrameShape(QFrame.HLine)
+    line1.setStyleSheet('color: #ddd;')
+
+    # Draft (never send) a notification email to active doctors linking to the assignment sheet
+    # just created above -- meant for a last look before Publish to Calendar below. The
+    # correction deadline next to the button is embedded in the draft's subject
+    # ('【{deadline} 修正〆】...', dutyshift/template/dropin.json) -- same date-picker pattern as
+    # "1. Create Form"'s response deadline (build_form_panel/_format_deadline above), but not
+    # persisted to Drive: unlike the survey deadline, nothing downstream needs to reuse it.
+    button_dropin = QPushButton('Draft Drop-in Notification')
+    status_dropin = _make_status_label()
+    output_dropin = _make_output(min_height=100)
+    state.l_button.append(button_dropin)
+
+    label_deadline_dropin = QLabel('Deadline:')
+    w_deadline_dropin = QDateEdit(QDate.currentDate())
+    w_deadline_dropin.setCalendarPopup(True)
+
+    def on_click_dropin():
+        year_plan, month_plan = state.year_plan, state.month_plan
+        str_deadline = _format_deadline(w_deadline_dropin.date())
+
+        def run():
+            draft_dropin_notification(state.config, year_plan, month_plan, str_deadline)
+        _run_async(state, output_dropin, run, status=status_dropin)
+    button_dropin.clicked.connect(on_click_dropin)
+
+    line2 = QFrame()
+    line2.setFrameShape(QFrame.HLine)
+    line2.setStyleSheet('color: #ddd;')
 
     button = QPushButton('Publish to Calendar')
     status = _make_status_label()
@@ -1016,13 +1040,44 @@ def build_notify_panel(state):
         year_plan, month_plan = state.year_plan, state.month_plan
 
         def run():
-            update_calendar(state.config, year_plan, month_plan, id_calendar, dict_time_duty, n_retry_calendar)
+            update_calendar(state.config, year_plan, month_plan, dict_time_duty, n_retry_calendar)
         _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
 
+    line3 = QFrame()
+    line3.setFrameShape(QFrame.HLine)
+    line3.setStyleSheet('color: #ddd;')
+
+    # Draft (never send) a notification email to active doctors, plus any extra recipients
+    # configured in dutyshift/config/config.json's l_email_extra_fixed, announcing the finalized
+    # roster -- meant to be run once Publish to Calendar above is done.
+    button_fixed = QPushButton('Draft Fixed Notification')
+    status_fixed = _make_status_label()
+    output_fixed = _make_output(min_height=100)
+    state.l_button.append(button_fixed)
+
+    def on_click_fixed():
+        year_plan, month_plan = state.year_plan, state.month_plan
+
+        def run():
+            draft_fixed_notification(state.config, year_plan, month_plan)
+        _run_async(state, output_fixed, run, status=status_fixed)
+    button_fixed.clicked.connect(on_click_fixed)
+
+    row_dropin = QHBoxLayout()
+    row_dropin.addWidget(button_dropin)
+    row_dropin.addWidget(status_dropin)
+    row_dropin.addWidget(label_deadline_dropin)
+    row_dropin.addWidget(w_deadline_dropin)
+    row_dropin.addStretch()
+
     return _panel(_action_row(button_sheet, status_sheet), output_sheet,
-                 line,
-                 _action_row(button, status), output)
+                 line1,
+                 row_dropin, output_dropin,
+                 line2,
+                 _action_row(button, status), output,
+                 line3,
+                 _action_row(button_fixed, status_fixed), output_fixed)
 
 
 ###############################################################################

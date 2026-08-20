@@ -3,15 +3,14 @@ import base64, traceback
 from email.mime.text import MIMEText
 import numpy as np, pandas as pd
 import datetime
-from script.helper import read_form_response, read_member
+from script.helper import read_form_response, read_member, load_email_template
 from script.check import check_availability_duty, check_availability_member
+from script.parameter import str_email_button_html
 from script.drive_io import (
     get_services, prep_drive_paths, read_csv, write_csv, check_form_exists, SCOPE_DRIVE_FORMS_GMAIL,
 )
 
-def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_jpn,
-                         str_email_reminder_template, str_email_subject_template,
-                         str_email_button_html, str_deadline=None):
+def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_jpn, str_deadline=None):
     print('[1/3] Reading form responses...')
     services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='clct')
@@ -208,11 +207,13 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_j
         else:
             id_form = check_form_exists(services.drive, path_form)
             str_responder_uri = services.forms.forms().get(formId=id_form).execute().get('responderUri')
-            str_button = str_email_button_html.format(form_url=str_responder_uri)
-            str_body = str_email_reminder_template.format(button=str_button, deadline=str_deadline)
+            id_template = dp.cache.get_or_create(services.drive, 'dutyshift/template')
+            dict_email = load_email_template(services.drive, id_template, 'reminder')
+            str_button = str_email_button_html.format(url=str_responder_uri, label=dict_email['button_label'])
+            str_body = dict_email['body'].format(button=str_button, deadline=str_deadline)
             message = MIMEText(str_body, 'html')
             message['bcc'] = ', '.join(l_mail_missing)
-            message['subject'] = str_email_subject_template.format(deadline=str_deadline)
+            message['subject'] = dict_email['subject'].format(deadline=str_deadline)
             str_raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
             services.gmail.users().drafts().create(userId='me', body={'message': {'raw': str_raw}}).execute()
             print('Drafted reminder email to', len(l_mail_missing), 'not-yet-answered doctor(s) (not sent).')

@@ -37,8 +37,10 @@ deliberately, don't let installs silently drift. Core libraries actually importe
   (`script/drive_io.py`) — there is no local file mirror. Sheets is used to read the doctor
   roster `config/member` (a native Google Sheet with one tab per month) and to duplicate a tab
   within it without disturbing its other tabs/formatting (`script/drive_io.py::read_gsheet`/
-  `copy_gsheet_tab`). Gmail is used only to create a **draft** (never sent) monthly notification
-  email; see `script/form.py::prepare_form`.
+  `copy_gsheet_tab`). Gmail is used only to create **drafts** (never sent) of the pipeline's four
+  notification emails — see `script/form.py::prepare_form`, `script/collect.py::
+  collect_availability`, and `script/notify.py::draft_dropin_notification`/
+  `draft_fixed_notification`.
 - `PyQt5` — the GUI layer (`script/gui.py`), a plain desktop app with no notebook/kernel
   involved. Every pipeline call (Google API round-trips, the MILP solve) can take a while, so
   each button click runs its work on a background `QThread` (`_Worker`/`_run_async` in
@@ -58,19 +60,23 @@ content in a titled `QGroupBox` any more (the Tab already names the stage); each
 (`_make_status_label()` / `_run_async(..., status=...)`), and its live output log — the pipeline
 functions themselves print their own stage-by-stage progress (e.g. `[2/4] Creating Google
 Form...`, ending `Done`):
-1. **1. Create Form** — `script/form.py::prepare_form`, creates the availability Google Form,
-   copies forward next month's `dutyshift/config/member` tab from the nearest prior month
-   (`script/helper.py::ensure_member_sheet`, never overwrites an existing tab), and drafts
-   (never sends) a notification email to active doctors via Gmail, using a required response
-   deadline date picker and the template in `str_email_template` (`script/parameter.py`).
-   Holidays and ECT-cancel — only ever used by this stage — are picked here as two
-   week-per-row calendar grids (`script/gui.py::_CalendarSelector`); Holidays defaults to that
-   month's official Japanese holidays via `jpholiday`, with weekend cells locked on since
-   weekends are always holidays automatically regardless of this selection. The deadline is also
-   saved to Drive (`dutyshift/result/<year>/<month>/deadline.json`) for "2. Collect" to reuse.
+1. **1. Create Form** — `script/form.py::prepare_form`, creates the availability Google Form
+   (cloned from `id_template_form`, its grid questions keyed by `dict_itemid_form` — both read
+   fresh from Drive, `dutyshift/config/config.json`, on every click; see
+   `script/helper.py::load_drive_config`), copies forward next month's `dutyshift/config/member`
+   tab from the nearest prior month (`script/helper.py::ensure_member_sheet`, never overwrites an
+   existing tab), and drafts (never sends) a notification email to active doctors via Gmail,
+   using a required response deadline date picker and wording read fresh from Drive
+   (`dutyshift/template/announce.json`; see `script/helper.py::load_email_template`). Holidays
+   and ECT-cancel — only ever used by this stage — are picked here as two week-per-row calendar
+   grids (`script/gui.py::_CalendarSelector`); Holidays defaults to that month's official Japanese
+   holidays via `jpholiday`, with weekend cells locked on since weekends are always holidays
+   automatically regardless of this selection. The deadline is also saved to Drive
+   (`dutyshift/result/<year>/<month>/deadline.json`) for "2. Collect" to reuse.
 2. **2. Collect** — `script/collect.py::collect_availability`, parses form responses and drafts
-   (never sends) a reminder email Bcc'd to not-yet-answered doctors, reusing the deadline saved
-   by "1. Create Form" — no separate opt-in checkbox; it's a no-op once everyone has answered.
+   (never sends) a reminder email Bcc'd to not-yet-answered doctors (wording from
+   `dutyshift/template/reminder.json`), reusing the deadline saved by "1. Create Form" — no
+   separate opt-in checkbox; it's a no-op once everyone has answered.
 3. **3. Assign** — `script/assign.py::optimize_count_and_assign`, runs the two-stage MILP. Its
    hyperparameters (score-deviation weights, close-duty thresholds, `type_limit`, etc.) are
    editable widgets in a collapsed "Advanced solver parameters" section (`_CollapsibleBox`).
@@ -79,7 +85,15 @@ Form...`, ending `Done`):
    and an automatic per-month audit record (`dutyshift/result/<year>/<month>/solver_params.json`)
    written on every successful run. The panel seeds its defaults from the nearest prior month's
    audit record on build, falling back to hardcoded defaults if none exists.
-4. **4. Notify** — `script/notify.py::update_calendar`, publishes to Google Calendar.
+4. **4. Notify** — four steps stacked in one tab: `script/notify.py::create_assignment_sheet`
+   (the human-readable "調整結果" Google Sheet); `draft_dropin_notification` (drafts, never
+   sends, an email to active doctors linking to that sheet, wording from
+   `dutyshift/template/dropin.json` — meant for a last look before publishing); `update_calendar`
+   (publishes to Google Calendar, target `id_calendar` read fresh from
+   `dutyshift/config/config.json`); `draft_fixed_notification` (drafts, never sends, an email
+   announcing the finalized roster, Bcc'd to active doctors plus any extras configured in
+   `dutyshift/config/config.json`'s `l_email_extra_fixed`, wording from
+   `dutyshift/template/fixed.json`).
 5. **5. Replace** — one tab holding both check and apply steps stacked, since apply always needs
    a specific check's result: `script/replace.py::check_replacement` /`replace_assignment` handle
    shift-swap requests. `check_replacement`'s result is held on `state.d_replace_checked` (the
@@ -105,13 +119,13 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
 |---|---|
 | `main.py` | Entry point; opens the `PyQt5` window (`script/gui.py::AppState` + `build_app(state)`). |
 | `script/gui.py` | `PyQt5` GUI layer: `AppState` (shared widgets + cross-panel state, loads `config.local.json` once), one `build_*_panel()` function per pipeline stage, `build_app()` combining them into the single window `main.py` shows, and the `_Worker`/`_run_async` background-thread machinery every button click runs through. Wires widgets to the functions below; contains no pipeline logic itself. |
-| `script/drive_io.py` | Google Drive-backed data I/O layer: OAuth credential caching/reuse (`get_credentials`/`get_services`), Drive folder resolution/creation, `read_csv`/`write_csv`/`read_gsheet`/`list_month_folders`, and `prep_drive_paths` (replaces the old local-path resolver `prep_dirs`). No pipeline logic. |
-| `script/parameter.py` | Fixed config: duty types, scoring weights, per-title duty eligibility, Google resource IDs. Edited rarely. |
-| `script/helper.py` | Shared building blocks: calendar prep, roster loading/parsing, the Stage-1 count-optimization MILP (`optimize_count`), result extraction/CSV export (all via `script/drive_io.py`). |
+| `script/drive_io.py` | Google Drive-backed data I/O layer: OAuth credential caching/reuse (`get_credentials`/`get_services`), Drive folder resolution/creation, `read_csv`/`write_csv`/`read_gsheet`/`read_json`/`write_json`/`get_file_web_link`/`list_month_folders`, and `prep_drive_paths` (replaces the old local-path resolver `prep_dirs`). No pipeline logic. |
+| `script/parameter.py` | Fixed config: duty types, scoring weights, per-title duty eligibility, `str_email_button_html` (shared notification-email button styling). Edited rarely. Google resource IDs (`id_template_form`, `dict_itemid_form`, `id_calendar`) and every notification email's wording live on Drive instead — see `script/helper.py::load_drive_config`/`load_email_template` and the Drive folder layout bullet below. |
+| `script/helper.py` | Shared building blocks: calendar prep, roster loading/parsing, `load_drive_config`/`load_email_template` (Drive-backed config/email-template loaders, read fresh on every call), the Stage-1 count-optimization MILP (`optimize_count`), result extraction/CSV export (all via `script/drive_io.py`). |
 | `script/assign.py` | The Stage-2 assignment MILP (`optimize_assign`) and orchestration (`optimize_count_and_assign`), including infeasibility recovery. |
 | `script/form.py` | Creates the monthly availability Google Form. |
 | `script/collect.py` | Parses Google Form responses into an availability matrix. |
-| `script/notify.py` | Publishes/diffs the schedule against Google Calendar events. |
+| `script/notify.py` | Creates the assignment Google Sheet, drafts drop-in/fixed notification emails, and publishes/diffs the schedule against Google Calendar events. |
 | `script/replace.py` | Shift-swap request handling. |
 | `script/check.py` | Small sanity-check helpers. |
 
@@ -129,7 +143,13 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
 - Holidays are passed per-run as a plain list of day-of-month integers (`l_holiday`); weekends
   are always holidays automatically.
 - **Drive folder layout**: `dutyshift/config/member` (roster, a native Google Sheet with one
-  tab per month, `member_<yyyymm>`); `dutyshift/result/<year>/
+  tab per month, `member_<yyyymm>`); `dutyshift/config/config.json` (`id_template_form`,
+  `dict_itemid_form`, `id_calendar`, `l_email_extra_fixed` — seeded with this codebase's
+  original hardcoded values the first time `script/helper.py::load_drive_config` reads it, then
+  edited directly on Drive, no code change needed); `dutyshift/template/<name>.json` (one file
+  per notification email — `announce`/`reminder`/`dropin`/`fixed`, each `{subject, body,
+  button_label}` — same seed-on-first-read pattern via `script/helper.py::load_email_template`);
+  `dutyshift/result/<year>/
   <month, zero-padded>/` (live per-month CSVs + that month's Google Form, e.g.
   `dutyshift/result/2026/08/`); `.../result/<prefix>_<timestamp>/` nested beneath it (a
   timestamped snapshot written on every pipeline run, alongside the live copy — the only audit

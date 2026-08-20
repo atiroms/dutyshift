@@ -8,8 +8,9 @@ from math import ceil
 from pulp import LpProblem, LpVariable, LpStatus, lpSum, lpDot, value
 from ortoolpy import addvars
 from script.drive_io import (
-    read_csv, write_csv, read_gsheet, check_form_exists, list_gsheet_tabs, copy_gsheet_tab,
-    list_month_folders, month_folder_path, get_services, prep_drive_paths, SCOPE_DRIVE_FORMS,
+    read_csv, write_csv, read_gsheet, read_json, write_json, check_form_exists, list_gsheet_tabs,
+    copy_gsheet_tab, list_month_folders, month_folder_path, get_services, prep_drive_paths,
+    SCOPE_DRIVE_FORMS,
 )
 
 
@@ -314,6 +315,165 @@ def ensure_member_sheet(service_drive, service_sheets, id_config, year_plan, mon
         print('Copied member tab ' + name_src + ' -> ' + name_dst + '.')
     else:
         print('[WARNING] Could not copy member tab ' + name_src + ' -> ' + name_dst + ' (' + result + ').')
+
+
+################################################################################
+# Drive-backed app config (dutyshift/config/config.json) and email templates
+# (dutyshift/template/<name>.json)
+#
+# id_template_form, dict_itemid_form, id_calendar, and every notification email's wording used
+# to be hardcoded in script/parameter.py. They now live on Drive so an admin can edit them
+# without a code change, and every pipeline call reads them fresh (script/form.py::prepare_form,
+# script/collect.py::collect_availability, script/notify.py::update_calendar/
+# draft_dropin_notification/draft_fixed_notification all call the loaders below on every run --
+# nothing is cached across calls). Each loader seeds its file with this codebase's original
+# hardcoded content the first time it's read, so an existing installation keeps working without
+# a manual migration step.
+################################################################################
+_DICT_CONFIG_DEFAULT = {
+    'id_template_form': '1JweYEQfU93Ts2k2ZCvfezj01MYYtdyeyRiZ2I99zbjo',
+    'dict_itemid_form': {'assoc_holiday': '3fd28d79', 'assoc_others': '03f37999',
+                         'instr_holiday': '49978020', 'instr_others': '015bf8cf',
+                         'assist_leader_holiday': '6f8a4c28', 'assist_leader_others': '5a3e91e3',
+                         'assist_subleader_holiday': '3f06625b', 'assist_subleader_others': '5301996a',
+                         'limtermclin_holiday': '02401b89', 'limtermclin_others': '0e55b20f',
+                         'stud_holiday': '48b9378b', 'stud_others': '32b66da2'},
+    'id_calendar': 'ht4svlr03krt7jcqho5guou32c@group.calendar.google.com',
+    # Extra recipients (beyond active doctors) Bcc'd on the "draft fixed notification" email --
+    # e.g. secretaries or administrators who want the finalized roster but never fill in the
+    # availability form. Empty by default; add addresses directly in
+    # dutyshift/config/config.json.
+    'l_email_extra_fixed': [],
+    # Shift-swap request form -- the same link embedded in every calendar event's description
+    # (script/notify.py::add_duty) and rendered as a button in the "draft drop-in notification"/
+    # "draft fixed notification" emails (script/notify.py::draft_dropin_notification/
+    # draft_fixed_notification).
+    'url_replace_form': 'https://forms.gle/oxvdt8CNkW6iPPFm6',
+}
+
+
+def load_drive_config(service_drive, id_config):
+    """Read dutyshift/config/config.json: id_template_form/dict_itemid_form (the Google Form
+    template "1. Create Form" copies each month, and that template's grid-question item IDs),
+    id_calendar (target Google Calendar for "4. Notify" -> Publish to Calendar),
+    l_email_extra_fixed (extra Bcc recipients for the "draft fixed notification" button), and
+    url_replace_form (the shift-swap request form link embedded in calendar events and the
+    drop-in/fixed notification emails). Seeded with _DICT_CONFIG_DEFAULT the first time it's
+    read. If the file already exists but predates a key later added to _DICT_CONFIG_DEFAULT
+    (e.g. an installation that seeded config.json before url_replace_form/l_email_extra_fixed
+    existed), that key is backfilled in place -- without this, a caller reading it would KeyError
+    on a key an admin never had a chance to remove."""
+    dict_config = read_json(service_drive, id_config, 'config.json', default=None)
+    if dict_config is None:
+        dict_config = dict(_DICT_CONFIG_DEFAULT)
+        write_json(service_drive, id_config, 'config.json', dict_config)
+    else:
+        dict_missing = {key: value for key, value in _DICT_CONFIG_DEFAULT.items() if key not in dict_config}
+        if dict_missing:
+            dict_config.update(dict_missing)
+            write_json(service_drive, id_config, 'config.json', dict_config)
+    return dict_config
+
+
+# Each entry is {'subject', 'body', 'button_label', ...}: 'subject' and 'body' are str.format()
+# templates. 'button_label'/'button_label_replace' are the visible text of the HTML buttons
+# script/parameter.py::str_email_button_html renders in place of {button}/{button_replace} --
+# {button} links to the assignment Google Sheet, {button_replace} to the shift-swap request form
+# (dutyshift/config/config.json's url_replace_form). Every caller below passes all of
+# {deadline}/{year}/{month}/{button}/{button_replace} regardless of which ones its own
+# subject/body actually references, so an admin can freely add/remove any of them on Drive
+# without a code change.
+_DICT_EMAIL_TEMPLATE_DEFAULT = {
+    # script/form.py::prepare_form's initial announcement, once a month's Google Form is created.
+    'announce': {
+        'subject': '【{deadline}〆】東大当直希望調査',
+        'body': ('東大精神科の日当直をご担当される先生方<br><br>\n'
+                '平素より大変お世話になっております。<br>\n'
+                '下記のフォームより、来月分の日当直の希望のご入力をお願いいたします。<br>\n'
+                '{button}<br><br>\n'
+                '締切は{deadline}とさせていただきます。<br>\n'
+                'よろしくお願いいたします。<br><br>\n'
+                '当直係　森田　進<br>\n'
+                '調整用プログラム：<a href="https://github.com/atiroms/dutyshift">https://github.com/atiroms/dutyshift</a>'),
+        'button_label': '回答',
+    },
+    # script/collect.py::collect_availability's reminder, Bcc'd to doctors who haven't answered.
+    'reminder': {
+        'subject': '【{deadline}〆】東大当直希望調査',
+        'body': ('先生方<br><br>\n'
+                'お世話になっております。<br>\n'
+                'こちらの回答期限を{deadline}までとさせていただいておりました。<br>\n'
+                '{button}<br><br>\n'
+                'お忙しいところ誠に恐縮ですが、お早めにご回答をお願いいたします。<br><br>\n'
+                '森田'),
+        'button_label': '回答',
+    },
+    # script/notify.py::draft_dropin_notification's "please take a look at the still-editable
+    # draft" email -- {deadline} is the correction deadline set next to the "Draft Drop-in
+    # Notification" button (script/gui.py::build_notify_panel), not the availability-survey
+    # deadline announce/reminder above use.
+    'dropin': {
+        'subject': '【{deadline} 修正〆】東大暫定当直表',
+        'body': ('東大病院精神科日当直のご勤務をされる先生方<br><br>\n'
+                'お世話になっております。<br>\n'
+                '来月の日当直表の暫定版をお送りいたします。<br>\n'
+                '{button}<br><br>\n'
+                'ご確認いただき、お気づきの点はご連絡をお願いします。<br><br>\n'
+                'ご自身の事由でご都合が合わなくなった際は先生方同士で交代を調整の上、下記のフォームでご連絡ください。'
+                '平日当直・休日日当直の交代は指定医同士、非指定医同士でお願いします。<br>\n'
+                '{button_replace}<br><br>\n'
+                '何卒よろしくお願い申し上げます。<br><br>\n'
+                '当直係　森田<br>\n'
+                '調整プログラム：<a href="https://github.com/atiroms/dutyshift">https://github.com/atiroms/dutyshift</a>'),
+        'button_label': '当直表を見る',
+        'button_label_replace': '変更申請',
+    },
+    # script/notify.py::draft_fixed_notification's "the roster is finalized" email. The CC line
+    # is descriptive body text (this program only Bcc's active doctors + l_email_extra_fixed --
+    # see script/helper.py::load_drive_config) -- edit it directly on Drive when the department/
+    # name list changes.
+    'fixed': {
+        'subject': '東大{month}月当直表',
+        'body': ('東大精神科日当直をご担当される先生方<br>\n'
+                'CC：精神科医局、精神科外来、森田（健）先生、辻田先生（B直係）入山師長、須佐副師長、矢澤副師長、'
+                'リエゾンチーム、こころの発達診療部<br><br>\n'
+                '平素より大変お世話になっております。<br>\n'
+                '来月の日当直表の確定版をお送りいたします。<br>\n'
+                '{button}<br><br>\n'
+                '個人的にご都合が合わない場合には先生方同士で交代を調整の上、下記フォームで申請をお願いします。'
+                'なお、平日当直・休日日当直の交代は指定医同士、非指定医同士でお願いします。<br>\n'
+                '{button_replace}<br>\n'
+                'さらに外来、DHへのご連絡と、病棟・研修医室に貼ってある日当直表への変更記載お願いします。<br><br>\n'
+                '宜しくお願い申し上げます。<br><br>\n'
+                '当直係　森田<br>\n'
+                '調整プログラム：<a href="https://github.com/atiroms/dutyshift">https://github.com/atiroms/dutyshift</a>'),
+        'button_label': '当直表を見る',
+        'button_label_replace': '変更申請',
+    },
+}
+
+
+def load_email_template(service_drive, id_template, name):
+    """Read one email template (subject/body/button_label) from
+    dutyshift/template/<name>.json -- seeded with _DICT_EMAIL_TEMPLATE_DEFAULT[name] the first
+    time it's read. Called fresh on every button click (never cached across runs), so an admin's
+    edit on Drive takes effect on the very next click. If the file already exists but predates a
+    key later added to _DICT_EMAIL_TEMPLATE_DEFAULT[name] (e.g. button_label_replace, added
+    after dropin/fixed's templates were first seeded), that key is backfilled in place -- note
+    this only adds a *missing key*, it can't retroactively fix 'subject'/'body' wording an
+    earlier code version seeded, since a human may have since hand-edited that wording on
+    Drive."""
+    dict_default = _DICT_EMAIL_TEMPLATE_DEFAULT[name]
+    dict_template = read_json(service_drive, id_template, name + '.json', default=None)
+    if dict_template is None:
+        dict_template = dict(dict_default)
+        write_json(service_drive, id_template, name + '.json', dict_template)
+    else:
+        dict_missing = {key: value for key, value in dict_default.items() if key not in dict_template}
+        if dict_missing:
+            dict_template.update(dict_missing)
+            write_json(service_drive, id_template, name + '.json', dict_template)
+    return dict_template
 
 
 ################################################################################

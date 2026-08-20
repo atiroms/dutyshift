@@ -47,6 +47,10 @@ SCOPE_DRIVE_CALENDAR = ['https://www.googleapis.com/auth/drive', 'https://www.go
 # "draft-only, can never send" option, so the "never auto-send" guarantee is enforced entirely
 # at the code level (nothing in this codebase ever calls a send/drafts.send endpoint).
 SCOPE_DRIVE_FORMS_GMAIL = SCOPE_DRIVE_FORMS + ['https://www.googleapis.com/auth/gmail.compose']
+# Used by script/notify.py's draft-notification actions (draft_dropin_notification/
+# draft_fixed_notification), which need Drive (assignment sheet link, config/member,
+# config/config.json, template/*.json) and Gmail (drafting) but neither Forms nor Calendar.
+SCOPE_DRIVE_GMAIL = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/gmail.compose']
 
 
 ###############################################################################
@@ -350,6 +354,17 @@ def _upload_bytes(service, id_folder, filename, buf, mimetype):
         # behavior where re-running a stage overwrote the CSVs already in p_month.
         result = service.files().update(fileId=id_file, media_body=media, fields='id').execute()
     return result['id']
+
+
+def get_file_web_link(service, id_folder, filename):
+    """Return the Drive webViewLink URL for `filename` in `id_folder`, or None if no such file
+    exists yet. Used by script/notify.py's draft-notification actions to link to the
+    'assignment_<yyyymm>' Google Sheet script/notify.py::create_assignment_sheet already
+    created."""
+    id_file = _find_file_id(service, id_folder, filename)
+    if id_file is None:
+        return None
+    return service.files().get(fileId=id_file, fields='webViewLink').execute().get('webViewLink')
 
 
 def read_csv(service, id_folder, filename, **kwargs):

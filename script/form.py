@@ -4,14 +4,14 @@ from email.mime.text import MIMEText
 import pandas as pd
 from script.helper import (
     prep_calendar, generate_request_update_question, generate_request_delete_item,
-    ensure_member_sheet, read_member,
+    ensure_member_sheet, read_member, load_drive_config, load_email_template,
 )
+from script.parameter import str_email_button_html
 from script.drive_io import get_services, prep_drive_paths, write_csv, SCOPE_DRIVE_FORMS_GMAIL
 
 def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_day_ect, day_em, l_week_em,
                  l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn, dict_title_duty, dict_class_duty,
-                 id_template_form, dict_itemid_form, str_email_template, str_email_subject_template,
-                 str_email_button_html, str_deadline=None):
+                 str_deadline=None):
 
     print('[1/4] Preparing calendar and duty list...')
     services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
@@ -60,6 +60,14 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     # the form's supporting data already lives -- the form artifact itself is created directly
     # inside it.
     print('[2/4] Creating Google Form...')
+    # id_template_form (the Google Form template to copy) and dict_itemid_form (that template's
+    # grid-question item IDs) live on Drive (dutyshift/config/config.json), not in code -- see
+    # script/helper.py::load_drive_config.
+    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    dict_drive_config = load_drive_config(services.drive, id_config)
+    id_template_form = dict_drive_config['id_template_form']
+    dict_itemid_form = dict_drive_config['dict_itemid_form']
+
     id_folder_data = dp.id_month
     body = {'name':'form_' + str(year_plan) + str(month_plan).zfill(2), 'parents': [id_folder_data]}
     form_copied = services.drive.files().copy(fileId=id_template_form, body=body, fields='id, name, parents').execute()
@@ -92,7 +100,6 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     ###############################################################################
     print('[3/4] Copying forward next month\'s roster...')
     try:
-        id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
         ensure_member_sheet(services.drive, services.sheets, id_config, year_plan, month_plan)
     except Exception:
         print('[WARNING] Could not copy forward next month\'s member tab:')
@@ -103,7 +110,6 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
         if not str_deadline:
             print('No response deadline set -- skipping notification email draft.')
         else:
-            id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
             d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
             d_member_active = d_member.loc[d_member['active'] == True, :]
             l_email_active = [email for email in d_member_active['email'].tolist()
@@ -115,11 +121,13 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
             if len(l_email_active) == 0:
                 print('No active doctors with an email on file -- skipping notification email draft.')
             else:
-                str_button = str_email_button_html.format(form_url=str_responder_uri)
-                str_body = str_email_template.format(button=str_button, deadline=str_deadline)
+                id_template = dp.cache.get_or_create(services.drive, 'dutyshift/template')
+                dict_email = load_email_template(services.drive, id_template, 'announce')
+                str_button = str_email_button_html.format(url=str_responder_uri, label=dict_email['button_label'])
+                str_body = dict_email['body'].format(button=str_button, deadline=str_deadline)
                 message = MIMEText(str_body, 'html')
                 message['bcc'] = ', '.join(l_email_active)
-                message['subject'] = str_email_subject_template.format(deadline=str_deadline)
+                message['subject'] = dict_email['subject'].format(deadline=str_deadline)
                 str_raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
                 services.gmail.users().drafts().create(userId='me', body={'message': {'raw': str_raw}}).execute()
                 print('Drafted notification email to', len(l_email_active), 'active doctor(s) (not sent).')

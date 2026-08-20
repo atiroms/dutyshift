@@ -113,21 +113,25 @@ two week-per-row calendar grids (`script/gui.py::_CalendarSelector`), Sunday-fir
 Sunday/Saturday tinted red/blue; Holidays defaults to that month's official Japanese holidays
 (`jpholiday`), with weekend cells locked on (weekends are always holidays automatically
 regardless of this selection — see [Data model](#data-model)), both grids rebuilding whenever
-year/month changes. The response deadline (a required date picker, auto-formatted `M/D(曜)` via
-`dict_jpnday`) is used for the notification email drafted here (never sent, via
-`script/parameter.py::str_email_template`) — copying forward next month's
-`dutyshift/config/member` tab from the nearest prior month
-(`script/helper.py::ensure_member_sheet` — skips gaps, never overwrites an existing tab) is a
-separate, independently best-effort step — and is also persisted to Drive
-(`dutyshift/result/<year>/<month>/deadline.json` via `script/gui.py::_save_deadline`) so "2.
-Collect" can reuse it automatically.
+year/month changes. The Google Form template to clone (`id_template_form`) and that template's
+grid-question item IDs (`dict_itemid_form`) are read fresh from Drive on every click
+(`dutyshift/config/config.json`, via `script/helper.py::load_drive_config` — see [Data
+storage](#data-storage)), not hardcoded. The response deadline (a required date picker,
+auto-formatted `M/D(曜)` via `dict_jpnday`) is used for the notification email drafted here
+(never sent; wording read fresh from `dutyshift/template/announce.json`, via
+`script/helper.py::load_email_template`) — copying forward next month's `dutyshift/config/member`
+tab from the nearest prior month (`script/helper.py::ensure_member_sheet` — skips gaps, never
+overwrites an existing tab) is a separate, independently best-effort step — and is also persisted
+to Drive (`dutyshift/result/<year>/<month>/deadline.json` via `script/gui.py::_save_deadline`) so
+"2. Collect" can reuse it automatically.
 
 **Tab "2. Collect"** (`build_collect_panel` → `script/collect.py::collect_availability`): reads
 form responses plus the member roster, builds an availability matrix, flags doctors who haven't
 responded or whose "designated physician" status doesn't match the roster, and prints any
 free-text requests doctors left in the form. Drafts (never sends) a reminder email Bcc'd to
 not-yet-answered doctors automatically — no separate opt-in checkbox — reusing the deadline saved
-by "1. Create Form" (`script/gui.py::_load_deadline`); it's a no-op once everyone has answered.
+by "1. Create Form" (`script/gui.py::_load_deadline`) and wording read fresh from
+`dutyshift/template/reminder.json`; it's a no-op once everyone has answered.
 
 **Tab "3. Assign"** (`build_assign_panel` → `script/assign.py`): the core stage. Solver-tuning
 hyperparameters (weights for score-deviation penalties, closeness thresholds, objective-term
@@ -137,10 +141,24 @@ weights, `type_limit`, manual overrides/skips) are editable widgets grouped into
 `optimize_count_and_assign(...)`, which runs two chained MILP solves; expect a long output log
 (the function itself prints ~40 progress lines, plus PuLP/CBC's own solver log).
 
-**Tab "4. Notify"** (`build_notify_panel` → `script/notify.py::update_calendar`): diffs the new
-schedule against existing events on the shared Google Calendar and adds/deletes/updates events
-(one per duty per doctor), including substitute-candidate info and a link to the shift-swap
-request form in each event's description.
+**Tab "4. Notify"** stacks four steps, top to bottom:
+- **Create Assignment Sheet** (→ `script/notify.py::create_assignment_sheet`): writes the
+  human-readable "調整結果" Google Sheet (a `ver.<today>` roster tab plus a `score` tab) for the
+  month.
+- **Draft Drop-in Notification** (→ `script/notify.py::draft_dropin_notification`): drafts
+  (never sends) an email to active doctors linking to that assignment sheet, for a last look
+  while the roster is still a work-in-progress draft — i.e. any time after the step above and
+  before Publish to Calendar below. Wording read fresh from `dutyshift/template/dropin.json`.
+- **Publish to Calendar** (→ `script/notify.py::update_calendar`): diffs the new schedule
+  against existing events on the shared Google Calendar (`id_calendar`, read fresh from
+  `dutyshift/config/config.json`) and adds/deletes/updates events (one per duty per doctor),
+  including substitute-candidate info and a link to the shift-swap request form in each event's
+  description.
+- **Draft Fixed Notification** (→ `script/notify.py::draft_fixed_notification`): drafts (never
+  sends) an email announcing the finalized roster, Bcc'd to active doctors plus any extra
+  recipients configured in `dutyshift/config/config.json`'s `l_email_extra_fixed` (e.g.
+  secretaries who never fill in the availability form). Wording read fresh from
+  `dutyshift/template/fixed.json`.
 
 **Tab "5. Replace"** (`build_replace_panel`) holds both former "check" and "apply" steps
 stacked in one panel, each with its own button/status/output, since applying a swap always needs
@@ -162,16 +180,16 @@ output box.
 
 | Module | Lines | Role |
 |---|---|---|
-| `script/parameter.py` | 154 | Fixed, rarely-edited config: duty type ↔ label maps, scoring weights, per-title duty eligibility, class_duty aggregation rules, Google Form/Calendar IDs, duty clock times. |
-| `script/drive_io.py` | 503 | Google Drive-backed data I/O: OAuth credential caching/reuse (`get_credentials`, `get_services`, now also building Gmail and Sheets clients), Drive folder resolution/creation (`resolve_folder_id`, `DriveFolderCache`, plus the moved-from-`helper.py` `check_gdrive_path`/`create_gdrive_path`/etc.), `read_csv`/`write_csv`/`read_gsheet`/`read_json`/`write_json`/`list_month_folders`, `list_gsheet_tabs`/`copy_gsheet_tab` (Sheets-API-based, for duplicating a tab within the native Google Sheet `member`), `month_folder_path` (single source of truth for the `dutyshift/result/<year>/<month>/` layout), and `prep_drive_paths` (the `(p_root, p_month, p_data)` → Drive-folder-id replacement for the old local-path resolver `prep_dirs`). |
-| `script/helper.py` | 926 | Shared building blocks: calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), `member_sheet_name`/`ensure_member_sheet` (copies next month's `member` tab forward from the nearest prior month), the count-optimization MILP (`optimize_count`), result extraction/scoring (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`) — all reading/writing via `script/drive_io.py`. |
+| `script/parameter.py` | 150 | Fixed, rarely-edited config: duty type ↔ label maps, scoring weights, per-title duty eligibility, class_duty aggregation rules, duty clock times, `str_email_button_html` (shared notification-email button styling). Google Form/Calendar IDs and every notification email's wording no longer live here — see `script/helper.py::load_drive_config`/`load_email_template` below and [Data storage](#data-storage). |
+| `script/drive_io.py` | 613 | Google Drive-backed data I/O: OAuth credential caching/reuse (`get_credentials`, `get_services`, now also building Gmail and Sheets clients), Drive folder resolution/creation (`resolve_folder_id`, `DriveFolderCache`, plus the moved-from-`helper.py` `check_gdrive_path`/`create_gdrive_path`/etc.), `read_csv`/`write_csv`/`read_gsheet`/`read_json`/`write_json`/`get_file_web_link`/`list_month_folders`, `list_gsheet_tabs`/`copy_gsheet_tab` (Sheets-API-based, for duplicating a tab within the native Google Sheet `member`), `month_folder_path` (single source of truth for the `dutyshift/result/<year>/<month>/` layout), and `prep_drive_paths` (the `(p_root, p_month, p_data)` → Drive-folder-id replacement for the old local-path resolver `prep_dirs`). |
+| `script/helper.py` | 1104 | Shared building blocks: calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), `member_sheet_name`/`ensure_member_sheet` (copies next month's `member` tab forward from the nearest prior month), `load_drive_config`/`load_email_template` (read `dutyshift/config/config.json`/`dutyshift/template/<name>.json` fresh on every call, seeding each with this codebase's original hardcoded content the first time it's read), the count-optimization MILP (`optimize_count`), result extraction/scoring (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`) — all reading/writing via `script/drive_io.py`. |
 | `script/assign.py` | 486 | The assignment MILP (`optimize_assign`) and the orchestration function that runs both optimization stages and handles infeasibility (`optimize_count_and_assign`). |
-| `script/form.py` | 124 | `prepare_form` — builds the availability-survey Google Form for the month, ensures next month's `member` tab exists, and drafts a notification email to active doctors (never sent). |
-| `script/collect.py` | 188 | `collect_availability` — parses Google Form responses into an availability matrix. |
-| `script/notify.py` | 202 | Google Calendar integration: `update_calendar`, `add_duty`, `delete_duty`, `list_duty`, `compare_event`. |
+| `script/form.py` | 139 | `prepare_form` — builds the availability-survey Google Form for the month (template ID/item IDs read from Drive config), ensures next month's `member` tab exists, and drafts a notification email to active doctors (never sent, wording read from Drive). |
+| `script/collect.py` | 225 | `collect_availability` — parses Google Form responses into an availability matrix. |
+| `script/notify.py` | 465 | Google Calendar/notification integration: `create_assignment_sheet`, `draft_dropin_notification`, `update_calendar` (target calendar ID read from Drive config), `draft_fixed_notification`, plus `add_duty`, `delete_duty`, `list_duty`, `compare_event`. |
 | `script/replace.py` | 190 | Shift-swap flow: `check_replacement`, `replace_assignment`, and `_check_designation_pairing` (warns, doesn't block, if a swap breaks the day/night + on-call designated-physician pairing invariant). |
 | `script/check.py` | 46 | Small sanity-check helpers: `check_availability_duty`, `check_availability_member`. No Drive I/O. |
-| `script/gui.py` | 957 | `PyQt5` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), the `_Worker`/`_run_async` background-`QThread` machinery every button click runs through (with an optional Running/Done/Failed status pill), `_CalendarSelector` (the week-per-row Holidays/ECT-cancel day picker), one `build_*_panel()` function per stage above (5 tabs; "5. Replace" covers both check and apply), and `build_app()` combining them into the single window `main.py` shows (Year/Month on top, stages as `Tab`s). The Assign panel also handles solver-parameter preset save/load/auto-default (`_pack_solver_params`/`_apply_solver_params`/`_load_last_month_solver_params`). No pipeline logic of its own. |
+| `script/gui.py` | 1146 | `PyQt5` GUI layer: `AppState` (also loads `config.local.json` once, as `state.config`), the `_Worker`/`_run_async` background-`QThread` machinery every button click runs through (with an optional Running/Done/Failed status pill), `_CalendarSelector` (the week-per-row Holidays/ECT-cancel day picker), one `build_*_panel()` function per stage above (5 tabs; "5. Replace" covers both check and apply), and `build_app()` combining them into the single window `main.py` shows (Year/Month on top, stages as `Tab`s). The Assign panel also handles solver-parameter preset save/load/auto-default (`_pack_solver_params`/`_apply_solver_params`/`_load_last_month_solver_params`). No pipeline logic of its own. |
 
 ## Data model
 
@@ -283,17 +301,20 @@ current constraints, in two phases:
 ## External integrations
 
 - **Google Forms** — one form per month for availability collection (cloned from a template,
-  `id_template_form`), plus a separate standing form for shift-swap requests. Response parsing
-  in `script/collect.py` matches on exact Japanese question-text substrings.
+  `id_template_form`, read fresh from Drive config — see [Data storage](#data-storage)), plus a
+  separate standing form for shift-swap requests. Response parsing in `script/collect.py`
+  matches on exact Japanese question-text substrings.
 - **Google Drive** — creates/locates the per-month folder that houses each month's form **and**
   is the primary data store for the whole pipeline (see [Data storage](#data-storage)) — every
   CSV read/write goes through `script/drive_io.py`, not a local filesystem.
 - **Google Calendar** — the final schedule is published as one event per duty per doctor
-  (`id_calendar` in `parameter.py`); `update_calendar` diffs against existing events so re-runs
-  only add/remove/update what changed.
-- **Gmail** — `prepare_form` creates (never sends) one draft notification email per month, Bcc'd
-  to every active doctor, via the `gmail.compose` scope (`SCOPE_DRIVE_FORMS_GMAIL` in
-  `drive_io.py`, requested only by `prepare_form` — no other stage needs Gmail access).
+  (`id_calendar`, read fresh from Drive config on every "Publish to Calendar" click);
+  `update_calendar` diffs against existing events so re-runs only add/remove/update what changed.
+- **Gmail** — every draft-only notification email (`prepare_form`'s initial announcement,
+  `collect_availability`'s reminder, and "4. Notify"'s `draft_dropin_notification`/
+  `draft_fixed_notification`) is created, never sent, via the `gmail.compose` scope
+  (`SCOPE_DRIVE_FORMS_GMAIL` for the first two, `SCOPE_DRIVE_GMAIL` — no Forms/Calendar scope —
+  for the notify.py pair, both in `drive_io.py`; no other stage needs Gmail access).
 - **OAuth credentials** — per-user `InstalledAppFlow`, via `script/drive_io.py::get_credentials`.
   Unlike the pre-migration code, an existing `token.json` is loaded and refreshed before falling
   back to a fresh interactive browser consent — a normal run doesn't need a browser at all once
@@ -312,7 +333,15 @@ relocating it: a Drive folder name resolves identically from every machine/accou
 Layout: `dutyshift/config/member` (roster — a native Google Sheet, one tab per month,
 `member_<yyyymm>`; `script/helper.py::ensure_member_sheet` copies the nearest prior month's tab
 forward as a starting point whenever `prepare_form` runs and that month's tab doesn't exist yet);
-`dutyshift/result/<year>/<month, zero-padded>/`
+`dutyshift/config/config.json` (`id_template_form`, `dict_itemid_form`, `id_calendar`,
+`l_email_extra_fixed` — moved off `script/parameter.py` so an admin can edit them without a code
+change; `script/helper.py::load_drive_config` reads this fresh on every call and seeds it with
+this codebase's original hardcoded values the first time it's read, so an existing installation
+keeps working with no manual migration step); `dutyshift/template/<name>.json` (one file per
+notification email — `announce`, `reminder`, `dropin`, `fixed` — each `{subject, body,
+button_label}`, `body`/`subject` being `str.format()` templates; `script/helper.py::
+load_email_template` reads/seeds these the same way); `dutyshift/config/solver_presets.json`
+(named "3. Assign" hyperparameter presets); `dutyshift/result/<year>/<month, zero-padded>/`
 (live per-month data, e.g. `dutyshift/result/2026/08/` — matching where `script/form.py` has
 always created that month's Google Form, so the data and the form live side by side; this is
 also literally where the operator's own Drive already had past months' data, so it's treated as
@@ -338,8 +367,11 @@ the checked-in template) holds only `credentials_path`/`token_path` — where *t
 OAuth credential files live. `AppState()` (`script/gui.py`) loads it once via
 `drive_io.load_config()`, failing fast and visibly if it's missing, rather than deep inside a
 button click. Every pipeline entry point (`prepare_form`, `collect_availability`,
-`optimize_count_and_assign`, `update_calendar`, `check_replacement`, `replace_assignment`) takes
-this loaded config as its first argument, replacing the old `lp_root` parameter.
+`optimize_count_and_assign`, `create_assignment_sheet`, `draft_dropin_notification`,
+`update_calendar`, `draft_fixed_notification`, `check_replacement`, `replace_assignment`) takes
+this loaded config as its first argument, replacing the old `lp_root` parameter -- distinct from
+the Drive-hosted `dutyshift/config/config.json` above (same name, different thing: this one is
+the local machine's own `config.local.json`).
 
 ## Operational cadence
 
