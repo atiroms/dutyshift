@@ -7,7 +7,7 @@ from script.helper import (
     prep_member2, optimize_count, prep_assign_previous, skip_date_duty, extract_assignment,
     convert_assignment, extract_closeduty, print_candidate_replacement,
 )
-from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, SCOPE_DRIVE_FORMS
+from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, read_member_matrix_csv, SCOPE_DRIVE_FORMS
 
 def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_member,
                     l_title_fulltime, l_date_duty_fulltime, l_class_duty,
@@ -358,11 +358,12 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     else:
         print('  [WARNING] Assignment count optimization failed')
 
-    # Save data
+    # Save data. id_member kept as an explicit column (never as the CSV's own row index -- see
+    # script/helper.py::prep_member2 for the same convention); in-memory shapes are unchanged.
     for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
-        write_csv(services.drive, id_folder, 'lim_exact.csv', d_lim_exact, index=True)
-        write_csv(services.drive, id_folder, 'score_current_plan.csv', d_score_current, index=True)
-        write_csv(services.drive, id_folder, 'score_total_plan.csv', d_score_total, index=True)
+        write_csv(services.drive, id_folder, 'lim_exact.csv', d_lim_exact.rename_axis('id_member').reset_index(), index=False)
+        write_csv(services.drive, id_folder, 'score_current_plan.csv', d_score_current.rename_axis('id_member').reset_index(), index=False)
+        write_csv(services.drive, id_folder, 'score_total_plan.csv', d_score_total.rename_axis('id_member').reset_index(), index=False)
 
 
     ###############################################################################
@@ -374,11 +375,7 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     d_cal = read_csv(services.drive, dp.id_month, 'calendar.csv')
     d_assign_manual = read_csv(services.drive, dp.id_month, 'assign_manual.csv')
     d_info = read_csv(services.drive, dp.id_month, 'info.csv')
-    d_availability_noskip = read_csv(services.drive, dp.id_month, 'availability.csv', index_col=0)
-    #l_member = [int(member) for member in d_availability_noskip.columns]
-    #d_availability_noskip.columns = l_member
-    #print([int(member) for member in d_availability_noskip.columns])
-    d_availability_noskip.columns = [int(member) for member in d_availability_noskip.columns]
+    d_availability_noskip = read_member_matrix_csv(services.drive, dp.id_month, 'availability.csv')
     d_availability_noskip = d_availability_noskip[l_member]
     d_availability_ratio = read_csv(services.drive, dp.id_month, 'availability_ratio.csv', index_col=0)
     d_assign_previous = prep_assign_previous(dp, year_plan, month_plan)

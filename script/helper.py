@@ -665,12 +665,16 @@ def prep_member2(dp, l_class_duty, year_plan, month_plan, year_start, month_star
     d_grp_score = d_grp_score.astype('Int64')
 
     # Save data
+    # member.csv is written only by collect_availability (script/collect.py) -- not here, to
+    # avoid two writers disagreeing on its shape. lim_hard/lim_soft/grp_score/score_past below
+    # keep id_member as an explicit column (never as the CSV's own row index, which round-trips
+    # unreliably) via rename_axis('id_member').reset_index(); the in-memory DataFrames used by
+    # the solver are unaffected -- only how they're written to Drive changes.
     for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
-        write_csv(dp.service_drive, id_folder, 'member.csv', d_member, index=True)
-        write_csv(dp.service_drive, id_folder, 'score_past.csv', d_score_past, index=True)
-        write_csv(dp.service_drive, id_folder, 'lim_hard.csv', d_lim_hard, index=True)
-        write_csv(dp.service_drive, id_folder, 'lim_soft.csv', d_lim_soft, index=True)
-        write_csv(dp.service_drive, id_folder, 'grp_score.csv', d_grp_score, index=True)
+        write_csv(dp.service_drive, id_folder, 'score_past.csv', d_score_past, index=False)
+        write_csv(dp.service_drive, id_folder, 'lim_hard.csv', d_lim_hard.rename_axis('id_member').reset_index(), index=False)
+        write_csv(dp.service_drive, id_folder, 'lim_soft.csv', d_lim_soft.rename_axis('id_member').reset_index(), index=False)
+        write_csv(dp.service_drive, id_folder, 'grp_score.csv', d_grp_score.rename_axis('id_member').reset_index(), index=False)
 
     return d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score
 
@@ -857,7 +861,7 @@ def convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
     d_score_current.index = d_score_current['id_member'].tolist()
     d_score_current = d_score_current[['id_member'] + l_type_score]
 
-    d_score_past = read_csv(dp.service_drive, dp.id_month, 'score_past.csv', index_col=0)
+    d_score_past = read_csv(dp.service_drive, dp.id_month, 'score_past.csv')
     d_score_past = d_score_past.loc[~np.isnan(d_score_past['id_member']), :]
     d_score_past.index = d_score_past['id_member'].tolist()
 
@@ -979,7 +983,7 @@ def prep_calendar(dp, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day
         write_csv(dp.service_drive, id_folder, 'calendar.csv', d_cal, index=False)
         write_csv(dp.service_drive, id_folder, 'date_duty.csv', d_date_duty, index=False)
         write_csv(dp.service_drive, id_folder, 'assign_manual.csv', d_assign_manual, index=False)
-        write_csv(dp.service_drive, id_folder, 'cnt_duty.csv', s_cnt_duty, index=False)
+        write_csv(dp.service_drive, id_folder, 'cnt_duty.csv', s_cnt_duty, index=True)
         write_csv(dp.service_drive, id_folder, 'cnt_class_duty.csv', s_cnt_class_duty, index=True)
 
     return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty

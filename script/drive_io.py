@@ -382,6 +382,16 @@ def write_csv(service, id_folder, filename, df, **kwargs):
     return _upload_bytes(service, id_folder, filename, buf, mimetype='text/csv')
 
 
+def read_member_matrix_csv(service, id_folder, filename):
+    """Read a date_duty x member_id wide matrix (availability.csv, assign.csv): rows indexed by
+    date_duty, one column per member ID. Member ID column headers always round-trip through CSV
+    as strings; this restores them to int so callers never need to re-cast them by hand (a cast
+    that was previously done ad hoc at some call sites and missing at others)."""
+    df = read_csv(service, id_folder, filename, index_col=0)
+    df.columns = [int(col) for col in df.columns]
+    return df
+
+
 def read_gsheet(service_sheets, service_drive, id_folder, filename, sheet_name, header=0):
     """Read one tab of a native Google Sheet (e.g. config/member) into a DataFrame, mirroring
     pandas.read_excel's header=0 default: the tab's `header`-th row becomes the DataFrame's

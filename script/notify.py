@@ -6,7 +6,7 @@ import pandas as pd, datetime as dt
 from script.helper import read_member, load_drive_config, load_email_template
 from script.parameter import str_email_button_html
 from script.drive_io import (
-    get_services, prep_drive_paths, read_csv, ensure_gsheet_tab, get_file_web_link,
+    get_services, prep_drive_paths, read_csv, read_member_matrix_csv, ensure_gsheet_tab, get_file_web_link,
     SCOPE_DRIVE_CALENDAR, SCOPE_DRIVE_GMAIL,
 )
 
@@ -324,7 +324,7 @@ def update_calendar(config, year_plan, month_plan, dict_time_duty, num_retries=5
     # Add events
     d_date_duty_add = d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_add + l_date_duty_change), :]
     d_member = read_csv(services.drive, dp.id_month, 'member.csv')
-    d_availability = read_csv(services.drive, dp.id_month, 'availability.csv', index_col=0)
+    d_availability = read_member_matrix_csv(services.drive, dp.id_month, 'availability.csv')
     d_time_duty = pd.DataFrame(dict_time_duty)
 
     # Single pass over all additions/changes: with num_retries applying googleapiclient's own
