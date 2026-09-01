@@ -9,7 +9,7 @@ from script.helper import (
     class_duty_names, score_class_table,
 )
 from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, read_member_matrix_csv, SCOPE_DRIVE_FORMS
-from script.parameter import ll_score_class
+from script.parameter import dict_score_classes
 
 def optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_member,
                     l_title_fulltime, l_date_duty_fulltime, dict_class_duty,
@@ -322,7 +322,7 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     l_member = d_member.index.tolist()
 
     # TODO: equilize 3 continous holidays assignment count
-    dict_score_class = score_class_table(dict_score_duty, dict_class_duty, ll_score_class)
+    dict_score_class = score_class_table(dict_score_duty, dict_class_duty, dict_score_classes)
     d_score_class = pd.DataFrame(dict_score_class)
 
     # Optimize assignment counts except OC

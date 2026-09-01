@@ -164,8 +164,9 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
   are now computed on demand, at the point of use, by shared functions in `script/helper.py`:
   `duty_order`/`duty_jpn_labels`/`duty_time_table` (from `dict_duty_info`), `class_duty_names`
   (from `dict_class_duty`), and `score_class_table`/`derive_score_class_constants` (from
-  `dict_score_duty` + `dict_class_duty` + `ll_score_class`, which raises `ValueError` if the two
-  can no longer be reconciled). **To change scoring weights, edit `dict_score_duty`, not
+  `dict_score_duty` + `dict_class_duty` + `dict_score_classes` — a `{score axis: [class_duty,
+  ...]}` mapping — raising `ValueError` if the two can no longer be reconciled). **To change
+  scoring weights, edit `dict_score_duty`, not
   `score_class_table`'s output** — the latter is computed, not a knob.
 
 ## Testing

@@ -17,7 +17,7 @@ from script.parameter import dict_class_duty
 
 ###############################################################################
 # Derived views of script/parameter.py's base tables. parameter.py holds base data only
-# (dict_duty_info, dict_class_duty, dict_score_duty, ll_score_class); every function below that
+# (dict_duty_info, dict_class_duty, dict_score_duty, dict_score_classes); every function below that
 # needs a particular derived shape of that data (duty sort order, Japanese labels, a class_duty
 # name list, the class_duty score-weight table, ...) calls the matching function here to cut out
 # just the part it needs, rather than importing an already-derived global.
@@ -50,20 +50,19 @@ def class_duty_names(dict_class_duty):
     return list(dict.fromkeys(dict_class_duty['class']))
 
 
-def derive_score_class_constants(dict_score_duty, dict_class_duty, ll_score_class):
-    """For each (score_axis, class_duty) pair in ll_score_class, solve the constant such that
-    summing constants over the classes each duty belongs to reproduces dict_score_duty's
-    per-duty weight for that axis. Only dict_class_duty rows with date == 'all' participate:
-    weekday/holiday-qualified classes (night_wd, daynight_hd, ...) exist purely for per-doctor
-    count limits and never carry score weight.
+def derive_score_class_constants(dict_score_duty, dict_class_duty, dict_score_classes):
+    """For each score axis in dict_score_classes (score -> list of class_duty names), solve the
+    per-class_duty constant such that summing constants over the axis's classes reproduces
+    dict_score_duty's per-duty weight for that axis. Only dict_class_duty rows with date == 'all'
+    participate: weekday/holiday-qualified classes (night_wd, daynight_hd, ...) exist purely for
+    per-doctor count limits and never carry score weight.
     """
     d_score_duty = pd.DataFrame(dict_score_duty).set_index('duty')
     d_class_duty_all = pd.DataFrame(dict_class_duty)
     d_class_duty_all = d_class_duty_all[d_class_duty_all['date'] == 'all']
 
     l_constant = []
-    for score in dict.fromkeys(score for score, _ in ll_score_class):
-        l_class = [class_duty for s, class_duty in ll_score_class if s == score]
+    for score, l_class in dict_score_classes.items():
         l_duty = sorted(set(d_class_duty_all.loc[d_class_duty_all['class'].isin(l_class), 'duty']))
         m_incidence = np.array([[duty in set(d_class_duty_all.loc[d_class_duty_all['class'] == class_duty, 'duty'])
                                   for class_duty in l_class] for duty in l_duty], dtype=float)
@@ -74,19 +73,20 @@ def derive_score_class_constants(dict_score_duty, dict_class_duty, ll_score_clas
             raise ValueError(
                 "dict_class_duty can't exactly reproduce dict_score_duty['" + score + "'] via classes " +
                 str(l_class) + " -- dict_score_duty and dict_class_duty have drifted out of sync, or " +
-                "the (score, class) structure in ll_score_class needs updating to match.")
+                "the score->classes mapping in dict_score_classes needs updating to match.")
         l_constant.extend(v_constant.tolist())
     return l_constant
 
 
-def score_class_table(dict_score_duty, dict_class_duty, ll_score_class):
+def score_class_table(dict_score_duty, dict_class_duty, dict_score_classes):
     """dict_score_class: score weight per class_duty, per score axis -- derived from
     dict_score_duty (per-duty weights) + dict_class_duty via derive_score_class_constants, so an
     edit to dict_score_duty can't silently desync assignment-count fairness (stage 1) from
     actual assignment scoring (stage 2)."""
-    return {'score': [score for score, _ in ll_score_class],
-            'class': [class_duty for _, class_duty in ll_score_class],
-            'constant': derive_score_class_constants(dict_score_duty, dict_class_duty, ll_score_class)}
+    l_pair = [(score, class_duty) for score, l_class in dict_score_classes.items() for class_duty in l_class]
+    return {'score': [score for score, _ in l_pair],
+            'class': [class_duty for _, class_duty in l_pair],
+            'constant': derive_score_class_constants(dict_score_duty, dict_class_duty, dict_score_classes)}
 
 
 ###############################################################################

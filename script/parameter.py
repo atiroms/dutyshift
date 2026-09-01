@@ -95,18 +95,18 @@ n_retry_calendar = 5
 # Which class_duty groups contribute to each score axis, for deriving score weight per
 # class_duty (dict_score_class, needed because the count-optimization stage --
 # script/helper.py::optimize_count -- only knows target *counts* per class_duty, not which
-# specific duty a doctor will end up with). This is the base pairing table; the actual per-class
+# specific duty a doctor will end up with). This is the base mapping; the actual per-class
 # weight used to be hand-solved and hand-maintained separately from dict_score_duty here as
 # dict_score_class, with nothing tying the two together -- so an edit to one could silently
 # desync assignment-count fairness (stage 1) from actual assignment scoring (stage 2). It's now
-# derived on demand from dict_score_duty + dict_class_duty + this table via
+# derived on demand from dict_score_duty + dict_class_duty + this mapping via
 # script/helper.py::score_class_table (which raises if the decomposition ever stops being
 # exact) -- see script/assign.py::optimize_count_and_assign for the one call site.
-ll_score_class = [('ampm', 'ampm'),
-                  ('daynight', 'daynight_tot'), ('daynight', 'night_em'),
-                  ('ampmdaynight', 'ampm'), ('ampmdaynight', 'daynight_tot'), ('ampmdaynight', 'night_em'),
-                  ('oc', 'oc_tot'),
-                  ('ect', 'ect')]
+dict_score_classes = {'ampm':         ['ampm'],
+                      'daynight':     ['daynight_tot', 'night_em'],
+                      'ampmdaynight': ['ampm', 'daynight_tot', 'night_em'],
+                      'oc':           ['oc_tot'],
+                      'ect':          ['ect']}
 
 # Parameters for replacement
 #sheet_id = "1glzf0fM1jyAZffFE7l7SHE26m3M4QBI5AAOsdSlmHxE"
