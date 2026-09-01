@@ -3,8 +3,8 @@ import base64
 from email.mime.text import MIMEText
 import numpy as np
 import pandas as pd, datetime as dt
-from script.helper import read_member, load_drive_config, load_email_template
-from script.parameter import str_email_button_html
+from script.helper import read_member, load_drive_config, load_email_template, duty_time_table
+from script.parameter import str_email_button_html, dict_duty_info
 from script.drive_io import (
     get_services, prep_drive_paths, read_csv, read_member_matrix_csv, ensure_gsheet_tab, get_file_web_link,
     SCOPE_DRIVE_CALENDAR, SCOPE_DRIVE_GMAIL,
@@ -294,7 +294,7 @@ def compare_event(d_assign_date_duty, d_event_exist):
     return l_date_duty_delete, l_date_duty_change, l_date_duty_add
 
 
-def update_calendar(config, year_plan, month_plan, dict_time_duty, num_retries=5):
+def update_calendar(config, year_plan, month_plan, num_retries=5):
     services = get_services(config, SCOPE_DRIVE_CALENDAR)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='', make_data_dir=False)
     # id_calendar (target Google Calendar) and url_replace_form (embedded in each event's
@@ -310,7 +310,7 @@ def update_calendar(config, year_plan, month_plan, dict_time_duty, num_retries=5
     service_calendar = services.calendar
 
     # Read events on G calendar
-    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, dict_time_duty, num_retries)
+    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, num_retries)
 
     # Read target assignment
     d_assign_date_duty = read_csv(services.drive, dp.id_month, 'assign_date_duty.csv')
@@ -325,7 +325,7 @@ def update_calendar(config, year_plan, month_plan, dict_time_duty, num_retries=5
     d_date_duty_add = d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_add + l_date_duty_change), :]
     d_member = read_csv(services.drive, dp.id_month, 'member.csv')
     d_availability = read_member_matrix_csv(services.drive, dp.id_month, 'availability.csv')
-    d_time_duty = pd.DataFrame(dict_time_duty)
+    d_time_duty = pd.DataFrame(duty_time_table(dict_duty_info))
 
     # Single pass over all additions/changes: with num_retries applying googleapiclient's own
     # randomized-exponential-backoff to each call (see script/parameter.py::n_retry_calendar),
@@ -334,7 +334,7 @@ def update_calendar(config, year_plan, month_plan, dict_time_duty, num_retries=5
     l_result_add = add_duty(service_calendar, id_calendar, d_date_duty_add, d_member, d_time_duty, d_availability, num_retries, url_replace_form)
 
     # Assert result
-    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, dict_time_duty, num_retries)
+    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, num_retries)
     l_date_duty_delete, l_date_duty_change, l_date_duty_add = compare_event(d_assign_date_duty, d_assign_calendar)
     if len(l_date_duty_delete) > 0:
         print('Duty not deleted ', l_date_duty_delete)
@@ -430,7 +430,7 @@ def delete_duty(service_calendar, id_calendar, l_date_duty_delete, d_event_exist
     return l_result
 
 
-def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_duty, num_retries=5):
+def list_duty(service_calendar, id_calendar, year, month, d_member, num_retries=5):
     #d_member = d_member.reset_index()
 
     if month == 12:
@@ -454,7 +454,7 @@ def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_du
     d_event = pd.DataFrame(l_event.get('items', []))
 
     # Convert result
-    d_time_duty = pd.DataFrame(dict_time_duty)
+    d_time_duty = pd.DataFrame(duty_time_table(dict_duty_info))
     l_assign_calendar = []
     for id, row in d_event.iterrows():
         str_ymd = row['start']['dateTime']

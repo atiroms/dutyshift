@@ -51,9 +51,8 @@ from PyQt5.QtWidgets import (
 )
 
 from script.parameter import (
-    dict_jpnday, dict_duty, dict_duty_jpn, dict_title_duty, dict_class_duty, dict_score_duty,
-    dict_score_class, dict_time_duty,
-    l_day_ect, day_em, l_week_em, l_class_duty, ll_avoid_adjacent, l_title_fulltime,
+    dict_jpnday, dict_duty_info, dict_title_duty, dict_class_duty, dict_score_duty,
+    l_day_ect, day_em, l_week_em, ll_avoid_adjacent, l_title_fulltime,
     n_troubleshoot_infeasible_max, n_retry_calendar, year_start, month_start,
 )
 from script.drive_io import (
@@ -62,7 +61,7 @@ from script.drive_io import (
 )
 from script.form import prepare_form
 from script.collect import collect_availability
-from script.helper import load_manual_assign_options, write_manual_assign
+from script.helper import load_manual_assign_options, write_manual_assign, duty_order, duty_jpn_labels
 from script.assign import optimize_count_and_assign
 from script.notify import update_calendar, create_assignment_sheet, draft_dropin_notification, draft_fixed_notification
 from script.replace import check_replacement, replace_assignment
@@ -493,7 +492,7 @@ def build_form_panel(state):
 
         def run():
             prepare_form(state.config, year_plan, month_plan, l_holiday, l_date_ect_cancel,
-                         l_day_ect, day_em, l_week_em, l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn,
+                         l_day_ect, day_em, l_week_em, dict_score_duty,
                          dict_title_duty, dict_class_duty, str_deadline)
             _save_deadline(state.config, year_plan, month_plan, str_deadline)
         _run_async(state, output, run, status=status)
@@ -533,7 +532,7 @@ def build_collect_panel(state):
             # when there is at least one not-yet-answered doctor, so this stays a no-op the rest
             # of the time.
             str_deadline = _load_deadline(state.config, year_plan, month_plan)
-            collect_availability(state.config, year_plan, month_plan, dict_jpnday, dict_duty_jpn, str_deadline)
+            collect_availability(state.config, year_plan, month_plan, dict_jpnday, str_deadline)
         _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
 
@@ -804,7 +803,8 @@ def build_assign_panel(state):
     # edit; it's only written to Drive (write_manual_assign, script/helper.py) right before 'Run
     # Optimization' actually runs, so optimize_count_and_assign's read of assign_manual.csv picks
     # up whatever is staged at that moment.
-    dict_duty_jpn_full = dict(zip(dict_time_duty['duty'], dict_time_duty['duty_jpn']))  # includes 'ect', unlike dict_duty_jpn
+    dict_duty_jpn_full = duty_jpn_labels(dict_duty_info, include_ect=True)
+    dict_duty = duty_order(dict_duty_info)
     l_manual_designation = []
     dict_manual_date_duty = {}    # date (int) -> [duty, ...] valid that date, from date_duty.csv
     dict_manual_member_name = {}  # id_member (int) -> name_jpn_full
@@ -945,11 +945,11 @@ def build_assign_panel(state):
             write_manual_assign(state.config, year_plan, month_plan, l_manual_designation_snapshot)
             print('Wrote', len(l_manual_designation_snapshot), 'manual assignment(s) to assign_manual.csv')
             result = optimize_count_and_assign(state.config, year_plan, month_plan, year_start, month_start,
-                                      l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,
+                                      dict_c_diff_score_current, dict_c_diff_score_total,
                                       l_date_duty_skip_manual, dict_closeduty, ll_avoid_adjacent,
                                       l_title_fulltime, l_date_duty_fulltime, type_limit,
                                       c_assign_suboptimal, c_cnt_deviation, c_closeduty,
-                                      dict_score_duty, dict_score_class, dict_class_duty,
+                                      dict_score_duty, dict_class_duty,
                                       n_troubleshoot_infeasible_max)
             # result[0] (d_assign) is None on failure regardless of the differing success/failure
             # tuple lengths -- duck-typed success check, doesn't unpack the tuple.
@@ -1040,7 +1040,7 @@ def build_notify_panel(state):
         year_plan, month_plan = state.year_plan, state.month_plan
 
         def run():
-            update_calendar(state.config, year_plan, month_plan, dict_time_duty, n_retry_calendar)
+            update_calendar(state.config, year_plan, month_plan, n_retry_calendar)
         _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
 
@@ -1122,7 +1122,7 @@ def build_replace_panel(state):
             if d_replace_checked is None:
                 print("Run 'Check Replacement Requests' first.")
                 return
-            replace_assignment(state.config, year_plan, month_plan, dict_score_duty, l_class_duty, d_replace_checked)
+            replace_assignment(state.config, year_plan, month_plan, dict_score_duty, d_replace_checked)
         _run_async(state, output_apply, run, status=status_apply)
     button_apply.clicked.connect(on_apply)
 

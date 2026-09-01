@@ -12,6 +12,81 @@ from script.drive_io import (
     copy_gsheet_tab, list_month_folders, month_folder_path, get_services, prep_drive_paths,
     SCOPE_DRIVE_FORMS,
 )
+from script.parameter import dict_class_duty
+
+
+###############################################################################
+# Derived views of script/parameter.py's base tables. parameter.py holds base data only
+# (dict_duty_info, dict_class_duty, dict_score_duty, ll_score_class); every function below that
+# needs a particular derived shape of that data (duty sort order, Japanese labels, a class_duty
+# name list, the class_duty score-weight table, ...) calls the matching function here to cut out
+# just the part it needs, rather than importing an already-derived global.
+###############################################################################
+def duty_order(dict_duty_info):
+    """duty -> sort-order int."""
+    return dict(zip(dict_duty_info['duty'], dict_duty_info['order']))
+
+
+def duty_jpn_labels(dict_duty_info, include_ect=False):
+    """duty -> Japanese label. ECT is excluded by default: it has no dedicated availability
+    question on the Google Form -- script/form.py skips generating a question/column for it,
+    inferring its availability from the 'am' question on ECT days instead (see
+    script/collect.py). Pass include_ect=True for contexts that do want it (e.g. labeling a
+    manual-assignment dropdown in script/gui.py)."""
+    return {duty: jpn for duty, jpn in zip(dict_duty_info['duty'], dict_duty_info['duty_jpn'])
+            if include_ect or duty != 'ect'}
+
+
+def duty_time_table(dict_duty_info):
+    """{'duty', 'duty_jpn', 'start', 'end'} table (includes 'ect', unlike duty_jpn_labels'
+    default) -- ready to build a DataFrame of duty clock times from."""
+    return {'duty': dict_duty_info['duty'], 'duty_jpn': dict_duty_info['duty_jpn'],
+            'start': dict_duty_info['start'], 'end': dict_duty_info['end']}
+
+
+def class_duty_names(dict_class_duty):
+    """Unique class_duty names, in first-appearance order of dict_class_duty (order matters for
+    output column ordering, e.g. in the member Google Sheet / lim_*.csv columns)."""
+    return list(dict.fromkeys(dict_class_duty['class']))
+
+
+def derive_score_class_constants(dict_score_duty, dict_class_duty, ll_score_class):
+    """For each (score_axis, class_duty) pair in ll_score_class, solve the constant such that
+    summing constants over the classes each duty belongs to reproduces dict_score_duty's
+    per-duty weight for that axis. Only dict_class_duty rows with date == 'all' participate:
+    weekday/holiday-qualified classes (night_wd, daynight_hd, ...) exist purely for per-doctor
+    count limits and never carry score weight.
+    """
+    d_score_duty = pd.DataFrame(dict_score_duty).set_index('duty')
+    d_class_duty_all = pd.DataFrame(dict_class_duty)
+    d_class_duty_all = d_class_duty_all[d_class_duty_all['date'] == 'all']
+
+    l_constant = []
+    for score in dict.fromkeys(score for score, _ in ll_score_class):
+        l_class = [class_duty for s, class_duty in ll_score_class if s == score]
+        l_duty = sorted(set(d_class_duty_all.loc[d_class_duty_all['class'].isin(l_class), 'duty']))
+        m_incidence = np.array([[duty in set(d_class_duty_all.loc[d_class_duty_all['class'] == class_duty, 'duty'])
+                                  for class_duty in l_class] for duty in l_duty], dtype=float)
+        v_target = d_score_duty.loc[l_duty, score].to_numpy(dtype=float)
+        v_constant, _, _, _ = np.linalg.lstsq(m_incidence, v_target, rcond=None)
+        v_constant = np.round(v_constant, 6)
+        if not np.allclose(m_incidence @ v_constant, v_target):
+            raise ValueError(
+                "dict_class_duty can't exactly reproduce dict_score_duty['" + score + "'] via classes " +
+                str(l_class) + " -- dict_score_duty and dict_class_duty have drifted out of sync, or " +
+                "the (score, class) structure in ll_score_class needs updating to match.")
+        l_constant.extend(v_constant.tolist())
+    return l_constant
+
+
+def score_class_table(dict_score_duty, dict_class_duty, ll_score_class):
+    """dict_score_class: score weight per class_duty, per score axis -- derived from
+    dict_score_duty (per-duty weights) + dict_class_duty via derive_score_class_constants, so an
+    edit to dict_score_duty can't silently desync assignment-count fairness (stage 1) from
+    actual assignment scoring (stage 2)."""
+    return {'score': [score for score, _ in ll_score_class],
+            'class': [class_duty for _, class_duty in ll_score_class],
+            'constant': derive_score_class_constants(dict_score_duty, dict_class_duty, ll_score_class)}
 
 
 ###############################################################################
@@ -637,7 +712,8 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
 ################################################################################
 # Prepare data of member specs and assignment limits
 ################################################################################
-def prep_member2(dp, l_class_duty, year_plan, month_plan, year_start, month_start, dict_score_duty):
+def prep_member2(dp, year_plan, month_plan, year_start, month_start, dict_score_duty):
+    l_class_duty = class_duty_names(dict_class_duty)
     l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn',
                     'designation_jpn','ect_asgn_jpn','name','title_short',
                     'designation', 'team', 'ect_leader', 'ect_subleader', 'active']
@@ -655,7 +731,7 @@ def prep_member2(dp, l_class_duty, year_plan, month_plan, year_start, month_star
     d_score_past = past_score(dp, d_member, year_plan, month_plan, year_start, month_start, dict_score_duty)
 
     # Split assignment limit data into hard and soft
-    d_lim_hard, d_lim_soft = split_lim(d_lim, l_class_duty)
+    d_lim_hard, d_lim_soft = split_lim(d_lim)
 
     # Dataframe of score equilization groups
     d_grp_score = d_src[[col for col in d_src.columns if col.startswith('grp_')]].copy()
@@ -755,7 +831,8 @@ def extract_closeduty(dp, dict_dv_closeduty, d_assign_date_duty, d_member, dict_
 # Convert assignment result
 ################################################################################
 def convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
-                   d_member, d_date_duty, d_cal, l_class_duty, dict_score_duty, d_lim_exact, d_lim_hard):
+                   d_member, d_date_duty, d_cal, dict_score_duty, d_lim_exact, d_lim_hard):
+    l_class_duty = class_duty_names(dict_class_duty)
     # d_assign_date_duty >> d_assign
     d_assign = pd.DataFrame(index=d_availability_noskip.index, columns=d_availability_noskip.columns)
     for id, row in d_assign_date_duty.iterrows():
@@ -928,7 +1005,7 @@ def prep_availability(p_month, p_data, d_date_duty, d_cal):
 ################################################################################
 # Prepare calendar of the month
 ################################################################################
-def prep_calendar(dp, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
+def prep_calendar(dp, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
                   year_plan, month_plan, dict_score_duty, dict_class_duty):
     dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
 
@@ -974,7 +1051,7 @@ def prep_calendar(dp, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day
     d_date_duty = pd.merge(d_date_duty, d_score_duty, on='duty', how='left')
 
     # Calculate class of duty
-    d_date_duty, s_cnt_class_duty = date_duty2class(d_date_duty, l_class_duty, dict_class_duty)
+    d_date_duty, s_cnt_class_duty = date_duty2class(d_date_duty, dict_class_duty)
 
     d_assign_manual = pd.DataFrame({'date_duty': d_date_duty['date_duty'].to_list(), 'id_member': None})
 
@@ -1046,14 +1123,14 @@ def write_manual_assign(config, year_plan, month_plan, l_manual):
 ################################################################################
 # Split assignment limit data into hard and soft
 ################################################################################
-def split_lim(d_lim, l_class_duty):
+def split_lim(d_lim):
     # Split assignment limit data into hard and soft
     d_lim_hard = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0],
                               index=d_lim.index, columns=d_lim.columns)
     d_lim_soft = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0],
                               index=d_lim.index, columns=d_lim.columns)
 
-    for col in l_class_duty:
+    for col in d_lim.columns:
         d_lim[col] = d_lim[col].astype(str)
         for idx in d_lim.index.tolist():
 
@@ -1134,7 +1211,8 @@ def past_score(dp, d_member, year_plan, month_plan, year_start, month_start, dic
 ################################################################################
 # Convert date_duty to class
 ################################################################################
-def date_duty2class(d_date_duty, l_class_duty, dict_class_duty):
+def date_duty2class(d_date_duty, dict_class_duty):
+    l_class_duty = class_duty_names(dict_class_duty)
     d_class_duty = pd.DataFrame(dict_class_duty)
     d_date_duty[['class_' + class_duty for class_duty in  l_class_duty]] = False
 

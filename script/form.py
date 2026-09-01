@@ -5,13 +5,16 @@ import pandas as pd
 from script.helper import (
     prep_calendar, generate_request_update_question, generate_request_delete_item,
     ensure_member_sheet, read_member, load_drive_config, load_email_template,
+    duty_order, duty_jpn_labels,
 )
-from script.parameter import str_email_button_html
+from script.parameter import str_email_button_html, dict_duty_info
 from script.drive_io import get_services, prep_drive_paths, write_csv, SCOPE_DRIVE_FORMS_GMAIL
 
 def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_day_ect, day_em, l_week_em,
-                 l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn, dict_title_duty, dict_class_duty,
+                 dict_score_duty, dict_title_duty, dict_class_duty,
                  str_deadline=None):
+    dict_duty = duty_order(dict_duty_info)
+    dict_duty_jpn = duty_jpn_labels(dict_duty_info)
 
     print('[1/4] Preparing calendar and duty list...')
     services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
@@ -19,7 +22,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
 
     # Prepare calendar and all duties of the month
     d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty \
-        = prep_calendar(dp, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel,
+        = prep_calendar(dp, l_holiday, l_day_ect, l_date_ect_cancel,
                         day_em, l_week_em, year_plan, month_plan, dict_score_duty, dict_class_duty)
 
     # Prepare calendar for google forms

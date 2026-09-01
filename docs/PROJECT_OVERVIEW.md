@@ -180,9 +180,9 @@ output box.
 
 | Module | Lines | Role |
 |---|---|---|
-| `script/parameter.py` | 150 | Fixed, rarely-edited config: duty type ↔ label maps, scoring weights, per-title duty eligibility, class_duty aggregation rules, duty clock times, `str_email_button_html` (shared notification-email button styling). Google Form/Calendar IDs and every notification email's wording no longer live here — see `script/helper.py::load_drive_config`/`load_email_template` below and [Data storage](#data-storage). |
+| `script/parameter.py` | 113 | Fixed, rarely-edited **base data only** — no precomputed derived views: `dict_duty_info` (duty master table), `dict_score_duty`, `dict_title_duty`, `dict_class_duty`, `ll_score_class`, plus scalars like `l_day_ect`/`ll_avoid_adjacent`/`l_title_fulltime`/`str_email_button_html`. Every derived shape of this data (duty sort order, Japanese labels, the class_duty name list, the class_duty score-weight table) is computed on demand by `script/helper.py` functions, called right where each is needed rather than imported as an already-derived global — see that row below. Google Form/Calendar IDs and every notification email's wording no longer live here either — see `script/helper.py::load_drive_config`/`load_email_template` below and [Data storage](#data-storage). |
 | `script/drive_io.py` | 613 | Google Drive-backed data I/O: OAuth credential caching/reuse (`get_credentials`, `get_services`, now also building Gmail and Sheets clients), Drive folder resolution/creation (`resolve_folder_id`, `DriveFolderCache`, plus the moved-from-`helper.py` `check_gdrive_path`/`create_gdrive_path`/etc.), `read_csv`/`write_csv`/`read_gsheet`/`read_json`/`write_json`/`get_file_web_link`/`list_month_folders`, `list_gsheet_tabs`/`copy_gsheet_tab` (Sheets-API-based, for duplicating a tab within the native Google Sheet `member`), `month_folder_path` (single source of truth for the `dutyshift/result/<year>/<month>/` layout), and `prep_drive_paths` (the `(p_root, p_month, p_data)` → Drive-folder-id replacement for the old local-path resolver `prep_dirs`). |
-| `script/helper.py` | 1104 | Shared building blocks: calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), `member_sheet_name`/`ensure_member_sheet` (copies next month's `member` tab forward from the nearest prior month), `load_drive_config`/`load_email_template` (read `dutyshift/config/config.json`/`dutyshift/template/<name>.json` fresh on every call, seeding each with this codebase's original hardcoded content the first time it's read), the count-optimization MILP (`optimize_count`), result extraction/scoring (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`) — all reading/writing via `script/drive_io.py`. |
+| `script/helper.py` | 1236 | Shared building blocks: `script/parameter.py` base-table derivers (`duty_order`, `duty_jpn_labels`, `duty_time_table`, `class_duty_names`, `score_class_table`/`derive_score_class_constants`), calendar construction (`prep_calendar`), roster loading/parsing (`read_member`, `prep_member2`, `split_lim`), `member_sheet_name`/`ensure_member_sheet` (copies next month's `member` tab forward from the nearest prior month), `load_drive_config`/`load_email_template` (read `dutyshift/config/config.json`/`dutyshift/template/<name>.json` fresh on every call, seeding each with this codebase's original hardcoded content the first time it's read), the count-optimization MILP (`optimize_count`), result extraction/scoring (`extract_assignment`, `extract_closeduty`, `convert_assignment`, `past_score`, `date_duty2class`) — all reading/writing via `script/drive_io.py`. |
 | `script/assign.py` | 486 | The assignment MILP (`optimize_assign`) and the orchestration function that runs both optimization stages and handles infeasibility (`optimize_count_and_assign`). |
 | `script/form.py` | 139 | `prepare_form` — builds the availability-survey Google Form for the month (template ID/item IDs read from Drive config), ensures next month's `member` tab exists, and drafts a notification email to active doctors (never sent, wording read from Drive). |
 | `script/collect.py` | 225 | `collect_availability` — parses Google Form responses into an availability matrix. |
@@ -204,9 +204,14 @@ holding a limit spec string parsed by `split_lim`:
 - `"2(1-3)"` — soft target of 2, with a hard range of 1–3
 - `"-"` — unconstrained
 
-**Duty types** (`dict_duty` in `script/parameter.py`): `am`, `pm`, `day`, `ocday`, `night`,
-`emnight`, `ocnight`, `ect`, each with a Japanese label (`dict_duty_jpn`) and start/end clock
-time (`dict_time_duty`, e.g. night runs 17:15 → 32:30, i.e. 08:30 the *next* day).
+**Duty types** (`dict_duty_info` in `script/parameter.py`, base data only): `am`, `pm`, `day`,
+`ocday`, `night`, `emnight`, `ocnight`, `ect`, each with a sort order, Japanese label, and
+start/end clock time. `script/parameter.py` holds no precomputed derived view of this table —
+whichever function needs one calls `script/helper.py::duty_order` (duty→order),
+`duty_jpn_labels` (duty→Japanese label, excludes `ect` by default since it has no dedicated Form
+question), or `duty_time_table` (the full `{duty, duty_jpn, start, end}` table, e.g. night runs
+17:15 → 32:30, i.e. 08:30 the *next* day) right where it's used, rather than importing an
+already-derived global.
 
 **`date_duty`** — the universal index used throughout the codebase: a string key
 `"<day-of-month>_<duty>"` (e.g. `"14_night"`). It's the row index of the availability matrix,
@@ -214,8 +219,10 @@ the assignment matrix, and most PuLP decision variables.
 
 **`class_duty`** — an aggregation layer above raw duty types, used for counting and limit
 enforcement (e.g. `ampm`, `daynight_tot`, `night_wd`, `night_em`, `daynight_hd`, `oc_tot`,
-`oc_day`, `oc_night`, `ect`). Defined via `dict_class_duty` in `parameter.py`, which maps each
-class to a set of `(duty, weekday/holiday qualifier)` pairs.
+`oc_day`, `oc_night`, `ect`). Defined via `dict_class_duty` in `parameter.py` (base data), which
+maps each class to a set of `(duty, weekday/holiday qualifier)` pairs; the unique, order-preserving
+list of class_duty names (used to live as the precomputed `l_class_duty` global) is derived on
+demand via `script/helper.py::class_duty_names(dict_class_duty)`.
 
 **Calendar/holidays** — `l_holiday` (a plain list of day-of-month ints) plus automatic weekend
 detection are combined by `prep_calendar` (`helper.py`) into `d_cal`, which marks each day
@@ -361,6 +368,64 @@ Representative files per month: `calendar.csv`, `date_duty.csv`, `assign_manual.
 `assign_print.csv` (the human-readable roster with Japanese columns: 日付, 午前日直, 午後日直,
 当直, 日直OC, 当直OC, ECT), `deviation.csv`/`deviation_summary.csv`, `score_current.csv`,
 `score_total.csv`, `closeduty.csv`.
+
+### CSV conventions: where member IDs and `date_duty` live
+
+Every stage hands data to the next one purely through these Drive CSVs, resolved by filename
+within the shared month folder — there's no in-memory object passed between separate pipeline
+runs. That makes the CSV schema the real interface between stages, so keeping `id_member`/
+`date_duty` placement (index vs. plain column) consistent across files matters more than it
+would in a codebase that could pass DataFrames directly. Three shapes cover essentially every
+file:
+
+- **`date_duty` × member wide matrices** — `availability.csv`, `assign.csv`. Row index is
+  `date_duty` (a duty slot is the natural unit here — exactly one member gets assigned per row),
+  columns are member IDs. CSV headers always round-trip as strings, so these two files are read
+  through `script/drive_io.py::read_member_matrix_csv` — the single place that restores column
+  labels to `int` — rather than each call site casting by hand (that used to be done ad hoc: one
+  call site cast, others didn't, which meant a pandas `.loc[date_duty, id_member] = ...`
+  assignment with a still-`str` column would silently *add a new column* instead of matching the
+  existing one — `script/helper.py::convert_assignment`'s member-availability lookups depend on
+  this).
+- **`date_duty`-per-row "long" tables** — `assign_manual.csv`, `assign_date_duty.csv`,
+  `closeduty.csv`. One row per duty slot, `id_member` an ordinary (nullable) column. This is the
+  most robust of the three shapes precisely because it never relies on either axis being an
+  index; `assign_date_duty.csv` in particular is the row-level source both the wide matrix
+  (`assign.csv`) and the member-per-row tables below are derived from.
+- **member-per-row tables** — `lim_hard.csv`/`lim_soft.csv`/`lim_exact.csv`, `grp_score.csv`,
+  `score_past.csv`, `score_current.csv`/`score_total.csv`,
+  `score_current_plan.csv`/`score_total_plan.csv`, `assign_member.csv`, `deviation.csv`/
+  `deviation_summary.csv`, `availability_member.csv`. `id_member` is always an explicit column on
+  disk, never the CSV's own row index — a plain pandas index survives a Drive round-trip far less
+  reliably than a real column (dtype drift, no name, easy to read back with the wrong
+  `index_col`). Several of these (the `lim_*`/`grp_score`/`score_*` family) are still built as a
+  member-*indexed* DataFrame in memory, because that's the shape `ortoolpy.addvars` needs to
+  declare one PuLP decision variable per member — they're only flattened to a plain `id_member`
+  column at the moment they're written (`d_lim_hard.rename_axis('id_member').reset_index()`
+  pattern in `script/helper.py::prep_member2` / `script/assign.py::optimize_count_and_assign`),
+  and restored with `.set_index('id_member')` wherever a later read needs the member-indexed
+  shape back (e.g. `script/replace.py::replace_assignment`). The solver logic itself never
+  changed — only the Drive read/write boundary did.
+- **Presentation-only files** — `assign_print.csv` (Japanese columns, names embedded as text, no
+  `id_member` at all), `availability_duty.csv` (comma-joined name/email strings per `date_duty`).
+  Not really part of the machine-readable interface; nothing reads these back.
+- **Duty-count Series** — `cnt_duty.csv`/`cnt_class_duty.csv` are plain pandas `Series` keyed by
+  duty type / `class_duty` name (not by member), saved with `index=True` so that label survives
+  — the one place a bare pandas index actually is the right on-disk representation, since the
+  label *is* the data here, not something reconstructable from another column.
+- **`member.csv`** has exactly one writer, `collect_availability`
+  (`script/collect.py`) — every other stage only reads it. It used to also be written by
+  `script/helper.py::prep_member2` (with different columns and `index=True`, since that function
+  builds its own trimmed, actively-used member subset), so which write "won" depended on run
+  order; consolidating to one writer removed that.
+- `script/assign.py::optimize_count_and_assign`'s own `write_csv` calls (as opposed to ones
+  inside helpers it calls) are now all deferred to a single block, gated on the two-stage solve
+  having actually succeeded (`LpStatus == 'Optimal'`). Stage 1's audit outputs
+  (`lim_exact.csv`/`score_current_plan.csv`/`score_total_plan.csv`) used to be saved immediately
+  after Stage 1 finished, before Stage 2 had even run — a vestige of when count-optimization and
+  assignment were separate, independently-run/saved steps — so a Stage 2 failure (including one
+  the infeasibility-troubleshooting search couldn't recover from) could still leave Stage 1's
+  outputs on Drive despite the run failing overall.
 
 **Local, per-machine config**: `config.local.json` (gitignored; `config.local.example.json` is
 the checked-in template) holds only `credentials_path`/`token_path` — where *that machine's*

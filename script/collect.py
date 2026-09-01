@@ -3,14 +3,16 @@ import base64, traceback
 from email.mime.text import MIMEText
 import numpy as np, pandas as pd
 import datetime
-from script.helper import read_form_response, read_member, load_email_template
+from script.helper import read_form_response, read_member, load_email_template, duty_jpn_labels
 from script.check import check_availability_duty, check_availability_member
-from script.parameter import str_email_button_html
+from script.parameter import str_email_button_html, dict_duty_info
 from script.drive_io import (
     get_services, prep_drive_paths, read_csv, write_csv, check_form_exists, SCOPE_DRIVE_FORMS_GMAIL,
 )
 
-def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_jpn, str_deadline=None):
+def collect_availability(config, year_plan, month_plan, dict_jpnday, str_deadline=None):
+    dict_duty_jpn = duty_jpn_labels(dict_duty_info)
+
     print('[1/3] Reading form responses...')
     services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='clct')

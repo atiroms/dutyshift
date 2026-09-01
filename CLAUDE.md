@@ -15,11 +15,14 @@ hand-edited code across multiple cells.
 For a full deep-dive (data model, MILP formulation, module-by-module walkthrough, known issues),
 see [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md).
 
-## Scope: ignore `arch/` and `refs/`
+## Scope: ignore `arch/`, `refs/`, and `test/`
 
 `arch/` and `refs/` contain archived, obsolete notebooks and reference material (old per-season
-scheduling notebooks, superseded docs). Do not read, edit, or base new work on files in these
-directories unless the user explicitly asks about archived history.
+scheduling notebooks, superseded docs). `test/` (`test01.py` … `test19.py`) is 19 undocumented,
+ad hoc developer scratch scripts, not a maintained automated test suite (see Testing below). Do
+not read, edit, or base new work on files in these directories unless the user explicitly asks
+about archived history or these scripts specifically — a refactor elsewhere in `script/` is not
+expected to keep `test/` in sync.
 
 ## Tech stack
 
@@ -156,13 +159,14 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
   trail this system has). `script/drive_io.py::month_folder_path(year, month)` is the single
   source of truth for that path shape and `prep_drive_paths` resolves/creates it — don't
   hand-build Drive paths elsewhere.
-- `script/parameter.py`'s duty-related tables have single sources of truth, not independent
-  hand-typed copies: `dict_duty`/`dict_duty_jpn`/`dict_time_duty` are all derived from one
-  `_dict_duty_info` table; `l_class_duty` is derived from `dict_class_duty`; `dict_score_class`
-  (per-`class_duty` score weights, used by `optimize_count`) is derived from `dict_score_duty`
-  (per-duty score weights) via `_derive_score_class_constants`, which raises `ValueError` if the
-  two can no longer be reconciled. **To change scoring weights, edit `dict_score_duty`, not
-  `dict_score_class`** — the latter is computed, not a knob.
+- `script/parameter.py` holds base data only — no precomputed derived globals. Views that used
+  to live there as `dict_duty`/`dict_duty_jpn`/`dict_time_duty`/`l_class_duty`/`dict_score_class`
+  are now computed on demand, at the point of use, by shared functions in `script/helper.py`:
+  `duty_order`/`duty_jpn_labels`/`duty_time_table` (from `dict_duty_info`), `class_duty_names`
+  (from `dict_class_duty`), and `score_class_table`/`derive_score_class_constants` (from
+  `dict_score_duty` + `dict_class_duty` + `ll_score_class`, which raises `ValueError` if the two
+  can no longer be reconciled). **To change scoring weights, edit `dict_score_duty`, not
+  `score_class_table`'s output** — the latter is computed, not a knob.
 
 ## Testing
 
