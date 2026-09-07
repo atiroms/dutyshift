@@ -30,7 +30,7 @@ Pure Python. Dependencies are pinned in `requirements.txt` (`pip install -r requ
 — pinned to the versions this codebase is developed and tested against (Python 3.8.13); re-pin
 deliberately, don't let installs silently drift. Core libraries actually imported by the code:
 - `pulp`, `ortoolpy` — the MILP optimizer (PuLP modeling + CBC solver)
-- `jpholiday` — Japanese national-holiday lookup, used only to default the "1. Create Form"
+- `jpholiday` — Japanese national-holiday lookup, used only to default the "Ask"
   tab's Holidays calendar. Pinned to `0.1.10` (not the current `1.0.x` line, which requires
   Python 3.9+ and breaks import on this codebase's pinned Python 3.8.13).
 - `pandas`, `numpy` — all data handling
@@ -63,7 +63,7 @@ content in a titled `QGroupBox` any more (the Tab already names the stage); each
 (`_make_status_label()` / `_run_async(..., status=...)`), and its live output log — the pipeline
 functions themselves print their own stage-by-stage progress (e.g. `[2/4] Creating Google
 Form...`, ending `Done`):
-1. **1. Create Form** — `script/form.py::prepare_form`, creates the availability Google Form
+1. **Ask** — `script/form.py::prepare_form`, creates the availability Google Form
    (cloned from `id_template_form`, its grid questions keyed by `dict_itemid_form` — both read
    fresh from Drive, `dutyshift/config/config.json`, on every click; see
    `script/helper.py::load_drive_config`), copies forward next month's `dutyshift/config/member`
@@ -75,12 +75,12 @@ Form...`, ending `Done`):
    grids (`script/gui.py::_CalendarSelector`); Holidays defaults to that month's official Japanese
    holidays via `jpholiday`, with weekend cells locked on since weekends are always holidays
    automatically regardless of this selection. The deadline is also saved to Drive
-   (`dutyshift/result/<year>/<month>/deadline.json`) for "2. Collect" to reuse.
-2. **2. Collect** — `script/collect.py::collect_availability`, parses form responses and drafts
+   (`dutyshift/result/<year>/<month>/deadline.json`) for "Collect" to reuse.
+2. **Collect** — `script/collect.py::collect_availability`, parses form responses and drafts
    (never sends) a reminder email Bcc'd to not-yet-answered doctors (wording from
-   `dutyshift/template/reminder.json`), reusing the deadline saved by "1. Create Form" — no
+   `dutyshift/template/reminder.json`), reusing the deadline saved by "Ask" — no
    separate opt-in checkbox; it's a no-op once everyone has answered.
-3. **3. Assign** — `script/assign.py::optimize_count_and_assign`, runs the two-stage MILP. Its
+3. **Assign** — `script/assign.py::optimize_count_and_assign`, runs the two-stage MILP. Its
    hyperparameters (score-deviation weights, close-duty thresholds, `type_limit`, etc.) are
    editable widgets in a collapsed "Advanced solver parameters" section (`_CollapsibleBox`).
    They persist via
@@ -88,7 +88,7 @@ Form...`, ending `Done`):
    and an automatic per-month audit record (`dutyshift/result/<year>/<month>/solver_params.json`)
    written on every successful run. The panel seeds its defaults from the nearest prior month's
    audit record on build, falling back to hardcoded defaults if none exists.
-4. **4. Notify** — four steps stacked in one tab: `script/notify.py::create_assignment_sheet`
+4. **Notify** — four steps stacked in one tab: `script/notify.py::create_assignment_sheet`
    (the human-readable "調整結果" Google Sheet); `draft_dropin_notification` (drafts, never
    sends, an email to active doctors linking to that sheet, wording from
    `dutyshift/template/dropin.json` — meant for a last look before publishing); `update_calendar`
@@ -97,7 +97,7 @@ Form...`, ending `Done`):
    announcing the finalized roster, Bcc'd to active doctors plus any extras configured in
    `dutyshift/config/config.json`'s `l_email_extra_fixed`, wording from
    `dutyshift/template/fixed.json`).
-5. **5. Replace** — one tab holding both check and apply steps stacked, since apply always needs
+5. **Replace** — one tab holding both check and apply steps stacked, since apply always needs
    a specific check's result: `script/replace.py::check_replacement` /`replace_assignment` handle
    shift-swap requests. `check_replacement`'s result is held on `state.d_replace_checked` (the
    only value that flows between steps in memory) and consumed by the apply step below it.

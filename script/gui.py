@@ -5,8 +5,8 @@
 # build_app(state) is the one entry point main.py needs: it combines every stage below into a
 # single window -- common parameters (year/month only; every other stage-specific input lives on
 # its own tab) pinned on top, one Tab per pipeline stage underneath:
-#   common params -> [1. form | 2. collect | 3. assign | 4. notify | 5. replace]
-# "5. Replace" holds both the check-requests and apply-replacement steps, stacked in one panel
+#   common params -> [Ask | Collect | Assign | Notify | Replace]
+# "Replace" holds both the check-requests and apply-replacement steps, stacked in one panel
 # (build_replace_panel), since apply always needs a prior check's result.
 #
 # Each build_*_panel() function returns a QWidget for one stage. None of them wrap their content
@@ -24,8 +24,8 @@
 # both inside build_replace_panel); every other stage re-reads its inputs from Google Drive via
 # script/drive_io.py (state.config, loaded once at AppState() construction time), so panels only
 # need state.year_plan / state.month_plan at click time -- state.l_holiday / state.l_date_ect_cancel
-# (read from the Create Form tab's own calendars) are only used by build_form_panel itself, and
-# the Create Form tab's response deadline is persisted to Drive and re-read automatically by the
+# (read from the Ask tab's own calendars) are only used by build_form_panel itself, and
+# the Ask tab's response deadline is persisted to Drive and re-read automatically by the
 # Collect tab (_save_deadline / _load_deadline) rather than flowing through AppState.
 #
 # Every pipeline call (Google API round-trips, the MILP solve) can take a while, so each button
@@ -332,7 +332,7 @@ def _day_button_style(col):
 
 class _CalendarSelector(QWidget):
     """A week-per-row calendar of day-toggle buttons for one month -- used for the Holidays and
-    ECT-cancel pickers in the Create Form tab. Sun-Sat header, Sunday-first weeks (standard
+    ECT-cancel pickers in the Ask tab. Sun-Sat header, Sunday-first weeks (standard
     Japanese calendar layout).
 
     lock_weekend=True (used for Holidays) renders Saturday/Sunday cells as permanently-checked,
@@ -392,6 +392,22 @@ class _CalendarSelector(QWidget):
 ###############################################################################
 # Common parameters panel (replaces the pre-GUI notebook's cell 0)
 ###############################################################################
+_MONTH_BUTTON_ACTIVE_STYLE = 'background: #2e7d32; color: white; font-weight: bold; border-radius: 4px;'
+
+
+def _this_month():
+    today = datetime.date.today()
+    return today.year, today.month
+
+
+def _next_month():
+    today = datetime.date.today()
+    year, month = today.year, today.month + 1
+    if month > 12:
+        month, year = 1, year + 1
+    return year, month
+
+
 def build_common_params_panel(state):
     today = datetime.date.today()
     state.w_year = QComboBox()
@@ -404,16 +420,41 @@ def build_common_params_panel(state):
         state.w_month.addItem(str(month), month)
     state.w_month.setCurrentIndex(state.w_month.findData(today.month))
 
-    label_year = QLabel('Year:')
+    label_year = QLabel('Year')
     label_year.setStyleSheet('font-weight: bold;')
-    label_month = QLabel('Month:')
+    label_month = QLabel('Month')
     label_month.setStyleSheet('font-weight: bold;')
+
+    btn_this_month = QPushButton('This month')
+    btn_next_month = QPushButton('Next Month')
+
+    def _set_year_month(year, month):
+        state.w_year.setCurrentIndex(state.w_year.findData(year))
+        state.w_month.setCurrentIndex(state.w_month.findData(month))
+
+    def on_this_month():
+        _set_year_month(*_this_month())
+    btn_this_month.clicked.connect(on_this_month)
+
+    def on_next_month():
+        _set_year_month(*_next_month())
+    btn_next_month.clicked.connect(on_next_month)
+
+    def _refresh_month_buttons():
+        current = (state.year_plan, state.month_plan)
+        btn_this_month.setStyleSheet(_MONTH_BUTTON_ACTIVE_STYLE if current == _this_month() else '')
+        btn_next_month.setStyleSheet(_MONTH_BUTTON_ACTIVE_STYLE if current == _next_month() else '')
+    _refresh_month_buttons()
+    state.w_year.currentIndexChanged.connect(_refresh_month_buttons)
+    state.w_month.currentIndexChanged.connect(_refresh_month_buttons)
 
     row_dropdown = QHBoxLayout()
     row_dropdown.addWidget(label_year)
     row_dropdown.addWidget(state.w_year)
     row_dropdown.addWidget(label_month)
     row_dropdown.addWidget(state.w_month)
+    row_dropdown.addWidget(btn_this_month)
+    row_dropdown.addWidget(btn_next_month)
     row_dropdown.addStretch()
 
     widget = QWidget()
@@ -464,7 +505,7 @@ def _load_deadline(config, year_plan, month_plan):
 
 
 def build_form_panel(state):
-    w_deadline = QDateEdit(QDate.currentDate())
+    w_deadline = QDateEdit(QDate.currentDate().addDays(3))
     w_deadline.setCalendarPopup(True)
 
     # Holidays/ECT-cancel only ever matter to this stage (script/form.py::prepare_form), so they
@@ -480,7 +521,7 @@ def build_form_panel(state):
     state.w_year.currentIndexChanged.connect(_refresh_calendars)
     state.w_month.currentIndexChanged.connect(_refresh_calendars)
 
-    button = QPushButton('Create Google Form')
+    button = QPushButton('Create form && draft email')
     status = _make_status_label()
     output = _make_output()
     state.l_button.append(button)
@@ -526,7 +567,7 @@ def build_collect_panel(state):
         year_plan, month_plan = state.year_plan, state.month_plan
 
         def run():
-            # The response deadline set on the Create Form tab is reused automatically here
+            # The response deadline set on the Ask tab is reused automatically here
             # (script/gui.py::_save_deadline / _load_deadline via dutyshift/result/<year>/
             # <month>/deadline.json) -- collect_availability itself only drafts a reminder email
             # when there is at least one not-yet-answered doctor, so this stays a no-op the rest
@@ -1007,14 +1048,14 @@ def build_notify_panel(state):
     # just created above -- meant for a last look before Publish to Calendar below. The
     # correction deadline next to the button is embedded in the draft's subject
     # ('【{deadline} 修正〆】...', dutyshift/template/dropin.json) -- same date-picker pattern as
-    # "1. Create Form"'s response deadline (build_form_panel/_format_deadline above), but not
+    # the Ask tab's response deadline (build_form_panel/_format_deadline above), but not
     # persisted to Drive: unlike the survey deadline, nothing downstream needs to reuse it.
     button_dropin = QPushButton('Draft Drop-in Notification')
     status_dropin = _make_status_label()
     output_dropin = _make_output(min_height=100)
     state.l_button.append(button_dropin)
 
-    label_deadline_dropin = QLabel('Deadline:')
+    label_deadline_dropin = QLabel('Response deadline')
     w_deadline_dropin = QDateEdit(QDate.currentDate())
     w_deadline_dropin.setCalendarPopup(True)
 
@@ -1146,11 +1187,11 @@ def build_app(state):
     layout.addWidget(build_common_params_panel(state))
 
     l_tab = [
-        ('1. Create Form', build_form_panel(state)),
-        ('2. Collect', build_collect_panel(state)),
-        ('3. Assign', build_assign_panel(state)),
-        ('4. Notify', build_notify_panel(state)),
-        ('5. Replace', build_replace_panel(state)),
+        ('Ask', build_form_panel(state)),
+        ('Collect', build_collect_panel(state)),
+        ('Assign', build_assign_panel(state)),
+        ('Notify', build_notify_panel(state)),
+        ('Replace', build_replace_panel(state)),
     ]
     tabs = QTabWidget()
     for title, panel in l_tab:
