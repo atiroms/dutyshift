@@ -50,7 +50,13 @@ deliberately, don't let installs silently drift. Core libraries actually importe
   `script/gui.py`) instead of the GUI thread; anything a worker needs from a widget is captured
   into a plain value *before* dispatch, and anything its result needs to write back to a widget
   happens in an `on_success` callback marshaled back onto the GUI thread — Qt widgets may only
-  be touched from the thread that owns them.
+  be touched from the thread that owns them. `build_app` also signs in to Google once, right
+  when the window opens (`_start_google_signin`, same background-thread pattern), requesting the
+  union of every scope any stage needs (`drive_io.SCOPE_ALL`) so no individual tab's own Google
+  call ever has to trigger — or block on — its own separate sign-in; a browser window opens only
+  the very first time a machine ever authenticates (or after that grant is revoked) — every run
+  after that authenticates silently off the cached local `token.json`. See
+  `script/drive_io.py::get_credentials`/`SCOPE_ALL`.
 
 ## How it runs
 

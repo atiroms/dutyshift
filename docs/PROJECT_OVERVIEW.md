@@ -325,7 +325,16 @@ current constraints, in two phases:
 - **OAuth credentials** — per-user `InstalledAppFlow`, via `script/drive_io.py::get_credentials`.
   Unlike the pre-migration code, an existing `token.json` is loaded and refreshed before falling
   back to a fresh interactive browser consent — a normal run doesn't need a browser at all once
-  a token exists. Credential/token file *locations* come from each machine's local
+  a token exists. Whenever that interactive flow does have to run, it requests `SCOPE_ALL` (the
+  union of every scope any stage uses) rather than just whichever narrower scope triggered it —
+  otherwise switching between stages needing different scopes (e.g. Assign's Drive/Forms scope vs.
+  Notify's Calendar/Gmail scopes) would perpetually re-trigger the browser flow, each grant
+  overwriting and narrowing the last. The GUI (`script/gui.py::build_app`/`_start_google_signin`)
+  also triggers this sign-in once, up front, right when the window opens, rather than leaving it
+  to happen lazily on whichever tab's Run button is clicked first — so in practice a browser
+  window opens only the very first time a machine ever authenticates (or after the grant is
+  revoked); every later run, and every tab within a run, authenticates silently off the same
+  cached local `token.json`. Credential/token file *locations* come from each machine's local
   `config.local.json` (see [Data storage](#data-storage)); the credentials themselves are never
   synced to Drive or committed to git.
 

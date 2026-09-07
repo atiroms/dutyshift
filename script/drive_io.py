@@ -52,6 +52,20 @@ SCOPE_DRIVE_FORMS_GMAIL = SCOPE_DRIVE_FORMS + ['https://www.googleapis.com/auth/
 # config/config.json, template/*.json) and Gmail (drafting) but neither Forms nor Calendar.
 SCOPE_DRIVE_GMAIL = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/gmail.compose']
 
+# Union of every scope above, deduplicated, order preserved. Individual call sites still pass
+# their own least-privilege scope list above (SCOPE_DRIVE_FORMS, etc.) -- that's what's checked
+# against a cached token's recorded scopes and what a service client is nominally built for --
+# but get_credentials always requests this full union whenever it actually has to run the
+# interactive consent flow, regardless of which narrower scope triggered it. Otherwise, since a
+# freshly-granted token's scope entirely replaces whatever was cached before, switching between
+# e.g. a Calendar-needing stage and a Forms/Gmail-needing stage would perpetually re-trigger the
+# browser flow, each grant narrowing the token back down and invalidating the other -- one scope
+# never staying granted long enough to skip login on the next stage. Requesting the union instead
+# means one consent (the GUI triggers it once, at startup -- see script/gui.py) ever needs a
+# browser; every stage after that finds its own narrower scope already covered by the cached
+# token and never prompts again.
+SCOPE_ALL = list(dict.fromkeys(SCOPE_DRIVE_FORMS + SCOPE_DRIVE_CALENDAR + SCOPE_DRIVE_FORMS_GMAIL + SCOPE_DRIVE_GMAIL))
+
 
 ###############################################################################
 # Local per-machine config (config.local.json)
@@ -86,6 +100,15 @@ def get_credentials(p_cred, p_token, l_scope):
     (which unconditionally re-ran the full InstalledAppFlow every call), this means a normal run
     doesn't need a browser at all once token.json exists.
 
+    When the interactive flow does run, it requests SCOPE_ALL (the union of every scope this app
+    ever uses) rather than the l_scope that happened to trigger it -- see SCOPE_ALL's comment for
+    why: granting only the narrower l_scope would overwrite whatever broader grant an earlier
+    stage already had, so switching between stages that need different scopes would otherwise
+    re-trigger the browser flow forever, each grant undoing the last. Requesting the union means
+    one consent (normally triggered once, at GUI startup -- see script/gui.py) covers every
+    stage for good, and only that first-ever grant on a machine needs a browser at all; every
+    later call, from any stage, is satisfied by the same cached token.json refreshed locally.
+
     The narrower-scope check matters because Credentials.from_authorized_user_file(path, scopes)
     ADOPTS whatever `scopes` you pass in as the returned object's own .scopes -- it does not
     validate that against what's actually recorded in the file (google-auth only falls back to
@@ -116,7 +139,8 @@ def get_credentials(p_cred, p_token, l_scope):
             creds = None
 
     if not creds or not creds.valid:
-        flow = InstalledAppFlow.from_client_secrets_file(p_cred, l_scope)
+        l_scope_grant = list(dict.fromkeys(list(l_scope) + SCOPE_ALL))
+        flow = InstalledAppFlow.from_client_secrets_file(p_cred, l_scope_grant)
         creds = flow.run_local_server(port=0)
 
     with open(p_token, 'w') as token:

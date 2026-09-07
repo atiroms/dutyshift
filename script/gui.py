@@ -36,6 +36,14 @@
 # marshals back onto the GUI thread, never inside the worker function itself. All of the app's
 # action buttons (state.l_button) are disabled while any one worker is running, so only one
 # pipeline stage ever runs at a time -- matching the old single-threaded Jupyter-kernel behavior.
+#
+# build_app() also signs in to Google once, right after building the window (_start_google_signin,
+# same background-QThread pattern), instead of leaving it to happen lazily on whichever tab's Run
+# button gets clicked first. Every stage's own get_services() call requests SCOPE_ALL's union up
+# front (see script/drive_io.py::get_credentials/SCOPE_ALL) whenever it has to run the interactive
+# browser consent flow, so this startup sign-in is normally the only time in the app's life a
+# browser window opens at all -- once token.json exists and covers every scope, every later run
+# (and every individual tab within a run) authenticates silently off that cached local file.
 ###############################################################################
 
 import calendar, contextlib, datetime, traceback
@@ -57,7 +65,7 @@ from script.parameter import (
 )
 from script.drive_io import (
     load_config, get_services, prep_drive_paths, resolve_folder_id,
-    read_json, write_json, month_folder_path, list_month_folders, SCOPE_DRIVE_FORMS,
+    read_json, write_json, month_folder_path, list_month_folders, SCOPE_DRIVE_FORMS, SCOPE_ALL,
 )
 from script.form import prepare_form
 from script.collect import collect_availability
@@ -1175,6 +1183,48 @@ def build_replace_panel(state):
 ###############################################################################
 # Combined app: one window, all stages -- the function main.py calls
 ###############################################################################
+def _start_google_signin(state, window):
+    """Kick off Google sign-in once, right when the window is built, instead of leaving it to
+    happen lazily -- and separately, per scope combination -- on whichever tab's Run button the
+    user clicks first. get_services(..., SCOPE_ALL) reuses/refreshes the machine's cached
+    token.json when one already covers every scope the app needs (see
+    drive_io.get_credentials/SCOPE_ALL); a browser window only appears the very first time this
+    machine ever authenticates (or if that token is later revoked). Every action button stays
+    disabled and the status bar shows a "signing in" message until this finishes, so no
+    individual stage's own get_services() call ever has to trigger -- or block on -- that flow
+    itself; once this succeeds, every stage's own (narrower-scope) get_services() call just loads
+    the same already-valid cached credentials, no network round trip or prompt at all."""
+    status_bar = window.statusBar()
+    status_bar.showMessage('Google アカウントにサインイン中…')
+    for button in state.l_button:
+        button.setEnabled(False)
+
+    def _sign_in():
+        services = get_services(state.config, SCOPE_ALL)
+        try:
+            return services.drive.about().get(fields='user(emailAddress)').execute()['user']['emailAddress']
+        except Exception:
+            return None  # signed in fine either way -- this second call is cosmetic only
+
+    def _on_succeeded(email):
+        status_bar.showMessage('Google アカウント: ' + email if email else 'Google サインイン完了')
+        for button in state.l_button:
+            button.setEnabled(True)
+
+    def _on_failed(tb):
+        print(tb)
+        status_bar.showMessage('Google サインインに失敗しました（各タブの実行時に再試行されます）')
+        for button in state.l_button:
+            button.setEnabled(True)
+
+    worker = _Worker(_sign_in)
+    worker.succeeded.connect(_on_succeeded, Qt.QueuedConnection)
+    worker.failed.connect(_on_failed, Qt.QueuedConnection)
+    worker.finished.connect(lambda: state.l_worker.remove(worker), Qt.QueuedConnection)
+    state.l_worker.append(worker)
+    worker.start()
+
+
 def build_app(state):
     """Single combined window for the whole pipeline: common parameters pinned above a Tab
     holding one stage per tab. `state` must be a fresh AppState() -- build_common_params_panel
@@ -1200,4 +1250,8 @@ def build_app(state):
 
     window.setCentralWidget(central)
     window.resize(900, 700)
+
+    # All of state.l_button is populated by now (every build_*_panel() call above registered its
+    # Run button) -- safe to disable them for the duration of the startup sign-in.
+    _start_google_signin(state, window)
     return window
