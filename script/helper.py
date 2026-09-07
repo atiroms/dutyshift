@@ -452,9 +452,10 @@ def ensure_member_sheet(service_drive, service_sheets, id_config, year_plan, mon
 # and every pipeline call reads them fresh (script/form.py::prepare_form,
 # script/collect.py::collect_availability, script/notify.py::update_calendar/
 # draft_dropin_notification/draft_fixed_notification all call the loaders below on every run --
-# nothing is cached across calls). Each loader seeds its file with this codebase's original
-# hardcoded content the first time it's read, so an existing installation keeps working without
-# a manual migration step.
+# nothing is cached across calls). load_drive_config seeds config.json with this codebase's
+# original hardcoded content the first time it's read, so an existing installation keeps working
+# without a manual migration step; load_email_template has no such fallback -- template wording
+# lives on Drive only, and a missing dutyshift/template/<name>.json is an error.
 #
 # id_template_form/dict_itemid_form/id_item_name/dict_sectionid_title used to live here too (the
 # Google Form template "1. Create Form" copied each month, its grid/name-dropdown item IDs, and
@@ -500,104 +501,25 @@ def load_drive_config(service_drive, id_config):
     return dict_config
 
 
-# Each entry is {'subject', 'body', 'button_label', ...}: 'subject' and 'body' are str.format()
-# templates. 'button_label'/'button_label_replace' are the visible text of the HTML buttons
-# script/parameter.py::str_email_button_html renders in place of {button}/{button_replace} --
-# {button} links to the assignment Google Sheet, {button_replace} to the shift-swap request form
-# (dutyshift/config/config.json's url_replace_form). Every caller below passes all of
-# {deadline}/{year}/{month}/{button}/{button_replace} regardless of which ones its own
-# subject/body actually references, so an admin can freely add/remove any of them on Drive
-# without a code change.
-_DICT_EMAIL_TEMPLATE_DEFAULT = {
-    # script/form.py::prepare_form's initial announcement, once a month's Google Form is created.
-    'announce': {
-        'subject': '【{deadline}〆】東大当直希望調査',
-        'body': ('東大精神科の日当直をご担当される先生方<br><br>\n'
-                '平素より大変お世話になっております。<br>\n'
-                '下記のフォームより、来月分の日当直の希望のご入力をお願いいたします。<br>\n'
-                '{button}<br><br>\n'
-                '締切は{deadline}とさせていただきます。<br>\n'
-                'よろしくお願いいたします。<br><br>\n'
-                '当直係　森田　進<br>\n'
-                '調整用プログラム：<a href="https://github.com/atiroms/dutyshift">https://github.com/atiroms/dutyshift</a>'),
-        'button_label': '回答',
-    },
-    # script/collect.py::collect_availability's reminder, Bcc'd to doctors who haven't answered.
-    'reminder': {
-        'subject': '【{deadline}〆】東大当直希望調査',
-        'body': ('先生方<br><br>\n'
-                'お世話になっております。<br>\n'
-                'こちらの回答期限を{deadline}までとさせていただいておりました。<br>\n'
-                '{button}<br><br>\n'
-                'お忙しいところ誠に恐縮ですが、お早めにご回答をお願いいたします。<br><br>\n'
-                '森田'),
-        'button_label': '回答',
-    },
-    # script/notify.py::draft_dropin_notification's "please take a look at the still-editable
-    # draft" email -- {deadline} is the correction deadline set next to the "Draft Drop-in
-    # Notification" button (script/gui.py::build_notify_panel), not the availability-survey
-    # deadline announce/reminder above use.
-    'dropin': {
-        'subject': '【{deadline} 修正〆】東大暫定当直表',
-        'body': ('東大病院精神科日当直のご勤務をされる先生方<br><br>\n'
-                'お世話になっております。<br>\n'
-                '来月の日当直表の暫定版をお送りいたします。<br>\n'
-                '{button}<br><br>\n'
-                'ご確認いただき、お気づきの点はご連絡をお願いします。<br><br>\n'
-                'ご自身の事由でご都合が合わなくなった際は先生方同士で交代を調整の上、下記のフォームでご連絡ください。'
-                '平日当直・休日日当直の交代は指定医同士、非指定医同士でお願いします。<br>\n'
-                '{button_replace}<br><br>\n'
-                '何卒よろしくお願い申し上げます。<br><br>\n'
-                '当直係　森田<br>\n'
-                '調整プログラム：<a href="https://github.com/atiroms/dutyshift">https://github.com/atiroms/dutyshift</a>'),
-        'button_label': '当直表を見る',
-        'button_label_replace': '変更申請',
-    },
-    # script/notify.py::draft_fixed_notification's "the roster is finalized" email. The CC line
-    # is descriptive body text (this program only Bcc's active doctors + l_email_extra_fixed --
-    # see script/helper.py::load_drive_config) -- edit it directly on Drive when the department/
-    # name list changes.
-    'fixed': {
-        'subject': '東大{month}月当直表',
-        'body': ('東大精神科日当直をご担当される先生方<br>\n'
-                'CC：精神科医局、精神科外来、森田（健）先生、辻田先生（B直係）入山師長、須佐副師長、矢澤副師長、'
-                'リエゾンチーム、こころの発達診療部<br><br>\n'
-                '平素より大変お世話になっております。<br>\n'
-                '来月の日当直表の確定版をお送りいたします。<br>\n'
-                '{button}<br><br>\n'
-                '個人的にご都合が合わない場合には先生方同士で交代を調整の上、下記フォームで申請をお願いします。'
-                'なお、平日当直・休日日当直の交代は指定医同士、非指定医同士でお願いします。<br>\n'
-                '{button_replace}<br>\n'
-                'さらに外来、DHへのご連絡と、病棟・研修医室に貼ってある日当直表への変更記載お願いします。<br><br>\n'
-                '宜しくお願い申し上げます。<br><br>\n'
-                '当直係　森田<br>\n'
-                '調整プログラム：<a href="https://github.com/atiroms/dutyshift">https://github.com/atiroms/dutyshift</a>'),
-        'button_label': '当直表を見る',
-        'button_label_replace': '変更申請',
-    },
-}
-
-
+# Each dutyshift/template/<name>.json entry is {'subject', 'body', 'button_label', ...}:
+# 'subject' and 'body' are str.format() templates. 'button_label'/'button_label_replace' are the
+# visible text of the HTML buttons script/parameter.py::str_email_button_html renders in place of
+# {button}/{button_replace} -- {button} links to the assignment Google Sheet, {button_replace} to
+# the shift-swap request form (dutyshift/config/config.json's url_replace_form). Every caller
+# below passes all of {deadline}/{year}/{month}/{button}/{button_replace} regardless of which
+# ones its own subject/body actually references, so an admin can freely add/remove any of them on
+# Drive without a code change. Wording lives on Drive only -- there is no code-side default or
+# seeding; the file must already exist there.
 def load_email_template(service_drive, id_template, name):
     """Read one email template (subject/body/button_label) from
-    dutyshift/template/<name>.json -- seeded with _DICT_EMAIL_TEMPLATE_DEFAULT[name] the first
-    time it's read. Called fresh on every button click (never cached across runs), so an admin's
-    edit on Drive takes effect on the very next click. If the file already exists but predates a
-    key later added to _DICT_EMAIL_TEMPLATE_DEFAULT[name] (e.g. button_label_replace, added
-    after dropin/fixed's templates were first seeded), that key is backfilled in place -- note
-    this only adds a *missing key*, it can't retroactively fix 'subject'/'body' wording an
-    earlier code version seeded, since a human may have since hand-edited that wording on
-    Drive."""
-    dict_default = _DICT_EMAIL_TEMPLATE_DEFAULT[name]
+    dutyshift/template/<name>.json. Called fresh on every button click (never cached across
+    runs), so an admin's edit on Drive takes effect on the very next click. Raises
+    FileNotFoundError if the template file doesn't exist on Drive (there is no code-side default
+    to fall back to) -- any Drive access error (auth, network) propagates as-is from read_json."""
     dict_template = read_json(service_drive, id_template, name + '.json', default=None)
     if dict_template is None:
-        dict_template = dict(dict_default)
-        write_json(service_drive, id_template, name + '.json', dict_template)
-    else:
-        dict_missing = {key: value for key, value in dict_default.items() if key not in dict_template}
-        if dict_missing:
-            dict_template.update(dict_missing)
-            write_json(service_drive, id_template, name + '.json', dict_template)
+        raise FileNotFoundError(
+            f"dutyshift/template/{name}.json not found on Drive -- create it there before running this stage.")
     return dict_template
 
 
