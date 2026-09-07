@@ -8,7 +8,7 @@ from math import ceil
 from pulp import LpProblem, LpVariable, LpStatus, lpSum, lpDot, value
 from ortoolpy import addvars
 from script.drive_io import (
-    read_csv, write_csv, read_gsheet, read_json, write_json, check_form_exists, list_gsheet_tabs,
+    read_csv, write_csv, read_gsheet, read_json, check_form_exists, list_gsheet_tabs,
     copy_gsheet_tab, list_month_folders, month_folder_path, get_services, prep_drive_paths,
     SCOPE_DRIVE_FORMS,
 )
@@ -452,10 +452,9 @@ def ensure_member_sheet(service_drive, service_sheets, id_config, year_plan, mon
 # and every pipeline call reads them fresh (script/form.py::prepare_form,
 # script/collect.py::collect_availability, script/notify.py::update_calendar/
 # draft_dropin_notification/draft_fixed_notification all call the loaders below on every run --
-# nothing is cached across calls). load_drive_config seeds config.json with this codebase's
-# original hardcoded content the first time it's read, so an existing installation keeps working
-# without a manual migration step; load_email_template has no such fallback -- template wording
-# lives on Drive only, and a missing dutyshift/template/<name>.json is an error.
+# nothing is cached across calls). Neither loader has a code-side default or seeding step --
+# config.json/each template file must already exist on Drive; a missing one is an error, not a
+# silently-created fallback.
 #
 # id_template_form/dict_itemid_form/id_item_name/dict_sectionid_title used to live here too (the
 # Google Form template "1. Create Form" copied each month, its grid/name-dropdown item IDs, and
@@ -464,40 +463,19 @@ def ensure_member_sheet(service_drive, service_sheets, id_config, year_plan, mon
 # batchUpdate) instead of copying a template -- every item id it needs is ephemeral, read back
 # from that run's own create-items response, so there's nothing stable left to persist on Drive.
 ################################################################################
-_DICT_CONFIG_DEFAULT = {
-    'id_calendar': 'ht4svlr03krt7jcqho5guou32c@group.calendar.google.com',
-    # Extra recipients (beyond active doctors) Bcc'd on the "draft fixed notification" email --
-    # e.g. secretaries or administrators who want the finalized roster but never fill in the
-    # availability form. Empty by default; add addresses directly in
-    # dutyshift/config/config.json.
-    'l_email_extra_fixed': [],
-    # Shift-swap request form -- the same link embedded in every calendar event's description
-    # (script/notify.py::add_duty) and rendered as a button in the "draft drop-in notification"/
-    # "draft fixed notification" emails (script/notify.py::draft_dropin_notification/
-    # draft_fixed_notification).
-    'url_replace_form': 'https://forms.gle/oxvdt8CNkW6iPPFm6',
-}
-
-
 def load_drive_config(service_drive, id_config):
     """Read dutyshift/config/config.json: id_calendar (target Google Calendar for "4. Notify" ->
     Publish to Calendar), l_email_extra_fixed (extra Bcc recipients for the "draft fixed
     notification" button), and url_replace_form (the shift-swap request form link embedded in
-    calendar events and the drop-in/fixed notification emails). Seeded with _DICT_CONFIG_DEFAULT
-    the first time it's read. If the file already exists but predates a key later added to
-    _DICT_CONFIG_DEFAULT (e.g. an installation that seeded config.json before
-    url_replace_form/l_email_extra_fixed existed), that top-level key is backfilled in place --
-    without this, a caller reading it would KeyError on a key an admin never had a chance to
-    remove."""
+    calendar events and the drop-in/fixed notification emails). Wording lives on Drive only --
+    there is no code-side default or seeding, same as load_email_template below. Raises
+    FileNotFoundError if config.json doesn't exist on Drive (there is no code-side default to
+    fall back to) -- any Drive access error (auth, network) propagates as-is from read_json."""
     dict_config = read_json(service_drive, id_config, 'config.json', default=None)
     if dict_config is None:
-        dict_config = dict(_DICT_CONFIG_DEFAULT)
-        write_json(service_drive, id_config, 'config.json', dict_config)
-    else:
-        dict_missing = {key: value for key, value in _DICT_CONFIG_DEFAULT.items() if key not in dict_config}
-        if dict_missing:
-            dict_config.update(dict_missing)
-            write_json(service_drive, id_config, 'config.json', dict_config)
+        raise FileNotFoundError(
+            "dutyshift/config/config.json not found on Drive -- create it there "
+            "(id_calendar, l_email_extra_fixed, url_replace_form) before running this stage.")
     return dict_config
 
 
