@@ -179,7 +179,7 @@ def replace_assignment(config, year_plan, month_plan, dict_score_duty, d_replace
             dst = [src_min, src_max]
             d_lim_hard.loc[index, col] = dst
 
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(services.drive, id_folder, 'assign_date_duty.csv', d_assign_date_duty, index=False)
 
     d_cal = read_csv(services.drive, dp.id_month, 'calendar.csv')

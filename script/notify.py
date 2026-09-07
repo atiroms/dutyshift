@@ -206,7 +206,7 @@ def draft_dropin_notification(config, year_plan, month_plan, str_deadline):
         return
 
     print('[2/2] Drafting notification email...')
-    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    id_config = dp.id_config
     d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
     d_member_active = d_member.loc[d_member['active'] == True, :]
     l_email_active = [email for email in d_member_active['email'].tolist()
@@ -247,7 +247,7 @@ def draft_fixed_notification(config, year_plan, month_plan):
         return
 
     print('[2/2] Drafting notification email...')
-    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    id_config = dp.id_config
     l_email_extra = load_drive_config(services.drive, id_config).get('l_email_extra_fixed', [])
     d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
     d_member_active = d_member.loc[d_member['active'] == True, :]
@@ -300,7 +300,7 @@ def update_calendar(config, year_plan, month_plan, num_retries=5):
     # id_calendar (target Google Calendar) and url_replace_form (embedded in each event's
     # description) live on Drive (dutyshift/config/config.json), not in code -- see
     # script/helper.py::load_drive_config. Read fresh on every publish.
-    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    id_config = dp.id_config
     dict_drive_config = load_drive_config(services.drive, id_config)
     id_calendar = dict_drive_config['id_calendar']
     url_replace_form = dict_drive_config['url_replace_form']

@@ -24,9 +24,9 @@ def check_availability_duty(d_member, d_availability):
             str_member_available_mail = ', '.join(l_member_available_mail)
         else:
             str_member_available_mail = ''
-        d_availability_duty.loc[date_duty, 'l_member'] = str_member_available
-        d_availability_duty.loc[date_duty, 'l_member_jpn'] = str_member_available_jpn
-        d_availability_duty.loc[date_duty, 'l_member_mail'] = str_member_available_mail
+        d_availability_duty.loc[date_duty, 'str_member'] = str_member_available
+        d_availability_duty.loc[date_duty, 'str_member_jpn'] = str_member_available_jpn
+        d_availability_duty.loc[date_duty, 'str_member_mail'] = str_member_available_mail
 
     return d_availability_duty
 
@@ -41,6 +41,6 @@ def check_availability_member(d_member, d_availability):
 
             l_availability_member.append([id_member, name_jpn_full, str_date_duty_available])
 
-    d_availability_member = pd.DataFrame(l_availability_member, columns=['id_member', 'name_jpn', 'l_date_duty'])
+    d_availability_member = pd.DataFrame(l_availability_member, columns=['id_member', 'name_jpn', 'str_date_duty'])
 
     return d_availability_member

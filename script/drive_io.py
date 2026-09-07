@@ -188,14 +188,14 @@ def get_services(config, l_scope):
 # Moved unchanged from script/helper.py, which is now imported from here instead of defining
 # these itself.
 ###############################################################################
-def check_gdrive_folder(service, id_folder_parent, name_folder_child):
+def check_gdrive_folder(service_drive, id_folder_parent, name_folder_child):
     q = (
         f"'{id_folder_parent}' in parents "
         f"and name = '{name_folder_child}' "
         "and mimeType = 'application/vnd.google-apps.folder' "
         "and trashed = false"
     )
-    resp = service.files().list(
+    resp = service_drive.files().list(
         q=q,
         spaces='drive',
         fields='files(id, name)'
@@ -211,8 +211,8 @@ def check_gdrive_folder(service, id_folder_parent, name_folder_child):
     return {'exist': exist, 'id_folder_child': id_folder_child}
 
 
-def create_gdrive_folder(service, id_folder_parent, name_folder_child):
-    result = check_gdrive_folder(service, id_folder_parent, name_folder_child)
+def create_gdrive_folder(service_drive, id_folder_parent, name_folder_child):
+    result = check_gdrive_folder(service_drive, id_folder_parent, name_folder_child)
     if result['exist']:
         new = False
         id_folder_child = result['id_folder_child']
@@ -224,7 +224,7 @@ def create_gdrive_folder(service, id_folder_parent, name_folder_child):
             'mimeType': 'application/vnd.google-apps.folder',   # This tells Drive to make it a folder
             'parents': [id_folder_parent],
         }
-        folder_new = service.files().create(
+        folder_new = service_drive.files().create(
             body=folder_metadata,
             fields='id,name'
         ).execute()
@@ -233,10 +233,10 @@ def create_gdrive_folder(service, id_folder_parent, name_folder_child):
     return {'new': new, 'id_folder_child': id_folder_child}
 
 
-def check_gdrive_path(service, path):
+def check_gdrive_path(service_drive, path):
     l_folder = path.split('/')
     l_folder = [folder for folder in l_folder if folder != '']
-    root = service.files().get(
+    root = service_drive.files().get(
         fileId='root',
         fields='id'
     ).execute()
@@ -245,7 +245,7 @@ def check_gdrive_path(service, path):
 
     exist = True
     for folder in l_folder:
-        result = check_gdrive_folder(service, id_folder_parent, folder)
+        result = check_gdrive_folder(service_drive, id_folder_parent, folder)
         if result['exist']:
             id_folder_parent = result['id_folder_child']
             l_id_folder.append(id_folder_parent)
@@ -257,10 +257,10 @@ def check_gdrive_path(service, path):
     return {'exist': exist, 'l_id_folder': l_id_folder}
 
 
-def create_gdrive_path(service, path):
+def create_gdrive_path(service_drive, path):
     l_folder = path.split('/')
     l_folder = [folder for folder in l_folder if folder != '']
-    root = service.files().get(
+    root = service_drive.files().get(
         fileId='root',
         fields='id'
     ).execute()
@@ -268,19 +268,19 @@ def create_gdrive_path(service, path):
     l_id_folder = [id_folder_parent]
 
     for folder in l_folder:
-        result_folder = create_gdrive_folder(service, id_folder_parent, folder)
+        result_folder = create_gdrive_folder(service_drive, id_folder_parent, folder)
         id_folder_parent = result_folder['id_folder_child']
         l_id_folder.append(id_folder_parent)
     return l_id_folder
 
 
-def check_form_exists(service, path_form):
+def check_form_exists(service_drive, path_form):
     path_folder = '/'.join(path_form.split('/')[:-1])
     name_form = path_form.split('/')[-1]
-    result_folder = check_gdrive_path(service, path_folder)
+    result_folder = check_gdrive_path(service_drive, path_folder)
     if result_folder['exist']:
         id_folder = result_folder['l_id_folder'][-1]
-        resp = service.files().list(
+        resp = service_drive.files().list(
             q=(
                 f"'{id_folder}' in parents "
                 f"and name = '{name_form}' "
@@ -312,28 +312,28 @@ class DriveFolderCache:
     def __init__(self):
         self._dict_id = {}
 
-    def get_or_create(self, service, path):
+    def get_or_create(self, service_drive, path):
         if path not in self._dict_id:
-            l_id_folder = create_gdrive_path(service, path)
+            l_id_folder = create_gdrive_path(service_drive, path)
             self._dict_id[path] = l_id_folder[-1]
         return self._dict_id[path]
 
-    def get_or_raise(self, service, path):
+    def get_or_raise(self, service_drive, path):
         if path not in self._dict_id:
-            result = check_gdrive_path(service, path)
+            result = check_gdrive_path(service_drive, path)
             if not result['exist']:
                 raise FileNotFoundError('Drive path not found: ' + path)
             self._dict_id[path] = result['l_id_folder'][-1]
         return self._dict_id[path]
 
 
-def resolve_folder_id(service, path, create=False, cache=None):
+def resolve_folder_id(service_drive, path, create=False, cache=None):
     if cache is None:
         cache = DriveFolderCache()
     if create:
-        return cache.get_or_create(service, path)
+        return cache.get_or_create(service_drive, path)
     else:
-        return cache.get_or_raise(service, path)
+        return cache.get_or_raise(service_drive, path)
 
 
 ###############################################################################
@@ -342,8 +342,8 @@ def resolve_folder_id(service, path, create=False, cache=None):
 # Everything stays in memory (io.BytesIO/io.StringIO) -- no local temp files are used, so this
 # introduces no new machine-specific coupling.
 ###############################################################################
-def _find_file_id(service, id_folder, filename):
-    resp = service.files().list(
+def _find_file_id(service_drive, id_folder, filename):
+    resp = service_drive.files().list(
         q=(
             f"'{id_folder}' in parents "
             f"and name = '{filename}' "
@@ -356,8 +356,8 @@ def _find_file_id(service, id_folder, filename):
     return l_file[0]['id'] if l_file else None
 
 
-def _download_bytes(service, id_file):
-    request = service.files().get_media(fileId=id_file)
+def _download_bytes(service_drive, id_file):
+    request = service_drive.files().get_media(fileId=id_file)
     buf = io.BytesIO()
     downloader = MediaIoBaseDownload(buf, request)
     done = False
@@ -367,51 +367,51 @@ def _download_bytes(service, id_file):
     return buf
 
 
-def _upload_bytes(service, id_folder, filename, buf, mimetype):
+def _upload_bytes(service_drive, id_folder, filename, buf, mimetype):
     media = MediaIoBaseUpload(buf, mimetype=mimetype, resumable=False)
-    id_file = _find_file_id(service, id_folder, filename)
+    id_file = _find_file_id(service_drive, id_folder, filename)
     if id_file is None:
         body = {'name': filename, 'parents': [id_folder]}
-        result = service.files().create(body=body, media_body=media, fields='id').execute()
+        result = service_drive.files().create(body=body, media_body=media, fields='id').execute()
     else:
         # Upsert-by-name: overwrite the existing file's content, matching the old local
         # behavior where re-running a stage overwrote the CSVs already in p_month.
-        result = service.files().update(fileId=id_file, media_body=media, fields='id').execute()
+        result = service_drive.files().update(fileId=id_file, media_body=media, fields='id').execute()
     return result['id']
 
 
-def get_file_web_link(service, id_folder, filename):
+def get_file_web_link(service_drive, id_folder, filename):
     """Return the Drive webViewLink URL for `filename` in `id_folder`, or None if no such file
     exists yet. Used by script/notify.py's draft-notification actions to link to the
     'assignment_<yyyymm>' Google Sheet script/notify.py::create_assignment_sheet already
     created."""
-    id_file = _find_file_id(service, id_folder, filename)
+    id_file = _find_file_id(service_drive, id_folder, filename)
     if id_file is None:
         return None
-    return service.files().get(fileId=id_file, fields='webViewLink').execute().get('webViewLink')
+    return service_drive.files().get(fileId=id_file, fields='webViewLink').execute().get('webViewLink')
 
 
-def read_csv(service, id_folder, filename, **kwargs):
-    id_file = _find_file_id(service, id_folder, filename)
+def read_csv(service_drive, id_folder, filename, **kwargs):
+    id_file = _find_file_id(service_drive, id_folder, filename)
     if id_file is None:
         raise FileNotFoundError(filename + ' not found in Drive folder ' + id_folder)
-    buf = _download_bytes(service, id_file)
+    buf = _download_bytes(service_drive, id_file)
     return pd.read_csv(buf, **kwargs)
 
 
-def write_csv(service, id_folder, filename, df, **kwargs):
+def write_csv(service_drive, id_folder, filename, df, **kwargs):
     sio = io.StringIO()
     df.to_csv(sio, **kwargs)
     buf = io.BytesIO(sio.getvalue().encode('utf-8'))
-    return _upload_bytes(service, id_folder, filename, buf, mimetype='text/csv')
+    return _upload_bytes(service_drive, id_folder, filename, buf, mimetype='text/csv')
 
 
-def read_member_matrix_csv(service, id_folder, filename):
+def read_member_matrix_csv(service_drive, id_folder, filename):
     """Read a date_duty x member_id wide matrix (availability.csv, assign.csv): rows indexed by
     date_duty, one column per member ID. Member ID column headers always round-trip through CSV
     as strings; this restores them to int so callers never need to re-cast them by hand (a cast
     that was previously done ad hoc at some call sites and missing at others)."""
-    df = read_csv(service, id_folder, filename, index_col=0)
+    df = read_csv(service_drive, id_folder, filename, index_col=0)
     df.columns = [int(col) for col in df.columns]
     return df
 
@@ -449,6 +449,17 @@ def list_gsheet_tabs(service_sheets, service_drive, id_folder, filename):
     return [sheet['properties']['title'] for sheet in resp.get('sheets', [])]
 
 
+def _sheet_title_to_id(service_sheets, id_file):
+    """{tab title: sheetId} for every tab of the native Google Sheet `id_file` -- shared by
+    copy_gsheet_tab and ensure_gsheet_tab, both of which need to look up a tab's real sheetId by
+    its title before they can act on it."""
+    resp = service_sheets.spreadsheets().get(
+        spreadsheetId=id_file, fields='sheets.properties(sheetId,title)'
+    ).execute()
+    return {sheet['properties']['title']: sheet['properties']['sheetId']
+            for sheet in resp.get('sheets', [])}
+
+
 def copy_gsheet_tab(service_sheets, service_drive, id_folder, filename, sheet_src, sheet_dst):
     """Duplicate an existing tab within a native Google Sheet and rename the copy, preserving
     every other tab (Sheets API DuplicateSheetRequest carries over cell values/styles/merges/
@@ -460,11 +471,7 @@ def copy_gsheet_tab(service_sheets, service_drive, id_folder, filename, sheet_sr
     id_file = _find_file_id(service_drive, id_folder, filename)
     if id_file is None:
         raise FileNotFoundError(filename + ' not found in Drive folder ' + id_folder)
-    resp = service_sheets.spreadsheets().get(
-        spreadsheetId=id_file, fields='sheets.properties(sheetId,title)'
-    ).execute()
-    dict_title_to_id = {sheet['properties']['title']: sheet['properties']['sheetId']
-                         for sheet in resp.get('sheets', [])}
+    dict_title_to_id = _sheet_title_to_id(service_sheets, id_file)
     if sheet_dst in dict_title_to_id:
         return 'exists'
     if sheet_src not in dict_title_to_id:
@@ -515,11 +522,7 @@ def ensure_gsheet_tab(service_sheets, service_drive, id_folder, filename, sheet_
                                      removeParents=str_parent_prev, fields='id').execute()
         file_created = True
     else:
-        resp = service_sheets.spreadsheets().get(
-            spreadsheetId=id_file, fields='sheets.properties(sheetId,title)'
-        ).execute()
-        dict_title_to_id = {s['properties']['title']: s['properties']['sheetId']
-                            for s in resp.get('sheets', [])}
+        dict_title_to_id = _sheet_title_to_id(service_sheets, id_file)
         if sheet_name in dict_title_to_id:
             if not overwrite:
                 return 'tab_exists', id_file
@@ -546,20 +549,20 @@ def ensure_gsheet_tab(service_sheets, service_drive, id_folder, filename, sheet_
     return ('tab_overwritten' if overwrite else 'tab_created'), id_file
 
 
-def read_json(service, id_folder, filename, default=None):
+def read_json(service_drive, id_folder, filename, default=None):
     """Unlike read_csv/read_gsheet, returns `default` instead of raising when the file doesn't
     exist -- callers (solver-preset/audit-record lookups) treat 'nothing recorded yet' as an
     expected, common state, not an error."""
-    id_file = _find_file_id(service, id_folder, filename)
+    id_file = _find_file_id(service_drive, id_folder, filename)
     if id_file is None:
         return default
-    buf = _download_bytes(service, id_file)
+    buf = _download_bytes(service_drive, id_file)
     return json.loads(buf.read().decode('utf-8'))
 
 
-def write_json(service, id_folder, filename, obj):
+def write_json(service_drive, id_folder, filename, obj):
     buf = io.BytesIO(json.dumps(obj, indent=2, ensure_ascii=False).encode('utf-8'))
-    return _upload_bytes(service, id_folder, filename, buf, mimetype='application/json')
+    return _upload_bytes(service_drive, id_folder, filename, buf, mimetype='application/json')
 
 
 def month_folder_path(year, month):
@@ -575,18 +578,18 @@ def month_folder_path(year, month):
     return 'dutyshift/result/' + str(year) + '/' + month_str
 
 
-def list_month_folders(service, id_root):
+def list_month_folders(service_drive, id_root):
     """Enumerate existing past-month data folders under dutyshift/result/<year>/<month>/,
     returning them as sorted yyyymm strings (e.g. '202608') -- the same shape
     prep_assign_previous/past_score expect, previously produced by filtering
     os.listdir(Dropbox root) for startswith('20')/len==6 names."""
-    result_result = check_gdrive_folder(service, id_root, 'result')
+    result_result = check_gdrive_folder(service_drive, id_root, 'result')
     if not result_result['exist']:
         return []
     id_result = result_result['id_folder_child']
 
     def _list_child_folders(id_parent):
-        resp = service.files().list(
+        resp = service_drive.files().list(
             q=(
                 f"'{id_parent}' in parents "
                 "and mimeType = 'application/vnd.google-apps.folder' "
@@ -624,6 +627,24 @@ class DrivePaths:
     id_data: object   # str, or None if make_data_dir=False
     cache: DriveFolderCache
     service_sheets: object = None
+
+    @property
+    def id_config(self):
+        """Drive folder id for dutyshift/config (config/member, config/config.json), resolved
+        (and cached, via self.cache) on first access -- replaces the
+        `dp.cache.get_or_create(services.drive, 'dutyshift/config')` line every caller needing
+        read_member/load_drive_config used to repeat verbatim."""
+        return self.cache.get_or_create(self.service_drive, 'dutyshift/config')
+
+    @property
+    def l_id_write(self):
+        """Folder ids a pipeline-stage write should land in: the live month folder plus, when
+        make_data_dir=True, this run's timestamped snapshot folder -- skips id_data when it's
+        None. Replaces the
+        `[id for id in [dp.id_month, dp.id_data] if id is not None]` one-liner every write loop
+        across script/form.py, script/collect.py, script/assign.py, script/replace.py and
+        script/helper.py used to repeat verbatim."""
+        return [id_folder for id_folder in [self.id_month, self.id_data] if id_folder is not None]
 
 
 def prep_drive_paths(config, services, year_plan, month_plan, prefix_dir, make_data_dir=True):

@@ -137,12 +137,12 @@ def print_candidate_replacement(service_drive, id_month, dict_class_duty, d_devi
             l_result = []
             for i1, col1 in duty_assigned.iterrows():
                 date_duty = col1['date_duty']
-                # availability_duty.csv has a blank (NaN, not str) 'l_member' for a date_duty no
+                # availability_duty.csv has a blank (NaN, not str) 'str_member' for a date_duty no
                 # one was available for -- can still show up here if it was only filled via a
                 # manual override (assign_manual.csv). No one to suggest as a proxy in that case.
-                if type(d_availability_duty.loc[date_duty, 'l_member']) == str:
-                    l_member = d_availability_duty.loc[date_duty, 'l_member'].split(', ')
-                    l_member_jpn = d_availability_duty.loc[date_duty, 'l_member_jpn'].split(', ')
+                if type(d_availability_duty.loc[date_duty, 'str_member']) == str:
+                    l_member = d_availability_duty.loc[date_duty, 'str_member'].split(', ')
+                    l_member_jpn = d_availability_duty.loc[date_duty, 'str_member_jpn'].split(', ')
                     l_member_proxy = [i2 + '_' + name for i2, name in zip(l_member, l_member_jpn) if int(i2) != int(id_member)]
                     str_member_proxy = ', '.join(l_member_proxy)
                 else:
@@ -150,7 +150,7 @@ def print_candidate_replacement(service_drive, id_month, dict_class_duty, d_devi
                 l_result.append([date_duty, str_member_proxy])
             ll_result.append(['excess', str_member, class_deviant, l_result])
         elif col0['deviation_exact'] < 0:
-            l_duty_available = d_availability_member.loc[d_availability_member['id_member'] == id_member, 'l_date_duty'].tolist()[0].split(', ')
+            l_duty_available = d_availability_member.loc[d_availability_member['id_member'] == id_member, 'str_date_duty'].tolist()[0].split(', ')
             l_duty_available = [duty for duty in l_duty_available if duty.split('_')[1] in duty_deviant]
             l_duty_assigned = d_assign_member.loc[d_assign_member['id_member'] == id_member, 'duty_all'].tolist()[0].split(', ')
             l_duty_available = [duty for duty in l_duty_available if duty not in l_duty_assigned]
@@ -178,9 +178,9 @@ def print_candidate_replacement(service_drive, id_month, dict_class_duty, d_devi
         l_result = []
         for i0, col0 in d_closeduty_temp.iterrows():
             date_duty = col0['date_duty']
-            if type(d_availability_duty.loc[date_duty, 'l_member']) == str:
-                l_member_proxy = d_availability_duty.loc[date_duty, 'l_member'].split(', ')
-                l_member_proxy_jpn = d_availability_duty.loc[date_duty, 'l_member_jpn'].split(', ')
+            if type(d_availability_duty.loc[date_duty, 'str_member']) == str:
+                l_member_proxy = d_availability_duty.loc[date_duty, 'str_member'].split(', ')
+                l_member_proxy_jpn = d_availability_duty.loc[date_duty, 'str_member_jpn'].split(', ')
                 l_member_proxy = [i2 + '_' + name for i2, name in zip(l_member_proxy, l_member_proxy_jpn) if int(i2) != int(id_member)]
                 str_member_proxy = ', '.join(l_member_proxy)
                 l_result.append([date_duty, str_member_proxy])
@@ -691,7 +691,7 @@ def prep_member2(dp, year_plan, month_plan, year_start, month_start, dict_score_
                     'designation', 'team', 'ect_leader', 'ect_subleader', 'active']
 
     # Load source member and assignment limit of the month
-    id_config = dp.cache.get_or_create(dp.service_drive, 'dutyshift/config')
+    id_config = dp.id_config
     d_src = read_member(dp.service_drive, dp.service_sheets, id_config, year_plan, month_plan)
     d_src = d_src.loc[d_src['active'], ]
     l_col_member = [col for col in l_col_member if col in d_src.columns]
@@ -718,7 +718,7 @@ def prep_member2(dp, year_plan, month_plan, year_start, month_start, dict_score_
     # keep id_member as an explicit column (never as the CSV's own row index, which round-trips
     # unreliably) via rename_axis('id_member').reset_index(); the in-memory DataFrames used by
     # the solver are unaffected -- only how they're written to Drive changes.
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(dp.service_drive, id_folder, 'score_past.csv', d_score_past, index=False)
         write_csv(dp.service_drive, id_folder, 'lim_hard.csv', d_lim_hard.rename_axis('id_member').reset_index(), index=False)
         write_csv(dp.service_drive, id_folder, 'lim_soft.csv', d_lim_soft.rename_axis('id_member').reset_index(), index=False)
@@ -750,7 +750,7 @@ def extract_assignment(dp, year_plan, month_plan, dv_assign, d_date_duty_noskip,
     d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_skip), 'status'] = 'skipped'
     d_assign_date_duty = d_assign_date_duty.loc[:,['date_duty', 'year', 'month', 'date', 'duty', 'id_member', 'status']]
 
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(dp.service_drive, id_folder, 'assign_date_duty.csv', d_assign_date_duty, index=False)
 
     return d_assign_date_duty
@@ -793,7 +793,7 @@ def extract_closeduty(dp, dict_dv_closeduty, d_assign_date_duty, d_member, dict_
     d_closeduty = d_closeduty.sort_values('id_member', kind='stable').reset_index(drop=True)
     d_closeduty = d_closeduty[['id_member', 'name_jpn', 'date_duty']]
 
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(dp.service_drive, id_folder, 'closeduty.csv', d_closeduty, index=False)
 
     return d_closeduty
@@ -926,7 +926,7 @@ def convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
     d_score_print = pd.merge(d_score_print, d_score_total, on='id_member', how='left')
     d_score_print.columns = ['id_member', 'name_jpn'] + ['score_' + col for col in l_type_score] + ['score_sigma_' + col for col in l_type_score]
 
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(dp.service_drive, id_folder, 'assign.csv', d_assign, index=True)
         write_csv(dp.service_drive, id_folder, 'assign_print.csv', d_assign_date_print, index=False)
         write_csv(dp.service_drive, id_folder, 'assign_member.csv', d_assign_member, index=False)
@@ -937,42 +937,6 @@ def convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
         write_csv(dp.service_drive, id_folder, 'score_print.csv', d_score_print, index=False)
 
     return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print
-
-
-################################################################################
-# Prepare data of member availability
-################################################################################
-'''
-def prep_availability(p_month, p_data, d_date_duty, d_cal):
-    #d_availability = pd.read_csv(os.path.join(p_month, 'availability_src.csv'))
-    #d_availability.set_index('id_member', inplace = True)
-    #d_availability.drop(['name_jpn_full'], axis = 1, inplace = True)
-    #d_availability = d_availability.T
-    #d_availability = pd.concat([pd.DataFrame({'id_member': d_availability.index}), d_availability], axis = 1)
-    d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
-    d_availability.columns = [int(col) for col in d_availability.columns]
-
-    d_availability_ratio = pd.DataFrame(index = d_availability.index, columns = ['total','available','ratio'])
-    d_availability_ratio['total'] = d_availability.count(axis = 1)
-    d_availability_ratio['available'] = d_availability.replace(2,1).sum(axis = 1)
-    d_availability_ratio['ratio'] = d_availability_ratio['available'] / d_availability_ratio['total']
-
-    d_availability.fillna(0, inplace = True)
-    l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].tolist()
-    d_availability_ect = d_availability.loc[[str(date_ect) + '_am' for date_ect in l_date_ect], :]
-    d_availability_ect.index = ([str(date_ect) + '_ect' for date_ect in l_date_ect])
-    d_availability = pd.concat([d_availability, d_availability_ect], axis = 0)
-    d_availability = d_availability.loc[d_date_duty['date_duty'],:]
-    d_availability = pd.concat([pd.DataFrame({'date_duty': d_availability.index}, index = d_availability.index), d_availability], axis = 1)
-    for p_save in [p_month, p_data]:
-        #d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = False)
-        d_availability_ratio.to_csv(os.path.join(p_save, 'availability_ratio.csv'), index = False)
-
-    l_member = [col for col in d_availability.columns.to_list() if col != 'date_duty']
-    d_availability = d_availability[l_member]
-
-    return d_availability, l_member, d_availability_ratio
-'''
 
 ################################################################################
 # Prepare calendar of the month
@@ -1029,7 +993,7 @@ def prep_calendar(dp, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em
     d_assign_manual = pd.DataFrame({'date_duty': d_date_duty['date_duty'].to_list(), 'id_member': None})
 
     # Save data
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(dp.service_drive, id_folder, 'calendar.csv', d_cal, index=False)
         write_csv(dp.service_drive, id_folder, 'date_duty.csv', d_date_duty, index=False)
         write_csv(dp.service_drive, id_folder, 'assign_manual.csv', d_assign_manual, index=False)
@@ -1059,7 +1023,7 @@ def load_manual_assign_options(config, year_plan, month_plan):
     d_date_duty = read_csv(services.drive, dp.id_month, 'date_duty.csv')
     d_assign_manual = read_csv(services.drive, dp.id_month, 'assign_manual.csv')
 
-    id_config = dp.cache.get_or_create(dp.service_drive, 'dutyshift/config')
+    id_config = dp.id_config
     d_member = read_member(dp.service_drive, dp.service_sheets, id_config, year_plan, month_plan)
     d_member = d_member.loc[d_member['active'], ['id_member', 'name_jpn_full']]
     dict_member_name = {int(id_member): name for id_member, name in

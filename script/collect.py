@@ -22,7 +22,7 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, str_deadlin
     # creates the form under.
     path_form = '/dutyshift/result/' + str(year_plan) + '/' + str(month_plan).zfill(2) + '/form_' + str(year_plan) + str(month_plan).zfill(2)
     d_availability_src = read_form_response(services, path_form)
-    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    id_config = dp.id_config
     d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
 
     # Check missing members
@@ -61,10 +61,10 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, str_deadlin
     # Apply weekly pattern to list of date_duty
     dict_l_availability = {}
     for _, row in d_cal_duty.iterrows(): # Iterate over date_duty's
-        title_dateduty = row['title_dateduty']
-        dateduty = str(row['date']) + '_' + row['duty']
-        #l_col_dateduty = [idx_col for col in l_col if ('[' + title_dateduty + ']') in col]
-        l_col_dateduty = [idx_col for idx_col, col in enumerate(l_col) if ('[' + title_dateduty + ']') in col]
+        title_date_duty = row['title_date_duty']
+        date_duty = str(row['date']) + '_' + row['duty']
+        #l_col_date_duty = [idx_col for col in l_col if ('[' + title_date_duty + ']') in col]
+        l_col_date_duty = [idx_col for idx_col, col in enumerate(l_col) if ('[' + title_date_duty + ']') in col]
         day = row['wday']
         duty = row['duty']
         holiday_wday = row['holiday_wday']
@@ -74,7 +74,7 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, str_deadlin
         else:
             l_availability = [np.nan] * d_availability_src.shape[0]
         # Apply irregular pattern
-        for idx_col in l_col_dateduty: # Iterate over columns of specific date_duty in columns of d_availability_src
+        for idx_col in l_col_date_duty: # Iterate over columns of specific date_duty in columns of d_availability_src
             l_availability_src = d_availability_src.iloc[:, idx_col].tolist()
             for idx, availability_src in enumerate(l_availability_src):
                 if availability_src == '不可':
@@ -83,7 +83,7 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, str_deadlin
                     l_availability[idx] = 1
                 elif availability_src == '希望':
                     l_availability[idx] = 2
-        dict_l_availability[dateduty] = l_availability
+        dict_l_availability[date_duty] = l_availability
 
     d_availability = pd.DataFrame(dict_l_availability)
 
@@ -187,7 +187,7 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, str_deadlin
     d_availability_member = check_availability_member(d_member, d_availability)
 
     print('[3/3] Saving results and drafting reminder email...')
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(services.drive, id_folder, 'availability.csv', d_availability, index=True)
         write_csv(services.drive, id_folder, 'availability_ratio.csv', d_availability_ratio, index=True)
         write_csv(services.drive, id_folder, 'info.csv', d_info, index=False)

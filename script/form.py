@@ -49,24 +49,24 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     d_cal_duty.index = range(len(d_cal_duty))
 
     d_cal_duty['duty_jpn'] = d_cal_duty['duty'].map(dict_duty_jpn)
-    d_cal_duty['title_dateduty'] = d_cal_duty['title_date'] + d_cal_duty['duty_jpn']
+    d_cal_duty['title_date_duty'] = d_cal_duty['title_date'] + d_cal_duty['duty_jpn']
 
-    d_cal_duty = d_cal_duty[['date', 'wday', 'duty', 'holiday_wday','title_dateduty']]
+    d_cal_duty = d_cal_duty[['date', 'wday', 'duty', 'holiday_wday','title_date_duty']]
 
     # Per-title date_duty lists (unchanged -- kept purely for duty.csv/form.csv, and independent
     # of how script/parameter.py::l_form_section groups titles into Google Form sections below).
     dict_l_form = {}
     for title in dict_title_duty.keys():
         l_duty_title = dict_title_duty[title]
-        l_dateduty_holiday = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title) & d_cal_duty['holiday_wday'], 'title_dateduty'].tolist()
-        l_dateduty = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title) & ~d_cal_duty['holiday_wday'], 'title_dateduty'].tolist()
-        if len(l_dateduty_holiday) > 0:
-            dict_l_form[title + '_holiday'] = l_dateduty_holiday
-        if len(l_dateduty) > 0:
-            dict_l_form[title + '_others'] = l_dateduty
+        l_date_duty_holiday = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title) & d_cal_duty['holiday_wday'], 'title_date_duty'].tolist()
+        l_date_duty = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_title) & ~d_cal_duty['holiday_wday'], 'title_date_duty'].tolist()
+        if len(l_date_duty_holiday) > 0:
+            dict_l_form[title + '_holiday'] = l_date_duty_holiday
+        if len(l_date_duty) > 0:
+            dict_l_form[title + '_others'] = l_date_duty
     d_form = pd.DataFrame(dict([(key, pd.Series(l_form)) for key, l_form in dict_l_form.items() ]))
     # Save data
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(services.drive, id_folder, 'duty.csv', d_cal_duty, index=False)
         write_csv(services.drive, id_folder, 'form.csv', d_form, index=False)
 
@@ -76,7 +76,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     # question's option (there's no unconditional per-section default), so this happens in two
     # passes: create every item first, then wire up navigation once the real item ids exist.
     print('[2/3] Creating Google Form...')
-    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    id_config = dp.id_config
 
     # Ensure this month's config/member tab exists (best-effort, copying forward the nearest
     # prior tab if missing -- never raises, never overwrites an existing tab) *before* reading
@@ -161,11 +161,11 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
         if l_row_weekly:
             add_item(('weekly', str_section), grid_item('週間パターン', l_row_weekly))
 
-        l_row_holiday = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_section) & d_cal_duty['holiday_wday'], 'title_dateduty'].tolist()
+        l_row_holiday = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_section) & d_cal_duty['holiday_wday'], 'title_date_duty'].tolist()
         if l_row_holiday:
             add_item(('holiday', str_section), grid_item('祝日', l_row_holiday))
 
-        l_row_others = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_section) & ~d_cal_duty['holiday_wday'], 'title_dateduty'].tolist()
+        l_row_others = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_section) & ~d_cal_duty['holiday_wday'], 'title_date_duty'].tolist()
         if l_row_others:
             add_item(('others', str_section), grid_item('日付ごとの指定', l_row_others))
 

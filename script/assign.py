@@ -384,12 +384,20 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
     ###############################################################################
     print('[3/4] Solving member assignment...')
 
+    # Every troubleshooting iteration below re-solves with the same fixed arguments, varying
+    # only d_date_duty/d_availability (re-skipped each time by skip_date_duty) and, once,
+    # type_limit ('hard' -> 'soft' on the first infeasible result) -- both read from the
+    # enclosing scope at call time, so this closure always solves against their current values
+    # without having to re-list all 15 arguments at each of the 3 call sites below.
+    def _solve_assign():
+        return optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_member,
+                               l_title_fulltime, l_date_duty_fulltime, dict_class_duty,
+                               d_lim_hard, d_lim_exact, type_limit, d_info, d_assign_previous,
+                               dict_closeduty, d_cal, ll_avoid_adjacent,
+                               c_assign_suboptimal, c_cnt_deviation, c_closeduty)
+
     prob_assign, dv_assign, v_assign_suboptimal, v_cnt_deviation, v_closeduty, dict_dv_closeduty =\
-        optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_member,
-                    l_title_fulltime, l_date_duty_fulltime, dict_class_duty,
-                    d_lim_hard, d_lim_exact, type_limit, d_info, d_assign_previous,
-                    dict_closeduty, d_cal, ll_avoid_adjacent,
-                    c_assign_suboptimal, c_cnt_deviation, c_closeduty)
+        _solve_assign()
 
     # When the problem could not be solved, enter troubleshooting mode
     if str(LpStatus[prob_assign.status]) == 'Infeasible':
@@ -425,7 +433,7 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
             d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_unavailable_notoc, l_date_duty_manual_assign, l_date_duty_skip =\
                 skip_date_duty(d_date_duty_noskip, d_availability_noskip, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual_and_test, False)
             prob_assign, dv_assign, v_assign_suboptimal, v_cnt_deviation, v_closeduty, dict_dv_closeduty =\
-                optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_member,l_title_fulltime, l_date_duty_fulltime, dict_class_duty,d_lim_hard, d_lim_exact, type_limit, d_info, d_assign_previous, dict_closeduty, d_cal, ll_avoid_adjacent, c_assign_suboptimal, c_cnt_deviation, c_closeduty)
+                _solve_assign()
             if str(LpStatus[prob_assign.status]) == 'Optimal':
                 # meaning that l_date_duty_testing includes all culprit
                 l_date_duty_suspected = l_date_duty_testing
@@ -451,7 +459,7 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
             d_date_duty, d_availability, l_date_duty_unavailable, l_date_duty_unavailable_notoc, l_date_duty_manual_assign, l_date_duty_skip =\
                 skip_date_duty(d_date_duty_noskip, d_availability_noskip, d_availability_ratio, d_assign_manual, l_date_duty_skip_manual_and_test, False)
             prob_assign, dv_assign, v_assign_suboptimal, v_cnt_deviation, v_closeduty, dict_dv_closeduty =\
-                optimize_assign(d_date_duty, l_member, d_assign_manual, d_availability, d_member,l_title_fulltime, l_date_duty_fulltime, dict_class_duty,d_lim_hard, d_lim_exact, type_limit, d_info, d_assign_previous, dict_closeduty, d_cal, ll_avoid_adjacent, c_assign_suboptimal, c_cnt_deviation, c_closeduty)
+                _solve_assign()
             if str(LpStatus[prob_assign.status]) == 'Optimal':
                 # meaning that l_date_duty_testing includes all culprit
                 print('[TROUBLESHOOTING] iteration', cnt_iteration, 'solvable,', l_date_duty_reduced[idx_testing], 'can be included.')
@@ -485,7 +493,7 @@ def optimize_count_and_assign(config, year_plan, month_plan, year_start, month_s
         # kept as an explicit column (never as the CSV's own row index -- see
         # script/helper.py::prep_member2 for the same convention); in-memory shapes above are
         # unchanged.
-        for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+        for id_folder in dp.l_id_write:
             write_csv(services.drive, id_folder, 'lim_exact.csv', d_lim_exact.rename_axis('id_member').reset_index(), index=False)
             write_csv(services.drive, id_folder, 'score_current_plan.csv', d_score_current.rename_axis('id_member').reset_index(), index=False)
             write_csv(services.drive, id_folder, 'score_total_plan.csv', d_score_total.rename_axis('id_member').reset_index(), index=False)
