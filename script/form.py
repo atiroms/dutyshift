@@ -3,12 +3,22 @@ import base64, traceback
 from email.mime.text import MIMEText
 import pandas as pd
 from script.helper import (
-    prep_calendar, generate_request_update_question, generate_request_delete_item,
-    ensure_member_sheet, read_member, load_drive_config, load_email_template,
+    prep_calendar, build_weekly_pattern_rows,
+    generate_request_update_name_choices, generate_request_update_section_nav,
+    ensure_member_sheet, read_member, load_email_template,
     duty_order, duty_jpn_labels,
 )
-from script.parameter import str_email_button_html, dict_duty_info
+from script.parameter import (
+    str_email_button_html, dict_duty_info, dict_jpnday,
+    l_form_section, l_title_ask_designation, l_title_ask_assign_twice,
+)
 from script.drive_io import get_services, prep_drive_paths, write_csv, SCOPE_DRIVE_FORMS_GMAIL
+
+# Grid column choices, shared by every availability grid this module creates (weekly-pattern,
+# holiday, and per-date-override grids alike) -- matches what script/collect.py parses
+# ('不可'/'可'/'希望' -> 0/1/2).
+l_availability_choice = ['不可', '可', '希望']
+
 
 def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_day_ect, day_em, l_week_em,
                  dict_score_duty, dict_title_duty, dict_class_duty,
@@ -16,7 +26,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     dict_duty = duty_order(dict_duty_info)
     dict_duty_jpn = duty_jpn_labels(dict_duty_info)
 
-    print('[1/4] Preparing calendar and duty list...')
+    print('[1/3] Preparing calendar and duty list...')
     services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='form')
 
@@ -43,6 +53,8 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
 
     d_cal_duty = d_cal_duty[['date', 'wday', 'duty', 'holiday_wday','title_dateduty']]
 
+    # Per-title date_duty lists (unchanged -- kept purely for duty.csv/form.csv, and independent
+    # of how script/parameter.py::l_form_section groups titles into Google Form sections below).
     dict_l_form = {}
     for title in dict_title_duty.keys():
         l_duty_title = dict_title_duty[title]
@@ -58,62 +70,157 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
         write_csv(services.drive, id_folder, 'duty.csv', d_cal_duty, index=False)
         write_csv(services.drive, id_folder, 'form.csv', d_form, index=False)
 
-    # Create Google form
-    # The month's live Drive folder (dp.id_month, "dutyshift/result/<year>/<month>/") is where
-    # the form's supporting data already lives -- the form artifact itself is created directly
-    # inside it.
-    print('[2/4] Creating Google Form...')
-    # id_template_form (the Google Form template to copy) and dict_itemid_form (that template's
-    # grid-question item IDs) live on Drive (dutyshift/config/config.json), not in code -- see
-    # script/helper.py::load_drive_config.
+    # Create Google form from scratch (forms.create + batchUpdate) -- no template to copy. Every
+    # item id the API hands back is only known after the create batchUpdate executes, and
+    # per-section "go to the closing survey section" navigation can only be attached to a choice
+    # question's option (there's no unconditional per-section default), so this happens in two
+    # passes: create every item first, then wire up navigation once the real item ids exist.
+    print('[2/3] Creating Google Form...')
     id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
-    dict_drive_config = load_drive_config(services.drive, id_config)
-    id_template_form = dict_drive_config['id_template_form']
-    dict_itemid_form = dict_drive_config['dict_itemid_form']
 
-    id_folder_data = dp.id_month
-    body = {'name':'form_' + str(year_plan) + str(month_plan).zfill(2), 'parents': [id_folder_data]}
-    form_copied = services.drive.files().copy(fileId=id_template_form, body=body, fields='id, name, parents').execute()
-
-    # Update grid question rows
-    id_form_copied = form_copied['id']
-    l_request, l_itemid_missing = generate_request_update_question(id_form_copied, services.forms, dict_l_form, dict_itemid_form)
-
-    # Delete missing question
-    l_request = l_request + generate_request_delete_item(id_form_copied, services.forms, l_itemid_missing)
-
-    # Update form title
-    str_title = f"{year_plan}年{month_plan}月当直希望調査"
-    l_request.append({"updateFormInfo": {"info": {"title": str_title},"updateMask": "title"}})
-
-    # Execute the update
-    result = services.forms.forms().batchUpdate(formId=id_form_copied, body={"requests": l_request}).execute()
-
-    # Print responding URL
-    str_responder_uri = services.forms.forms().get(formId=id_form_copied).execute().get('responderUri')
-    print('Form URL:', str_responder_uri)
-
-    ###############################################################################
-    # Copy forward next month's member tab, then draft (never send) a notification email to
-    # active doctors. Both best-effort and independently guarded: a failure in either must not
-    # turn an otherwise-successful form creation into a reported failure, AND must not be
-    # misattributed to the other step -- they use different Drive/Gmail scopes and can fail
-    # for unrelated reasons (e.g. Gmail's drafts.create failing with an insufficient-scope error
-    # has nothing to do with whether the member tab copy above it succeeded).
-    ###############################################################################
-    print('[3/4] Copying forward next month\'s roster...')
+    # Ensure this month's config/member tab exists (best-effort, copying forward the nearest
+    # prior tab if missing -- never raises, never overwrites an existing tab) *before* reading
+    # it below. This moved up from after form creation (where it ran in the old template-copy
+    # flow, harmless there since that flow never read the roster until drafting the email) --
+    # the from-scratch name dropdown now needs the roster to already exist at this point.
     try:
         ensure_member_sheet(services.drive, services.sheets, id_config, year_plan, month_plan)
     except Exception:
-        print('[WARNING] Could not copy forward next month\'s member tab:')
+        print('[WARNING] Could not ensure this month\'s member tab exists:')
         print(traceback.format_exc())
 
-    print('[4/4] Drafting notification email...')
+    # config/member is required, not best-effort, here: unlike the old template-copy flow, there
+    # is no fallback content for the name dropdown if this fails -- without it the form has no
+    # way to route a respondent to their own section, so a read failure should abort form
+    # creation rather than silently produce an unusable form.
+    d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
+
+    str_title = f"{year_plan}年{month_plan}月当直希望調査"
+    str_description = 'なるべく「不可」を少なくしていただくようにお願いします'
+    str_documenttitle = 'form_' + str(year_plan) + str(month_plan).zfill(2)
+
+    # forms.create only accepts info.title/info.documentTitle -- everything else (description,
+    # settings, items) has to follow via batchUpdate.
+    form_created = services.forms.forms().create(
+        body={'info': {'title': str_title, 'documentTitle': str_documenttitle}}).execute()
+    id_form = form_created['formId']
+
+    # forms.create can't place the file in a folder -- move it into this month's live Drive
+    # folder (dp.id_month, "dutyshift/result/<year>/<month>/") to match where the old
+    # copy-a-template flow always created it.
+    dict_file = services.drive.files().get(fileId=id_form, fields='parents').execute()
+    str_parents_old = ','.join(dict_file.get('parents', []))
+    services.drive.files().update(fileId=id_form, addParents=dp.id_month,
+                                  removeParents=str_parents_old, fields='id, parents').execute()
+
+    # ---- Pass 1: create every item -----------------------------------------------------------
+    l_request1 = [
+        {"updateSettings": {"settings": {"emailCollectionType": "RESPONDER_INPUT"},
+                            "updateMask": "emailCollectionType"}},
+        {"updateFormInfo": {"info": {"description": str_description}, "updateMask": "description"}},
+    ]
+    dict_reqidx = {}  # semantic key -> index into l_request1, to read the matching reply back
+    n_item = [0]       # running item location.index (list so the closure below can mutate it)
+
+    def add_item(key, item):
+        dict_reqidx[key] = len(l_request1)
+        l_request1.append({"createItem": {"item": item, "location": {"index": n_item[0]}}})
+        n_item[0] += 1
+
+    def choice_item(title, choice_type, l_option, required=True):
+        return {"title": title, "questionItem": {"question": {
+            "required": required,
+            "choiceQuestion": {"type": choice_type, "options": [{"value": v} for v in l_option]},
+        }}}
+
+    def grid_item(title, l_row):
+        return {"title": title, "questionGroupItem": {
+            "questions": [{"required": True, "rowQuestion": {"title": row}} for row in l_row],
+            "grid": {"columns": {"type": "RADIO",
+                                 "options": [{"value": v} for v in l_availability_choice]}},
+        }}
+
+    # Name dropdown -- placeholder options for now; script/helper.py::generate_request_update_name_choices
+    # replaces them with this month's active roster in pass 2, once every section's item id (each
+    # option's goToSectionId target) is known.
+    add_item('name', choice_item('お名前（敬称略）', 'DROP_DOWN', ['(準備中)']))
+
+    for str_section, l_title_section in l_form_section:
+        add_item(('section', str_section), {"title": str_section, "pageBreakItem": {}})
+
+        if any(title in l_title_ask_designation for title in l_title_section):
+            add_item(('designation', str_section),
+                     choice_item('指定医の有無', 'DROP_DOWN', ['指定医', '非指定医']))
+
+        if any(title in l_title_ask_assign_twice for title in l_title_section):
+            add_item(('assign_twice', str_section),
+                     choice_item('月2回ご担当の可否', 'RADIO', ['可', '不可']))
+
+        l_duty_section = sorted(set().union(*[set(dict_title_duty[title]) for title in l_title_section]))
+        l_row_weekly = build_weekly_pattern_rows(l_duty_section, dict_duty_info, dict_jpnday)
+        if l_row_weekly:
+            add_item(('weekly', str_section), grid_item('週間パターン', l_row_weekly))
+
+        l_row_holiday = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_section) & d_cal_duty['holiday_wday'], 'title_dateduty'].tolist()
+        if l_row_holiday:
+            add_item(('holiday', str_section), grid_item('祝日', l_row_holiday))
+
+        l_row_others = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_section) & ~d_cal_duty['holiday_wday'], 'title_dateduty'].tolist()
+        if l_row_others:
+            add_item(('others', str_section), grid_item('日付ごとの指定', l_row_others))
+
+        # Forms has no "after this section, go to X" setting independent of a choice question's
+        # option -- this required single-choice question is the only way to send every
+        # respondent straight to the closing survey section instead of falling through into the
+        # next section. Its one option's goToSectionId is filled in during pass 2.
+        add_item(('confirm', str_section),
+                 choice_item('以上で入力は完了です。「次へ」を選択して送信ページへ進んでください。', 'RADIO', ['次へ']))
+
+    add_item('survey_pagebreak', {"title": "アンケート",
+                                  "description": "今後の改善のためにご協力をお願いします",
+                                  "pageBreakItem": {}})
+    add_item('survey_text', {"title": "ご意見、ご要望等",
+                             "questionItem": {"question": {"textQuestion": {"paragraph": True}}}})
+
+    result1 = services.forms.forms().batchUpdate(formId=id_form, body={"requests": l_request1}).execute()
+    l_reply1 = result1.get('replies', [])
+
+    def itemid(key):
+        return l_reply1[dict_reqidx[key]]['createItem']['itemId']
+
+    id_item_name = itemid('name')
+    id_item_survey = itemid('survey_pagebreak')
+    dict_sectionid_title = {title: itemid(('section', str_section))
+                            for str_section, l_title_section in l_form_section for title in l_title_section}
+
+    # ---- Pass 2: wire up navigation now that every item id is known --------------------------
+    request_name, l_title_unmapped = generate_request_update_name_choices(
+        id_form, services.forms, d_member, dict_sectionid_title, id_item_name)
+    if l_title_unmapped:
+        print('[WARNING] Active doctor(s) with a title_short not covered by l_form_section (excluded from the form\'s name dropdown):', l_title_unmapped)
+    l_request2 = [request_name]
+    for str_section, l_title_section in l_form_section:
+        l_request2.append(generate_request_update_section_nav(
+            id_form, services.forms, itemid(('confirm', str_section)), id_item_survey))
+
+    services.forms.forms().batchUpdate(formId=id_form, body={"requests": l_request2}).execute()
+
+    # Print responding URL
+    str_responder_uri = services.forms.forms().get(formId=id_form).execute().get('responderUri')
+    print('Form URL:', str_responder_uri)
+
+    ###############################################################################
+    # Draft (never send) a notification email to active doctors. Best-effort and isolated from
+    # everything above -- a Gmail error here (e.g. an insufficient-scope error) must not turn an
+    # otherwise-successful form creation into a reported failure.
+    ###############################################################################
+    print('[3/3] Drafting notification email...')
     try:
         if not str_deadline:
             print('No response deadline set -- skipping notification email draft.')
         else:
-            d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
+            # Reuse the roster read above (used to build the name dropdown) -- nothing between
+            # there and here can have changed it.
             d_member_active = d_member.loc[d_member['active'] == True, :]
             l_email_active = [email for email in d_member_active['email'].tolist()
                               if isinstance(email, str) and email.strip()]

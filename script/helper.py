@@ -44,6 +44,36 @@ def duty_time_table(dict_duty_info):
             'start': dict_duty_info['start'], 'end': dict_duty_info['end']}
 
 
+def duty_holiday_flags():
+    """{holiday: [duty, ...]} -- the fixed structural rule for which of the 8 raw duties occur
+    on a non-holiday weekday (False) vs a holiday/weekend day (True). This is prep_calendar's
+    own rule for building d_cal, pulled out so script/form.py can derive each Google Form
+    section's weekly-pattern grid rows (weekday x duty) from the same source of truth instead of
+    duplicating it. 'ect' and 'emnight' are deliberately absent from both lists -- they're
+    irregular/date-specific (l_day_ect, the em schedule), not simple weekday/holiday facts, so
+    they never appear in the weekly-pattern grid; only the per-date grids handle them."""
+    return {False: ['am', 'pm', 'night', 'ocnight'], True: ['day', 'night', 'ocday', 'ocnight']}
+
+
+def build_weekly_pattern_rows(l_duty_section, dict_duty_info, dict_jpnday):
+    """Row labels (e.g. '月　当直') for a Google Form section's weekly-pattern grid: for each
+    weekday Mon..Sun, the duties in l_duty_section (a section's title(s) eligible duties, from
+    dict_title_duty) that also occur on that weekday per duty_holiday_flags() (weekday rule for
+    Mon-Fri, holiday rule for Sat/Sun), in dict_duty_info's duty order. Used by
+    script/form.py::prepare_form to build each section's weekly-pattern grid from scratch."""
+    dict_duty_holiday_flag = duty_holiday_flags()
+    dict_order = duty_order(dict_duty_info)
+    dict_jpn = duty_jpn_labels(dict_duty_info)
+    l_row = []
+    for wday in range(7):
+        is_holiday = wday in [5, 6]
+        l_duty_wday = [duty for duty in dict_duty_holiday_flag[is_holiday] if duty in l_duty_section]
+        l_duty_wday = sorted(l_duty_wday, key=lambda duty: dict_order[duty])
+        for duty in l_duty_wday:
+            l_row.append(dict_jpnday[wday] + '　' + dict_jpn[duty])
+    return l_row
+
+
 def class_duty_names(dict_class_duty):
     """Unique class_duty names, in first-appearance order of dict_class_duty (order matters for
     output column ordering, e.g. in the member Google Sheet / lim_*.csv columns)."""
@@ -232,57 +262,78 @@ def read_form_response(services, path_form):
 
 
 ################################################################################
-# Update grid question of Google form
+# Wire up Google Form navigation (goToSectionId) after the items it targets exist.
+#
+# The Forms API never lets a caller choose a new item's itemId (it's always server-generated,
+# returned only in the createItem reply), and per-section "after this page" navigation can only
+# be attached to a choice question's option -- there's no unconditional per-section default
+# (PageBreakItem itself has no navigation field). So script/form.py::prepare_form builds a form
+# in two passes: first create every item (name dropdown, per-section grids/questions, the
+# section-end "next" question), then -- once every item's real itemId is known -- come back with
+# the two functions below to fill in the goToSectionId values that couldn't be set at creation.
 ################################################################################
 
-def generate_request_delete_item(id_form, service, l_itemid):
+def generate_request_update_name_choices(id_form, service, d_member, dict_sectionid_title, id_item_name):
+    """Build the single request that replaces the name dropdown's options with this month's
+    active doctors, each option's goToSectionId routing to the Google Form section matching
+    that doctor's title_short (dict_sectionid_title: title_short -> that section's pageBreakItem
+    itemId, built from parameter.py's l_form_section + the itemIds returned by the create pass --
+    see script/form.py::prepare_form; several title_short values can map to the same section id,
+    e.g. assist_subleader/assist_kokoro sharing one section). Without this, a doctor who
+    joined/left/changed title would need the form hand-edited.
+
+    Returns (request, l_title_unmapped): l_title_unmapped lists the title_short value(s) of any
+    active doctor not covered by dict_sectionid_title (a typo, or a title newly added to
+    config/member but not yet to l_form_section/dict_title_duty) -- those doctors are silently
+    excluded from the option list, so the caller should warn about them rather than let them
+    quietly vanish from the form."""
     form = service.forms().get(formId=id_form).execute()
-    l_position = []
+    position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item_name)
 
-    for id_item in l_itemid:
-        # Determine the position index of the grid item in the form
-        position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item)
-        l_position.append(position_item)
-    l_position = reversed(sorted(l_position))
+    d_member_active = d_member.loc[d_member['active'] == True, :]
+    l_title_unmapped = sorted(set(
+        d_member_active.loc[~d_member_active['title_short'].isin(dict_sectionid_title.keys()), 'title_short'].tolist()
+    ))
+    d_member_mapped = d_member_active.loc[d_member_active['title_short'].isin(dict_sectionid_title.keys()), :]
 
-    l_request = []
-    for position_item in l_position:
-        # Use updateItem to replace the questions array on the questionGroupItem
-        l_request.append({
-            "deleteItem": {
-                "location": {"index": position_item}
-            }
-        })
+    new_options = [
+        {"value": row['name_jpn_full'], "goToSectionId": dict_sectionid_title[row['title_short']]}
+        for _, row in d_member_mapped.iterrows()
+    ]
 
-    return l_request
+    request = {
+        "updateItem": {
+            "location": {"index": position_item},
+            "item": {
+                "itemId": id_item_name,
+                "questionItem": {"question": {"choiceQuestion": {"options": new_options}}}
+            },
+            "updateMask": "questionItem.question.choiceQuestion.options"
+        }
+    }
+    return request, l_title_unmapped
 
-def generate_request_update_question(id_form, service, dict_dateduty_form, dict_itemid_form):
+
+def generate_request_update_section_nav(id_form, service, id_item_confirm, id_section_target):
+    """Build the single request that points a section-end '次へ' confirmation question's one
+    option at id_section_target (the closing survey section's itemId) -- see
+    script/form.py::prepare_form. Mirrors generate_request_update_name_choices's shape."""
     form = service.forms().get(formId=id_form).execute()
-    l_request = []
+    position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item_confirm)
 
-    l_itemid_missing = [dict_itemid_form[key] for key in dict_itemid_form.keys() if key not in dict_dateduty_form.keys()]
-
-    for key, l_dateduty_form in dict_dateduty_form.items():
-        id_item = dict_itemid_form[key]
-        # Determine the position index of the grid item in the form
-        position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item)
-        # Build the new questionGroupItem payload: one question per row label
-        new_questions = [{"rowQuestion": {"title": val}} for val in l_dateduty_form]
-        # Use updateItem to replace the questions array on the questionGroupItem
-        l_request.append({
-                "updateItem": {
-                    "location": {"index": position_item},
-                    "item": {
-                        "itemId": id_item,
-                        "questionGroupItem": {
-                            "questions": new_questions
-                        }
-                    },
-                    "updateMask": "questionGroupItem.questions"
-                }
-            })
-
-    return l_request, l_itemid_missing
+    request = {
+        "updateItem": {
+            "location": {"index": position_item},
+            "item": {
+                "itemId": id_item_confirm,
+                "questionItem": {"question": {"choiceQuestion": {
+                    "options": [{"value": "次へ", "goToSectionId": id_section_target}]
+                }}}
+            },
+            "updateMask": "questionItem.question.choiceQuestion.options"
+        }
+    }
+    return request
 
 
 ################################################################################
@@ -396,23 +447,23 @@ def ensure_member_sheet(service_drive, service_sheets, id_config, year_plan, mon
 # Drive-backed app config (dutyshift/config/config.json) and email templates
 # (dutyshift/template/<name>.json)
 #
-# id_template_form, dict_itemid_form, id_calendar, and every notification email's wording used
-# to be hardcoded in script/parameter.py. They now live on Drive so an admin can edit them
-# without a code change, and every pipeline call reads them fresh (script/form.py::prepare_form,
+# id_calendar and every notification email's wording used to be hardcoded in
+# script/parameter.py. They now live on Drive so an admin can edit them without a code change,
+# and every pipeline call reads them fresh (script/form.py::prepare_form,
 # script/collect.py::collect_availability, script/notify.py::update_calendar/
 # draft_dropin_notification/draft_fixed_notification all call the loaders below on every run --
 # nothing is cached across calls). Each loader seeds its file with this codebase's original
 # hardcoded content the first time it's read, so an existing installation keeps working without
 # a manual migration step.
+#
+# id_template_form/dict_itemid_form/id_item_name/dict_sectionid_title used to live here too (the
+# Google Form template "1. Create Form" copied each month, its grid/name-dropdown item IDs, and
+# the title_short -> section-item-id routing rebuilt from them). They're gone now that
+# script/form.py::prepare_form builds the form from scratch every run (forms.create +
+# batchUpdate) instead of copying a template -- every item id it needs is ephemeral, read back
+# from that run's own create-items response, so there's nothing stable left to persist on Drive.
 ################################################################################
 _DICT_CONFIG_DEFAULT = {
-    'id_template_form': '1JweYEQfU93Ts2k2ZCvfezj01MYYtdyeyRiZ2I99zbjo',
-    'dict_itemid_form': {'assoc_holiday': '3fd28d79', 'assoc_others': '03f37999',
-                         'instr_holiday': '49978020', 'instr_others': '015bf8cf',
-                         'assist_leader_holiday': '6f8a4c28', 'assist_leader_others': '5a3e91e3',
-                         'assist_subleader_holiday': '3f06625b', 'assist_subleader_others': '5301996a',
-                         'limtermclin_holiday': '02401b89', 'limtermclin_others': '0e55b20f',
-                         'stud_holiday': '48b9378b', 'stud_others': '32b66da2'},
     'id_calendar': 'ht4svlr03krt7jcqho5guou32c@group.calendar.google.com',
     # Extra recipients (beyond active doctors) Bcc'd on the "draft fixed notification" email --
     # e.g. secretaries or administrators who want the finalized roster but never fill in the
@@ -428,16 +479,15 @@ _DICT_CONFIG_DEFAULT = {
 
 
 def load_drive_config(service_drive, id_config):
-    """Read dutyshift/config/config.json: id_template_form/dict_itemid_form (the Google Form
-    template "1. Create Form" copies each month, and that template's grid-question item IDs),
-    id_calendar (target Google Calendar for "4. Notify" -> Publish to Calendar),
-    l_email_extra_fixed (extra Bcc recipients for the "draft fixed notification" button), and
-    url_replace_form (the shift-swap request form link embedded in calendar events and the
-    drop-in/fixed notification emails). Seeded with _DICT_CONFIG_DEFAULT the first time it's
-    read. If the file already exists but predates a key later added to _DICT_CONFIG_DEFAULT
-    (e.g. an installation that seeded config.json before url_replace_form/l_email_extra_fixed
-    existed), that key is backfilled in place -- without this, a caller reading it would KeyError
-    on a key an admin never had a chance to remove."""
+    """Read dutyshift/config/config.json: id_calendar (target Google Calendar for "4. Notify" ->
+    Publish to Calendar), l_email_extra_fixed (extra Bcc recipients for the "draft fixed
+    notification" button), and url_replace_form (the shift-swap request form link embedded in
+    calendar events and the drop-in/fixed notification emails). Seeded with _DICT_CONFIG_DEFAULT
+    the first time it's read. If the file already exists but predates a key later added to
+    _DICT_CONFIG_DEFAULT (e.g. an installation that seeded config.json before
+    url_replace_form/l_email_extra_fixed existed), that top-level key is backfilled in place --
+    without this, a caller reading it would KeyError on a key an admin never had a chance to
+    remove."""
     dict_config = read_json(service_drive, id_config, 'config.json', default=None)
     if dict_config is None:
         dict_config = dict(_DICT_CONFIG_DEFAULT)
@@ -1020,9 +1070,10 @@ def prep_calendar(dp, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em
         d_cal.loc[d_cal['date'] == date, 'holiday'] = True
     d_cal[['em', 'am', 'pm', 'day', 'night', 'emnight', 'ocday', 'ocnight', 'ect']] = False
     d_cal.loc[(d_cal['wday'] == day_em) & (d_cal['week'].isin(l_week_em)) & (d_cal['holiday'] == False), 'em'] = True
-    d_cal.loc[d_cal['holiday'] == False, ['am', 'pm', 'night', 'ocnight']] = True
+    dict_duty_holiday_flag = duty_holiday_flags()
+    d_cal.loc[d_cal['holiday'] == False, dict_duty_holiday_flag[False]] = True
     d_cal.loc[d_cal['em'] == True, ['night', 'emnight','ocnight']] = [False, True, False]
-    d_cal.loc[d_cal['holiday'] == True, ['day', 'night', 'ocday', 'ocnight']] = True
+    d_cal.loc[d_cal['holiday'] == True, dict_duty_holiday_flag[True]] = True
     d_cal.loc[(d_cal['wday'].isin(l_day_ect)) & (d_cal['holiday'] == False), 'ect'] = True
     d_cal.loc[d_cal['date'].isin(l_date_ect_cancel), 'ect'] = False
 

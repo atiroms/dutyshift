@@ -33,8 +33,27 @@ dict_title_duty = {'assoc':            ['ocday', 'ocnight'],
                    'instr':            ['am', 'pm', 'ocday', 'ocnight'],
                    'assist_leader':    ['am', 'pm', 'day', 'night', 'ocday', 'ocnight'],
                    'assist_subleader': ['am', 'pm', 'day', 'night'],
+                   'assist_kokoro':    ['am', 'pm', 'day', 'night'],
                    'limtermclin':      ['am', 'pm', 'day', 'night'],
                    'stud':             ['day', 'night']}
+
+# Google Form section layout for "1. Create Form" (script/form.py::prepare_form builds the form
+# from scratch every run -- forms.create + batchUpdate -- rather than copying a template).
+# l_form_section: display order of sections, each (Japanese page-break title, [title_short,
+# ...] sharing that one section's grids) -- assist_subleader/assist_kokoro have identical
+# dict_title_duty entries above and are meant to answer the same questions, so they share a
+# section. l_title_ask_designation/l_title_ask_assign_twice: which titles additionally get a
+# "指定医の有無"/"月2回ご担当の可否" question before their availability grids.
+l_form_section = [
+    ('准教授', ['assoc']),
+    ('講師', ['instr']),
+    ('助教（指導医）', ['assist_leader']),
+    ('助教（副指導医、こころの発達診療部）', ['assist_subleader', 'assist_kokoro']),
+    ('特任臨床医', ['limtermclin']),
+    ('大学院生', ['stud']),
+]
+l_title_ask_designation = ['limtermclin', 'stud']
+l_title_ask_assign_twice = ['stud']
 
 # class_duty aggregation rules: for each class_duty, the (weekday/holiday qualifier, raw duty)
 # pairs that count toward it -- used for per-doctor count limits (config/member) and, via
