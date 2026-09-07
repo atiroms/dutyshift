@@ -10,6 +10,11 @@ from script.drive_io import (
     get_services, prep_drive_paths, read_csv, write_csv, check_form_exists, SCOPE_DRIVE_FORMS_GMAIL,
 )
 
+# Form-answer text -> availability code, shared by both places below that turn a raw response
+# column into 0/1/2 (the weekly-pattern grid and the per-date-override grid parse the same three
+# choices -- see script/form.py::l_availability_choice).
+_DICT_AVAILABILITY_CODE = {'不可': 0, '可': 1, '希望': 2}
+
 def collect_availability(config, year_plan, month_plan, dict_jpnday, str_deadline=None):
     dict_duty_jpn = duty_jpn_labels(dict_duty_info)
 
@@ -45,17 +50,13 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, str_deadlin
             col_dayduty = item_day + '　' + item_duty
             l_col_dayduty = [idx_col for idx_col, col in enumerate(l_col) if ('[' + col_dayduty + ']') in col]
             if len(l_col_dayduty) > 0:
-                l_availability = [np.nan] * d_availability_src.shape[0]
+                s_availability = pd.Series(np.nan, index=d_availability_src.index)
                 for idx_col in l_col_dayduty:
-                    l_availability_src = d_availability_src.iloc[:, idx_col].tolist()
-                    for idx, availability_src in enumerate(l_availability_src):
-                        if availability_src == '不可':
-                            l_availability[idx] = 0
-                        elif availability_src == '可':
-                            l_availability[idx] = 1
-                        elif availability_src == '希望':
-                            l_availability[idx] = 2
-                dict_l_weekly[str(key_day) + '_' + key_duty] = l_availability
+                    # combine_first keeps s_availability wherever this column's answer isn't one
+                    # of 不可/可/希望 (e.g. left blank), overwriting it only where recognized --
+                    # same as the old per-cell if/elif it replaces.
+                    s_availability = d_availability_src.iloc[:, idx_col].map(_DICT_AVAILABILITY_CODE).combine_first(s_availability)
+                dict_l_weekly[str(key_day) + '_' + key_duty] = s_availability.tolist()
     d_weekly = pd.DataFrame(dict_l_weekly)
 
     # Apply weekly pattern to list of date_duty
@@ -70,20 +71,14 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, str_deadlin
         holiday_wday = row['holiday_wday']
         # Apply weekly pattern
         if not holiday_wday:
-            l_availability = d_weekly[str(day) + '_' + duty].tolist()
+            s_availability = d_weekly[str(day) + '_' + duty]
         else:
-            l_availability = [np.nan] * d_availability_src.shape[0]
-        # Apply irregular pattern
+            s_availability = pd.Series(np.nan, index=d_availability_src.index)
+        # Apply irregular pattern (an explicit per-date override wins over the weekly pattern
+        # wherever it's answered -- see the combine_first comment above)
         for idx_col in l_col_date_duty: # Iterate over columns of specific date_duty in columns of d_availability_src
-            l_availability_src = d_availability_src.iloc[:, idx_col].tolist()
-            for idx, availability_src in enumerate(l_availability_src):
-                if availability_src == '不可':
-                    l_availability[idx] = 0
-                elif availability_src == '可':
-                    l_availability[idx] = 1
-                elif availability_src == '希望':
-                    l_availability[idx] = 2
-        dict_l_availability[date_duty] = l_availability
+            s_availability = d_availability_src.iloc[:, idx_col].map(_DICT_AVAILABILITY_CODE).combine_first(s_availability)
+        dict_l_availability[date_duty] = s_availability.tolist()
 
     d_availability = pd.DataFrame(dict_l_availability)
 

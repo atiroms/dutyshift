@@ -943,7 +943,7 @@ def prep_calendar(dp, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em
 
     d_cal['holiday_wday'] = ''
     d_cal.loc[(d_cal['holiday'] == True) & (d_cal['wday'].isin([0,1,2,3,4])), 'holiday_wday'] = '・祝'
-    d_cal['title_date'] = [str(month_plan) + '/' + str(date) + '(' + wday_jpn + holiday_wday + ')' for [date, wday_jpn, holiday_wday] in zip(d_cal['date'], d_cal['wday_jpn'], d_cal['holiday_wday'])]
+    d_cal['title_date'] = str(month_plan) + '/' + d_cal['date'].astype(str) + '(' + d_cal['wday_jpn'] + d_cal['holiday_wday'] + ')'
     d_cal = d_cal.drop('holiday_wday', axis=1)
 
     # Prepare s_cnt_duty (necessary assignment counts of each duty)
