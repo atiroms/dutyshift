@@ -89,6 +89,13 @@ Form...`, ending `Done`):
 3. **Assign** — `script/assign.py::optimize_count_and_assign`, runs the two-stage MILP. Its
    hyperparameters (score-deviation weights, close-duty thresholds, `type_limit`, etc.) are
    editable widgets in a collapsed "Advanced solver parameters" section (`_CollapsibleBox`).
+   Both stages solve through `script/helper.py::make_solver` (CBC, log suppressed, search-time
+   budget, pinned random seeds -- the models are degenerate enough that an unpinned CBC returns a
+   different roster every run *and* swings from 42s to 1241s on the same instance), and check
+   `warn_if_not_proven_optimal` afterwards, since a solve cut short by the budget still reports
+   `LpStatus` `'Optimal'`. When the assignment is infeasible it retries with `type_limit` demoted
+   `hard` -> `soft`, then falls back to an elastic two-pass solve that names the slots nobody can
+   fill -- see `build_assign_model(..., elastic=True)`.
    They persist via
    `drive_io.read_json`/`write_json`: named presets in `dutyshift/config/solver_presets.json`,
    and an automatic per-month audit record (`dutyshift/result/<year>/<month>/solver_params.json`)
@@ -131,7 +138,7 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
 | `script/drive_io.py` | Google Drive-backed data I/O layer: OAuth credential caching/reuse (`get_credentials`/`get_services`), Drive folder resolution/creation, `read_csv`/`write_csv`/`read_gsheet`/`read_json`/`write_json`/`get_file_web_link`/`list_month_folders`, and `prep_drive_paths` (replaces the old local-path resolver `prep_dirs`). No pipeline logic. |
 | `script/parameter.py` | Fixed config: duty types, scoring weights, per-title duty eligibility, `str_email_button_html` (shared notification-email button styling). Edited rarely. Google resource IDs (`id_template_form`, `dict_itemid_form`, `id_calendar`) and every notification email's wording live on Drive instead — see `script/helper.py::load_drive_config`/`load_email_template` and the Drive folder layout bullet below. |
 | `script/helper.py` | Shared building blocks: calendar prep, roster loading/parsing, `load_drive_config`/`load_email_template` (Drive-backed config/email-template loaders, read fresh on every call), the Stage-1 count-optimization MILP (`optimize_count`), result extraction/CSV export (all via `script/drive_io.py`). |
-| `script/assign.py` | The Stage-2 assignment MILP (`optimize_assign`) and orchestration (`optimize_count_and_assign`), including infeasibility recovery. |
+| `script/assign.py` | The Stage-2 assignment MILP (`build_assign_model`/`optimize_assign`) and orchestration (`optimize_count_and_assign`), including elastic infeasibility recovery. |
 | `script/form.py` | Creates the monthly availability Google Form. |
 | `script/collect.py` | Parses Google Form responses into an availability matrix. |
 | `script/notify.py` | Creates the assignment Google Sheet, drafts drop-in/fixed notification emails, and publishes/diffs the schedule against Google Calendar events. |

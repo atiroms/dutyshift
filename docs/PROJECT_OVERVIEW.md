@@ -261,11 +261,14 @@ Decides the actual date-by-date, doctor-by-doctor assignment given Stage 1's tar
   of days per member, used to softly penalize duties scheduled too close together.
 
 **Constraints:**
-- Manually pre-assigned duties are fixed (`dv_assign == 1`).
-- Doctors marked unavailable can never be assigned that slot.
-- Exactly one assignee per `date_duty` for each duty type that exists that day.
+- Manually pre-assigned duties are fixed (variable bounds pinned to 1).
+- Doctors marked unavailable can never be assigned that slot (variable upper bound pinned to 0,
+  rather than a constraint row per pair -- see `script/assign.py::_forbid_assignment`).
+- Exactly one assignee per `date_duty` for each duty type that exists that day, except
+  `ocday`/`ocnight`, which are capped at one assignee rather than forced to one.
 - On-call (`ocday`/`ocnight`) is required exactly when the assigned `day`/`night` doctor is not
-  a "designated" physician.
+  a "designated" physician -- so an empty OC slot is a valid outcome, but a *double-booked* one
+  is not.
 - Full-time-title doctors (`l_title_fulltime`) can be forced onto specific duties
   (`l_date_duty_fulltime`).
 - Per-member per-`class_duty` counts are constrained to the Stage 1 output, in one of three
@@ -284,26 +287,49 @@ Decides the actual date-by-date, doctor-by-doctor assignment given Stage 1's tar
   ECT/AM.
 
 **Objective** (minimized): a weighted sum
-`c_assign_suboptimal * v_assign_suboptimal + c_cnt_deviation * v_cnt_deviation + c_closeduty * v_closeduty`
-— i.e. (a) count of available-but-not-preferred assignments, (b) total deviation from
-target/hard-limit counts, (c) total closeness violations. Weights are set per-run via the
-"Advanced solver parameters" widgets in the "3. Assign" tab (`script/gui.py::build_assign_panel`),
-defaulting to `0.00001, 0.1, 0.00001`.
+`c_assign_suboptimal * v_assign_suboptimal + c_cnt_deviation * v_cnt_deviation + c_cnt_limit * v_cnt_limit + c_closeduty * v_closeduty`
+— i.e. (a) count of available-but-not-preferred assignments, (b) total deviation from Stage 1's
+target counts, (c) total breach of a member's hard min/max count range (reachable only under
+`type_limit='soft'`), (d) total closeness violations. (b) and (c) are weighted separately
+because breaching someone's stated limit is a worse outcome than missing their target by the
+same amount. Weights are set per-run via the "Advanced solver parameters" widgets in the
+"3. Assign" tab (`script/gui.py::build_assign_panel`), defaulting to
+`0.00001, 0.1, 1.0, 0.00001`.
 
-**Infeasibility recovery** — `optimize_count_and_assign` wraps both stages: if a solve comes
-back `Infeasible`, it retries with hard limits relaxed to soft, then runs a randomized
-elimination search to isolate and report which specific duty slots can't be filled under the
-current constraints, in two phases:
-1. **Reduction** — repeatedly sample a random 80% subset of the current suspect set to skip and
-   re-solve. A successful (`Optimal`) solve narrows the suspects to that tested subset. An
-   infeasible solve leaves the suspect set (and so the sample size) unchanged, so the next
-   iteration tries a *differently-sampled* subset of the same size. Once
-   `n_troubleshoot_infeasible_max` (`script/parameter.py`, default 10) differently-sampled
-   subsets of the same size have all come back infeasible in a row — no progress narrowing the
-   suspects — reduction stops and the remaining suspects move to phase 2.
-2. **One-by-one testing** — each remaining suspected duty is tested individually (include vs.
-   skip) to confirm whether it's genuinely unassignable, accumulating a final
-   `l_date_duty_unassignable` list.
+**Solver** — both stages call CBC through `script/helper.py::make_solver` rather than PuLP's
+bare `LpProblem.solve()` default: the log is suppressed (it would flood the GUI's output pane),
+a search-time budget is imposed (`SOLVER_TIME_LIMIT`, 600s, so a pathological instance degrades
+into "best solution so far" instead of pinning the GUI's worker thread — note CBC only checks
+this between nodes, so it is not a hard wall-clock timeout), and CBC's random seeds are pinned.
+
+Pinning the seeds is not only about reproducibility. Both models are heavily degenerate — many
+rosters are exactly equally good — so an unpinned CBC returns a different roster on every run,
+*and* its runtime swings wildly: on one 50-doctor count instance the pinned solve reached the
+optimum (132.975) in 41s, while unpinned runs of the same instance took 42s, 1087s (returning a
+worse 132.982) and 1241s.
+
+A solve stopped by the time budget still reports `LpStatus` `'Optimal'` — PuLP records the
+difference only in `sol_status` — so `script/helper.py::warn_if_not_proven_optimal` checks that
+separately and logs a warning, rather than letting a truncated search pass silently as the best
+possible roster.
+
+**Infeasibility recovery** — `optimize_count_and_assign` wraps both stages. If the assignment
+solve comes back `Infeasible` it first retries with hard count limits relaxed to soft (by far the
+most common cause), and if that still fails it falls back to an **elastic** reformulation
+(`build_assign_model(..., elastic=True)`): every must-fill slot gets an "unassigned" binary, so
+the model can express "nobody can take this slot" instead of simply having no solution. That runs
+as two lexicographic passes:
+1. minimize *only* the number of unfilled slots, giving the true minimum `n_unassignable`;
+2. re-impose `Σ unassigned <= n_unassignable` and re-optimize the real objective.
+
+Two passes rather than one big-M penalty term so that no penalty weight has to be calibrated
+against the other objective terms — a big-M picked even slightly too small would silently drop
+duties that could in fact have been filled. The resulting slots are folded into
+`l_date_duty_skip`, so `extract_assignment` marks them `skipped`.
+
+This replaced a randomized elimination search that re-solved the whole model once per candidate
+duty (up to roughly `len(date_duty)` full solves of a ~10k-variable model, non-deterministic, and
+able to finish holding a solution that did not correspond to the skip set it reported).
 
 ## External integrations
 

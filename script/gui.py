@@ -61,7 +61,7 @@ from PyQt5.QtWidgets import (
 from script.parameter import (
     dict_jpnday, dict_duty_info, dict_title_duty, dict_class_duty, dict_score_duty,
     l_day_ect, day_em, l_week_em, ll_avoid_adjacent, l_title_fulltime,
-    n_troubleshoot_infeasible_max, n_retry_calendar, year_start, month_start,
+    n_retry_calendar, year_start, month_start,
 )
 from script.drive_io import (
     load_config, get_services, prep_drive_paths, resolve_folder_id,
@@ -597,7 +597,7 @@ def build_collect_panel(state):
 #   dutyshift/result/<year>/<month>/solver_params.json  -- {...params...} (this month's own)
 ###############################################################################
 def _pack_solver_params(dict_w_current, dict_w_total, dict_w_closeduty,
-                        w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                        w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                         w_type_limit, w_fulltime, w_skip):
     """Read the Assign panel's current widget values into the JSON shape saved as a preset or
     per-month audit record."""
@@ -608,6 +608,7 @@ def _pack_solver_params(dict_w_current, dict_w_total, dict_w_closeduty,
                                       for group, w in dict_w_closeduty.items()},
         'c_assign_suboptimal': w_c_assign_suboptimal.value(),
         'c_cnt_deviation': w_c_cnt_deviation.value(),
+        'c_cnt_limit': w_c_cnt_limit.value(),
         'c_closeduty': w_c_closeduty.value(),
         'type_limit': w_type_limit.currentText(),
         'l_date_duty_fulltime': [s.strip() for s in w_fulltime.text().split(',') if s.strip()],
@@ -616,7 +617,7 @@ def _pack_solver_params(dict_w_current, dict_w_total, dict_w_closeduty,
 
 
 def _apply_solver_params(dict_params, dict_w_current, dict_w_total, dict_w_closeduty,
-                         w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                         w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                          w_type_limit, w_fulltime, w_skip):
     """Set the Assign panel's widget values from a loaded preset/audit-record dict. Missing keys
     (e.g. an older record saved before a field existed) are left at whatever the widgets already
@@ -636,6 +637,8 @@ def _apply_solver_params(dict_params, dict_w_current, dict_w_total, dict_w_close
         w_c_assign_suboptimal.setValue(dict_params['c_assign_suboptimal'])
     if 'c_cnt_deviation' in dict_params:
         w_c_cnt_deviation.setValue(dict_params['c_cnt_deviation'])
+    if 'c_cnt_limit' in dict_params:
+        w_c_cnt_limit.setValue(dict_params['c_cnt_limit'])
     if 'c_closeduty' in dict_params:
         w_c_closeduty.setValue(dict_params['c_closeduty'])
     if 'type_limit' in dict_params:
@@ -691,6 +694,10 @@ def build_assign_panel(state):
 
     w_c_assign_suboptimal = _float_spin(0.00001, step=0.00001)
     w_c_cnt_deviation = _float_spin(0.1, step=0.01)
+    # Weight on breaching a member's hard min/max count range (type_limit='soft' only). Kept
+    # deliberately above c_cnt_deviation: overshooting someone's stated limit is a worse outcome
+    # than missing their target count by the same amount, and both used to share one coefficient.
+    w_c_cnt_limit = _float_spin(1.0, step=0.1)
     w_c_closeduty = _float_spin(0.00001, step=0.00001)
 
     w_type_limit = QComboBox()
@@ -716,7 +723,7 @@ def build_assign_panel(state):
     _dict_solver_defaults = _load_last_month_solver_params(state)
     if _dict_solver_defaults:
         _apply_solver_params(_dict_solver_defaults, dict_w_current, dict_w_total, dict_w_closeduty,
-                             w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                             w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                              w_type_limit, w_fulltime, w_skip)
 
     row_current = QHBoxLayout()
@@ -731,6 +738,7 @@ def build_assign_panel(state):
     row_objective = QHBoxLayout()
     row_objective.addWidget(_labeled('c_assign_suboptimal', w_c_assign_suboptimal))
     row_objective.addWidget(_labeled('c_cnt_deviation', w_c_cnt_deviation))
+    row_objective.addWidget(_labeled('c_cnt_limit', w_c_cnt_limit))
     row_objective.addWidget(_labeled('c_closeduty', w_c_closeduty))
 
     advanced_content = QVBoxLayout()
@@ -775,7 +783,7 @@ def build_assign_panel(state):
 
     def _current_params():
         return _pack_solver_params(dict_w_current, dict_w_total, dict_w_closeduty,
-                                   w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                                   w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                                    w_type_limit, w_fulltime, w_skip)
 
     def on_save_preset():
@@ -822,7 +830,7 @@ def build_assign_panel(state):
             if dict_params is None:
                 return
             _apply_solver_params(dict_params, dict_w_current, dict_w_total, dict_w_closeduty,
-                                 w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                                 w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                                  w_type_limit, w_fulltime, w_skip)
             _append_text(output_preset, 'Loaded preset "' + name + '".\n')
         _run_async(state, output_preset, run, apply)
@@ -839,7 +847,7 @@ def build_assign_panel(state):
             if dict_params is None:
                 return
             _apply_solver_params(dict_params, dict_w_current, dict_w_total, dict_w_closeduty,
-                                 w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                                 w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                                  w_type_limit, w_fulltime, w_skip)
             _append_text(output_preset, "Loaded last month's configuration.\n")
         _run_async(state, output_preset, run, apply)
@@ -987,6 +995,7 @@ def build_assign_panel(state):
         type_limit = w_type_limit.currentText()
         c_assign_suboptimal = w_c_assign_suboptimal.value()
         c_cnt_deviation = w_c_cnt_deviation.value()
+        c_cnt_limit = w_c_cnt_limit.value()
         c_closeduty = w_c_closeduty.value()
         current_params = _current_params()  # snapshot for the post-run solver_params.json audit write
 
@@ -997,11 +1006,10 @@ def build_assign_panel(state):
                                       dict_c_diff_score_current, dict_c_diff_score_total,
                                       l_date_duty_skip_manual, dict_closeduty, ll_avoid_adjacent,
                                       l_title_fulltime, l_date_duty_fulltime, type_limit,
-                                      c_assign_suboptimal, c_cnt_deviation, c_closeduty,
-                                      dict_score_duty, dict_class_duty,
-                                      n_troubleshoot_infeasible_max)
-            # result[0] (d_assign) is None on failure regardless of the differing success/failure
-            # tuple lengths -- duck-typed success check, doesn't unpack the tuple.
+                                      c_assign_suboptimal, c_cnt_deviation, c_cnt_limit, c_closeduty,
+                                      dict_score_duty, dict_class_duty)
+            # result[0] (d_assign) is None on failure -- duck-typed success check rather than
+            # unpacking the tuple here.
             if result is not None and result[0] is not None:
                 try:
                     services = get_services(state.config, SCOPE_DRIVE_FORMS)

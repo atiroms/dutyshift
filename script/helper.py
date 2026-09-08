@@ -5,7 +5,7 @@
 import datetime, calendar, itertools
 import numpy as np, pandas as pd
 from math import ceil
-from pulp import LpProblem, LpVariable, LpStatus, lpSum, lpDot, value
+from pulp import LpProblem, LpVariable, LpStatus, LpSolutionIntegerFeasible, lpSum, lpDot, value, PULP_CBC_CMD
 from ortoolpy import addvars
 from script.drive_io import (
     read_csv, write_csv, read_gsheet, read_json, check_form_exists, list_gsheet_tabs,
@@ -13,6 +13,49 @@ from script.drive_io import (
     SCOPE_DRIVE_FORMS,
 )
 from script.parameter import dict_class_duty
+
+
+###############################################################################
+# Solver
+###############################################################################
+# Search-time budget per solve, in seconds, handed to CBC as `sec`. Both MILPs here normally
+# finish in well under a minute; the budget exists so that a pathological instance degrades into
+# "returns the best solution it has" instead of pinning the GUI's background worker thread
+# indefinitely with no way to cancel it.
+#
+# It bounds CBC's branch-and-bound search, NOT wall-clock: CBC only checks it between nodes, and
+# a measured run against a 600s budget took 1087s. Treat it as "stop looking soon", not as a
+# guaranteed timeout.
+SOLVER_TIME_LIMIT = 600
+
+
+def make_solver(time_limit=SOLVER_TIME_LIMIT, msg=False):
+    """CBC, configured explicitly instead of relying on LpProblem.solve()'s bare default.
+
+    Three reasons not to take the default: its log goes straight to stdout and floods the GUI's
+    output pane; it has no search-time budget (see SOLVER_TIME_LIMIT); and it does not pin CBC's
+    random seeds. That last one is not only about reproducibility -- both models here are heavily
+    degenerate (large numbers of rosters are exactly equally good), so an unpinned CBC returns a
+    different roster on every run, and on the count model it was also measurably slower and less
+    reliable: n_member=50 solved to 132.975 in 41s with the seeds pinned, and to 132.982 (worse,
+    and not proven optimal) in 1087s without."""
+    return PULP_CBC_CMD(msg=msg, timeLimit=time_limit,
+                        options=['randomSeed 1', 'randomCbcSeed 1'])
+
+
+def warn_if_not_proven_optimal(prob, label):
+    """Print a warning when a solve returned a feasible solution without proving it optimal.
+
+    A CBC run stopped by SOLVER_TIME_LIMIT still reports LpStatus 'Optimal' -- PuLP only records
+    the difference in `sol_status` -- so a `LpStatus[prob.status] == 'Optimal'` check alone cannot
+    tell "this is the best roster" from "this is the best roster found before the clock ran out".
+    Observed in practice: the same instance solved to 132.975 within the limit and to 132.982
+    when the search was cut short, with no visible difference in status."""
+    if prob.sol_status == LpSolutionIntegerFeasible:
+        print('  [WARNING] ' + label + ': the solver ran out of its ' + str(SOLVER_TIME_LIMIT) +
+              's search budget and returned a feasible but not provably optimal solution.')
+        return False
+    return True
 
 
 ###############################################################################
@@ -542,7 +585,8 @@ def prep_assign_previous(dp, year_plan, month_plan):
 # Optimize exact count of assignment
 ################################################################################
 def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score_class,
-                   d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total, l_type_score, l_class_duty):
+                   d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total, l_type_score,
+                   l_class_duty, solver=None):
 
     # Dataframe of variables
     l_member = d_member.loc[d_member['active'], 'id_member'].tolist()
@@ -602,6 +646,15 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
     # Sum of inter-member differences of current + past month score
     dv_sigma_diff_score_total = pd.DataFrame(np.array(addvars(n_grp_max, len(l_type_score))),
                                              index=range(n_grp_max), columns=l_type_score)
+    # One variable per *ordered* member pair. Each is >= 0 and minimized, so it settles at
+    # max(0, s_0 - s_1) and the two directions of a pair sum to |s_0 - s_1| -- the mean absolute
+    # inter-member score difference this objective is really made of.
+    #
+    # Halving this to one variable per *unordered* pair (with both `d >= s_0 - s_1` and
+    # `d >= s_1 - s_0`) gives an identical objective value and half the variables, and was tried:
+    # it made CBC roughly 2x *slower* (n_member=50: 42s -> 93s, same seed), because it puts each
+    # variable in two rows instead of one and destroys the singleton-row structure presolve was
+    # exploiting. Keep the redundant-looking ordered pairs.
     dict_dv_diff_score_current = {}
     dict_dv_diff_score_total = {}
     for type_score in l_type_score:
@@ -635,14 +688,18 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
     prob_cnt += (lpDot(lc_diff_score, l_sum_diff_score))
 
     # Solve problem
-    prob_cnt.solve()
+    prob_cnt.solve(solver if solver is not None else make_solver())
+    warn_if_not_proven_optimal(prob_cnt, 'count optimization (' + ', '.join(l_class_duty) + ')')
     str_status = str(LpStatus[prob_cnt.status])
     loss_opt = value(prob_cnt.objective)
     if str_status == 'Optimal':
         status_opt = True
         #print('Solved, ' + str(round(loss_solution, 2)))
         # Extract data
-        d_lim_exact = pd.DataFrame(np.vectorize(value)(dv_lim_exact),
+        # dv_lim_exact are Integer variables, but CBC hands their values back as floats that can
+        # sit a hair either side of the integer (2.9999999). Round here, at the one place they
+        # leave the solver, rather than letting a downstream int() truncate one of them.
+        d_lim_exact = pd.DataFrame(np.round(np.vectorize(value)(dv_lim_exact)),
                                 columns=dv_lim_exact.columns, index=dv_lim_exact.index)
         d_score_current = pd.DataFrame(np.vectorize(value)(dv_score_current),
                                     columns=dv_score_current.columns, index=dv_score_current.index)
