@@ -1153,9 +1153,7 @@ def build_replace_panel(state):
         year_plan, month_plan = state.year_plan, state.month_plan
 
         def run():
-            d_replace_checked = check_replacement(state.config, year_plan, month_plan)
-            print(d_replace_checked.to_string())
-            return d_replace_checked
+            return check_replacement(state.config, year_plan, month_plan)
 
         def apply(d_replace_checked):
             state.d_replace_checked = d_replace_checked

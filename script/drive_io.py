@@ -416,6 +416,20 @@ def read_member_matrix_csv(service_drive, id_folder, filename):
     return df
 
 
+def read_member_keyed_csv(service_drive, id_folder, filename):
+    """Read a per-member table (lim_exact.csv, lim_hard.csv, ...) indexed by id_member. Current
+    writers keep id_member as an explicit column (rename_axis('id_member').reset_index()), but
+    month folders written before that change stored it as the CSV's unnamed row index -- accept
+    both so older months stay readable without rewriting their files."""
+    df = read_csv(service_drive, id_folder, filename)
+    if 'id_member' in df.columns:
+        df = df.set_index('id_member')
+    else:
+        df = df.set_index(df.columns[0])
+    df.index.name = 'id_member'
+    return df
+
+
 def read_gsheet(service_sheets, service_drive, id_folder, filename, sheet_name, header=0):
     """Read one tab of a native Google Sheet (e.g. config/member) into a DataFrame, mirroring
     pandas.read_excel's header=0 default: the tab's `header`-th row becomes the DataFrame's

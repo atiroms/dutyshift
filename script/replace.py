@@ -1,7 +1,7 @@
 
 import numpy as np, pandas as pd
 from script.helper import read_form_response, convert_assignment
-from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, read_member_matrix_csv, SCOPE_DRIVE_FORMS
+from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, read_member_matrix_csv, read_member_keyed_csv, SCOPE_DRIVE_FORMS
 
 
 def _check_designation_pairing(d_replace_checked, d_member, d_assign_date_duty):
@@ -169,8 +169,8 @@ def replace_assignment(config, year_plan, month_plan, dict_score_duty, d_replace
 
     d_availability_noskip = read_member_matrix_csv(services.drive, dp.id_month, 'availability.csv')
     d_date_duty = read_csv(services.drive, dp.id_month, 'date_duty.csv')
-    d_lim_exact = read_csv(services.drive, dp.id_month, 'lim_exact.csv').set_index('id_member')
-    d_lim_hard = read_csv(services.drive, dp.id_month, 'lim_hard.csv').set_index('id_member')
+    d_lim_exact = read_member_keyed_csv(services.drive, dp.id_month, 'lim_exact.csv')
+    d_lim_hard = read_member_keyed_csv(services.drive, dp.id_month, 'lim_hard.csv')
     for index in d_lim_hard.index:
         for col in d_lim_hard.columns:
             src = d_lim_hard.loc[index, col]
