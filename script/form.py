@@ -133,9 +133,9 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
             "choiceQuestion": {"type": choice_type, "options": [{"value": v} for v in l_option]},
         }}}
 
-    def grid_item(title, l_row):
+    def grid_item(title, l_row, required=True):
         return {"title": title, "questionGroupItem": {
-            "questions": [{"required": True, "rowQuestion": {"title": row}} for row in l_row],
+            "questions": [{"required": required, "rowQuestion": {"title": row}} for row in l_row],
             "grid": {"columns": {"type": "RADIO",
                                  "options": [{"value": v} for v in l_availability_choice]}},
         }}
@@ -167,7 +167,12 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
 
         l_row_others = d_cal_duty.loc[d_cal_duty['duty'].isin(l_duty_section) & ~d_cal_duty['holiday_wday'], 'title_date_duty'].tolist()
         if l_row_others:
-            add_item(('others', str_section), grid_item('日付ごとの指定', l_row_others))
+            # Unlike the weekly-pattern/holiday grids, rows here are optional: a doctor is only
+            # expected to fill one in when their availability for that specific date deviates
+            # from their weekly pattern, not for every date in the month. An unanswered row comes
+            # back blank from the Forms API, which script/collect.py's grid parsing already
+            # treats as "no override" (NaN) -- same as any other unmatched/blank cell there.
+            add_item(('others', str_section), grid_item('日付ごとの指定', l_row_others, required=False))
 
         # Forms has no "after this section, go to X" setting independent of a choice question's
         # option -- this required single-choice question is the only way to send every
