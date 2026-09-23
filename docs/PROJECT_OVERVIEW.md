@@ -113,10 +113,14 @@ two week-per-row calendar grids (`script/gui.py::_CalendarSelector`), Sunday-fir
 Sunday/Saturday tinted red/blue; Holidays defaults to that month's official Japanese holidays
 (`jpholiday`), with weekend cells locked on (weekends are always holidays automatically
 regardless of this selection — see [Data model](#data-model)), both grids rebuilding whenever
-year/month changes. The Google Form template to clone (`id_template_form`) and that template's
-grid-question item IDs (`dict_itemid_form`) are read fresh from Drive on every click
-(`dutyshift/config/config.json`, via `script/helper.py::load_drive_config` — see [Data
-storage](#data-storage)), not hardcoded. The response deadline (a required date picker,
+year/month changes. The Google Form template to copy (`id_template_form`) is read fresh from
+Drive on every click (`dutyshift/config/config.json`, via `script/helper.py::load_drive_config`
+— see [Data storage](#data-storage)), not hardcoded. That template is an *empty* form: it exists
+only so each month's form inherits the settings Forms API v1 can't write — above all
+「回答のコピーを回答者に送信」(email the respondent a copy of their response), which has no field in
+`FormSettings` at all. Every question is still built from scratch by `forms.batchUpdate`, so
+`prepare_form` aborts if the template has any items (they would shift the explicit
+`location.index` each item is created at). The response deadline (a required date picker,
 auto-formatted `M/D(曜)` via `dict_jpnday`) is used for the notification email drafted here
 (never sent; wording read fresh from `dutyshift/template/announce.json`, via
 `script/helper.py::load_email_template`) — copying forward next month's `dutyshift/config/member`
@@ -333,7 +337,8 @@ able to finish holding a solution that did not correspond to the skip set it rep
 
 ## External integrations
 
-- **Google Forms** — one form per month for availability collection (cloned from a template,
+- **Google Forms** — one form per month for availability collection (questions built from
+  scratch by `forms.batchUpdate`, onto a Drive copy of an empty settings-only template,
   `id_template_form`, read fresh from Drive config — see [Data storage](#data-storage)), plus a
   separate standing form for shift-swap requests. Response parsing in `script/collect.py`
   matches on exact Japanese question-text substrings.
@@ -375,11 +380,10 @@ relocating it: a Drive folder name resolves identically from every machine/accou
 Layout: `dutyshift/config/member` (roster — a native Google Sheet, one tab per month,
 `member_<yyyymm>`; `script/helper.py::ensure_member_sheet` copies the nearest prior month's tab
 forward as a starting point whenever `prepare_form` runs and that month's tab doesn't exist yet);
-`dutyshift/config/config.json` (`id_template_form`, `dict_itemid_form`, `id_calendar`,
-`l_email_extra_fixed` — moved off `script/parameter.py` so an admin can edit them without a code
-change; `script/helper.py::load_drive_config` reads this fresh on every call and seeds it with
-this codebase's original hardcoded values the first time it's read, so an existing installation
-keeps working with no manual migration step); `dutyshift/template/<name>.json` (one file per
+`dutyshift/config/config.json` (`id_template_form`, `id_calendar`, `l_email_extra_fixed`,
+`url_replace_form` — moved off `script/parameter.py` so an admin can edit them without a code
+change; `script/helper.py::load_drive_config` reads this fresh on every call and raises
+`FileNotFoundError` if the file is missing, as there is no code-side default); `dutyshift/template/<name>.json` (one file per
 notification email — `announce`, `reminder`, `dropin`, `fixed` — each `{subject, body,
 button_label}`, `body`/`subject` being `str.format()` templates; `script/helper.py::
 load_email_template` reads/seeds these the same way); `dutyshift/config/solver_presets.json`

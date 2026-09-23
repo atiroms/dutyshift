@@ -5,14 +5,14 @@ import pandas as pd
 from script.helper import (
     prep_calendar, build_weekly_pattern_rows,
     generate_request_update_name_choices, generate_request_update_section_nav,
-    ensure_member_sheet, read_member, load_email_template,
+    ensure_member_sheet, read_member, load_drive_config, load_email_template,
     duty_order, duty_jpn_labels,
 )
 from script.parameter import (
     str_email_button_html, dict_duty_info, dict_jpnday,
     l_form_section, l_title_ask_designation, l_title_ask_assign_twice,
 )
-from script.drive_io import get_services, prep_drive_paths, write_csv, SCOPE_DRIVE_FORMS_GMAIL
+from script.drive_io import get_services, prep_drive_paths, write_csv, SCOPE_DRIVE_FORMS_GMAIL, n_retry_api
 
 # Grid column choices, shared by every availability grid this module creates (weekly-pattern,
 # holiday, and per-date-override grids alike) -- matches what script/collect.py parses
@@ -70,54 +70,76 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
         write_csv(services.drive, id_folder, 'duty.csv', d_cal_duty, index=False)
         write_csv(services.drive, id_folder, 'form.csv', d_form, index=False)
 
-    # Create Google form from scratch (forms.create + batchUpdate) -- no template to copy. Every
-    # item id the API hands back is only known after the create batchUpdate executes, and
-    # per-section "go to the closing survey section" navigation can only be attached to a choice
-    # question's option (there's no unconditional per-section default), so this happens in two
-    # passes: create every item first, then wire up navigation once the real item ids exist.
+    # Create this month's Google form by copying the empty, settings-only template form on Drive
+    # (see the copy below for why a copy rather than forms.create) and building every question
+    # into it with batchUpdate. Every item id the API hands back is only known after that
+    # batchUpdate executes, and per-section "go to the closing survey section" navigation can
+    # only be attached to a choice question's option (there's no unconditional per-section
+    # default), so this happens in two passes: create every item first, then wire up navigation
+    # once the real item ids exist.
     print('[2/3] Creating Google Form...')
     id_config = dp.id_config
 
     # Ensure this month's config/member tab exists (best-effort, copying forward the nearest
     # prior tab if missing -- never raises, never overwrites an existing tab) *before* reading
-    # it below. This moved up from after form creation (where it ran in the old template-copy
-    # flow, harmless there since that flow never read the roster until drafting the email) --
-    # the from-scratch name dropdown now needs the roster to already exist at this point.
+    # it below. This moved up from after form creation (where it ran back when the form's
+    # questions came from the template too, harmless there since that flow never read the roster
+    # until drafting the email) -- the name dropdown is built from scratch below and needs the
+    # roster to already exist at this point.
     try:
         ensure_member_sheet(services.drive, services.sheets, id_config, year_plan, month_plan)
     except Exception:
         print('[WARNING] Could not ensure this month\'s member tab exists:')
         print(traceback.format_exc())
 
-    # config/member is required, not best-effort, here: unlike the old template-copy flow, there
-    # is no fallback content for the name dropdown if this fails -- without it the form has no
-    # way to route a respondent to their own section, so a read failure should abort form
-    # creation rather than silently produce an unusable form.
+    # config/member is required, not best-effort, here: back when the form's questions came from
+    # the template there was fallback content for the name dropdown, and now there is none --
+    # without the roster the form has no way to route a respondent to their own section, so a
+    # read failure should abort form creation rather than silently produce an unusable form.
     d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
 
     str_title = f"{year_plan}年{month_plan}月当直希望調査"
     str_description = 'なるべく「不可」を少なくしていただくようにお願いします'
     str_documenttitle = 'form_' + str(year_plan) + str(month_plan).zfill(2)
 
-    # forms.create only accepts info.title/info.documentTitle -- everything else (description,
-    # settings, items) has to follow via batchUpdate.
-    form_created = services.forms.forms().create(
-        body={'info': {'title': str_title, 'documentTitle': str_documenttitle}}).execute()
-    id_form = form_created['formId']
+    # The form is *copied* from a template form on Drive (dutyshift/config/config.json's
+    # id_template_form) instead of being created by forms.create, purely to inherit one setting
+    # the API can't touch: "回答のコピーを回答者に送信" (send responders a copy of their response).
+    # Forms API v1's FormSettings exposes only quizSettings/emailCollectionType, so that setting
+    # can neither be written nor read back through the API -- it's enabled by hand once, on the
+    # template, and every month's copy carries it over. Everything else about the form is still
+    # built from scratch by the batchUpdate passes below, so the template must be an *empty*
+    # form (settings only, no items): each item below is created at an explicit location.index,
+    # which pre-existing template items would shift.
+    id_template_form = load_drive_config(services.drive, id_config).get('id_template_form')
+    if not id_template_form:
+        raise KeyError(
+            "dutyshift/config/config.json has no 'id_template_form' -- create an empty Google "
+            "Form with 設定 > 回答 > 回答のコピーを回答者に送信 set to 常に送信, and put its file id there.")
 
-    # forms.create can't place the file in a folder -- move it into this month's live Drive
-    # folder (dp.id_month, "dutyshift/result/<year>/<month>/") to match where the old
-    # copy-a-template flow always created it.
-    dict_file = services.drive.files().get(fileId=id_form, fields='parents').execute()
-    str_parents_old = ','.join(dict_file.get('parents', []))
-    services.drive.files().update(fileId=id_form, addParents=dp.id_month,
-                                  removeParents=str_parents_old, fields='id, parents').execute()
+    # Checked on the template rather than on the copy so an unusable template fails before
+    # leaving a half-built form behind in this month's Drive folder.
+    n_item_template = len(services.forms.forms().get(formId=id_template_form).execute(num_retries=n_retry_api).get('items', []))
+    if n_item_template > 0:
+        raise ValueError(
+            f"Template form {id_template_form} has {n_item_template} item(s) -- it must be an "
+            "empty, settings-only form, since every question is created from scratch below.")
+
+    # Unlike forms.create, a Drive copy can place the file straight into this month's live Drive
+    # folder (dp.id_month, "dutyshift/result/<year>/<month>/"), and sets documentTitle (a Form's
+    # Drive file name) in the same call. The respondent-facing info.title/description are the
+    # template's until the batchUpdate below overwrites them.
+    id_form = services.drive.files().copy(
+        fileId=id_template_form,
+        body={'name': str_documenttitle, 'parents': [dp.id_month]},
+        fields='id').execute()['id']
 
     # ---- Pass 1: create every item -----------------------------------------------------------
     l_request1 = [
         {"updateSettings": {"settings": {"emailCollectionType": "RESPONDER_INPUT"},
                             "updateMask": "emailCollectionType"}},
-        {"updateFormInfo": {"info": {"description": str_description}, "updateMask": "description"}},
+        {"updateFormInfo": {"info": {"title": str_title, "description": str_description},
+                            "updateMask": "title,description"}},
     ]
     dict_reqidx = {}  # semantic key -> index into l_request1, to read the matching reply back
     n_item = [0]       # running item location.index (list so the closure below can mutate it)
@@ -211,7 +233,7 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
     services.forms.forms().batchUpdate(formId=id_form, body={"requests": l_request2}).execute()
 
     # Print responding URL
-    str_responder_uri = services.forms.forms().get(formId=id_form).execute().get('responderUri')
+    str_responder_uri = services.forms.forms().get(formId=id_form).execute(num_retries=n_retry_api).get('responderUri')
     print('Form URL:', str_responder_uri)
 
     ###############################################################################

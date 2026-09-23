@@ -70,9 +70,14 @@ content in a titled `QGroupBox` any more (the Tab already names the stage); each
 functions themselves print their own stage-by-stage progress (e.g. `[2/4] Creating Google
 Form...`, ending `Done`):
 1. **Ask** — `script/form.py::prepare_form`, creates the availability Google Form
-   (cloned from `id_template_form`, its grid questions keyed by `dict_itemid_form` — both read
-   fresh from Drive, `dutyshift/config/config.json`, on every click; see
-   `script/helper.py::load_drive_config`), copies forward next month's `dutyshift/config/member`
+   (every question built from scratch via `forms.batchUpdate`, but the form file itself is a
+   Drive **copy** of an empty settings-only template form — `id_template_form`, read fresh from
+   Drive, `dutyshift/config/config.json`, on every click; see
+   `script/helper.py::load_drive_config` — because Forms API v1's `FormSettings` only exposes
+   `quizSettings`/`emailCollectionType`, so the "回答のコピーを回答者に送信" (email the respondent a
+   copy of their response) setting can only be enabled by hand once on that template and
+   inherited by each copy. The template must stay empty; `prepare_form` refuses to run if it
+   isn't, since every item is created at an explicit `location.index`), copies forward next month's `dutyshift/config/member`
    tab from the nearest prior month (`script/helper.py::ensure_member_sheet`, never overwrites an
    existing tab), and drafts (never sends) a notification email to active doctors via Gmail,
    using a required response deadline date picker and wording read fresh from Drive
@@ -160,9 +165,9 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
   are always holidays automatically.
 - **Drive folder layout**: `dutyshift/config/member` (roster, a native Google Sheet with one
   tab per month, `member_<yyyymm>`); `dutyshift/config/config.json` (`id_template_form`,
-  `dict_itemid_form`, `id_calendar`, `l_email_extra_fixed` — seeded with this codebase's
-  original hardcoded values the first time `script/helper.py::load_drive_config` reads it, then
-  edited directly on Drive, no code change needed); `dutyshift/template/<name>.json` (one file
+  `id_calendar`, `l_email_extra_fixed`, `url_replace_form` — read fresh from Drive by
+  `script/helper.py::load_drive_config` on every call and edited directly on Drive, no code
+  change needed); `dutyshift/template/<name>.json` (one file
   per notification email — `announce`/`reminder`/`dropin`/`fixed`, each `{subject, body,
   button_label}` — same seed-on-first-read pattern via `script/helper.py::load_email_template`);
   `dutyshift/result/<year>/

@@ -8,6 +8,7 @@ from script.check import check_availability_duty, check_availability_member
 from script.parameter import str_email_button_html, dict_duty_info
 from script.drive_io import (
     get_services, prep_drive_paths, read_csv, write_csv, check_form_exists, SCOPE_DRIVE_FORMS_GMAIL,
+    n_retry_api,
 )
 
 # Form-answer text -> availability code, shared by both places below that turn a raw response
@@ -203,7 +204,7 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, str_deadlin
             print('No missing responses -- skipping reminder email draft.')
         else:
             id_form = check_form_exists(services.drive, path_form)
-            str_responder_uri = services.forms.forms().get(formId=id_form).execute().get('responderUri')
+            str_responder_uri = services.forms.forms().get(formId=id_form).execute(num_retries=n_retry_api).get('responderUri')
             id_template = dp.cache.get_or_create(services.drive, 'dutyshift/template')
             dict_email = load_email_template(services.drive, id_template, 'reminder')
             str_button = str_email_button_html.format(url=str_responder_uri, label=dict_email['button_label'])

@@ -10,7 +10,7 @@ from ortoolpy import addvars
 from script.drive_io import (
     read_csv, write_csv, read_gsheet, read_json, check_form_exists, list_gsheet_tabs,
     copy_gsheet_tab, list_month_folders, month_folder_path, get_services, prep_drive_paths,
-    SCOPE_DRIVE_FORMS,
+    SCOPE_DRIVE_FORMS, n_retry_api,
 )
 from script.parameter import dict_class_duty
 
@@ -246,7 +246,7 @@ def read_form_response(services, path_form):
     id_form = check_form_exists(service_drive, path_form)
 
     # Fetch the form metadata (to map questionId → question title)
-    form = service_forms.forms().get(formId=id_form).execute()
+    form = service_forms.forms().get(formId=id_form).execute(num_retries=n_retry_api)
     # Build a mapping of questionId → title
     qid2title = {}
     for item in form.get('items', []):
@@ -274,7 +274,7 @@ def read_form_response(services, path_form):
             formId=id_form,
             pageToken=page_token,
             pageSize=100  # up to 5000 max
-        ).execute()
+        ).execute(num_retries=n_retry_api)
         for r in resp.get('responses', []):
             timestamp = r['lastSubmittedTime']
             # each answer is keyed by questionId
@@ -330,7 +330,7 @@ def generate_request_update_name_choices(id_form, service, d_member, dict_sectio
     config/member but not yet to l_form_section/dict_title_duty) -- those doctors are silently
     excluded from the option list, so the caller should warn about them rather than let them
     quietly vanish from the form."""
-    form = service.forms().get(formId=id_form).execute()
+    form = service.forms().get(formId=id_form).execute(num_retries=n_retry_api)
     position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item_name)
 
     d_member_active = d_member.loc[d_member['active'] == True, :]
@@ -361,7 +361,7 @@ def generate_request_update_section_nav(id_form, service, id_item_confirm, id_se
     """Build the single request that points a section-end '次へ' confirmation question's one
     option at id_section_target (the closing survey section's itemId) -- see
     script/form.py::prepare_form. Mirrors generate_request_update_name_choices's shape."""
-    form = service.forms().get(formId=id_form).execute()
+    form = service.forms().get(formId=id_form).execute(num_retries=n_retry_api)
     position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item_confirm)
 
     request = {
@@ -509,8 +509,10 @@ def ensure_member_sheet(service_drive, service_sheets, id_config, year_plan, mon
 def load_drive_config(service_drive, id_config):
     """Read dutyshift/config/config.json: id_calendar (target Google Calendar for "4. Notify" ->
     Publish to Calendar), l_email_extra_fixed (extra Bcc recipients for the "draft fixed
-    notification" button), and url_replace_form (the shift-swap request form link embedded in
-    calendar events and the drop-in/fixed notification emails). Wording lives on Drive only --
+    notification" button), url_replace_form (the shift-swap request form link embedded in
+    calendar events and the drop-in/fixed notification emails), and id_template_form (the empty
+    settings-only Google Form each month's availability form is copied from -- see
+    script/form.py::prepare_form). Wording lives on Drive only --
     there is no code-side default or seeding, same as load_email_template below. Raises
     FileNotFoundError if config.json doesn't exist on Drive (there is no code-side default to
     fall back to) -- any Drive access error (auth, network) propagates as-is from read_json."""

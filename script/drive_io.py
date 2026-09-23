@@ -68,6 +68,23 @@ SCOPE_ALL = list(dict.fromkeys(SCOPE_DRIVE_FORMS + SCOPE_DRIVE_CALENDAR + SCOPE_
 
 
 ###############################################################################
+# Transient-failure retry
+###############################################################################
+# Passed as num_retries to every Drive/Sheets API call in this module: googleapiclient's own
+# randomized-exponential-backoff retry, which already treats 429/5xx (and 403 rateLimitExceeded/
+# userRateLimitExceeded) as retriable. Google's frontend returns an occasional 502 "Bad Gateway"
+# under load that has nothing to do with the request itself -- without this, one such blip on a
+# single upload aborts the whole pipeline stage that was running. Mirrors what script/notify.py
+# already does for Calendar (see script/parameter.py::n_retry_calendar).
+#
+# Note this retries creates as well as reads/overwrites. A retry only ever fires after an errored
+# response, and Sheets rejects a duplicate tab title outright, so the realistic worst case is a
+# same-named duplicate file/folder rather than corrupted data -- a better trade than aborting a
+# stage mid-run.
+n_retry_api = 5
+
+
+###############################################################################
 # Local per-machine config (config.local.json)
 ###############################################################################
 def load_config():
@@ -199,7 +216,7 @@ def check_gdrive_folder(service_drive, id_folder_parent, name_folder_child):
         q=q,
         spaces='drive',
         fields='files(id, name)'
-    ).execute()
+    ).execute(num_retries=n_retry_api)
     folder_old = resp.get('files', [])
     if folder_old:
         exist = True
@@ -227,7 +244,7 @@ def create_gdrive_folder(service_drive, id_folder_parent, name_folder_child):
         folder_new = service_drive.files().create(
             body=folder_metadata,
             fields='id,name'
-        ).execute()
+        ).execute(num_retries=n_retry_api)
         id_folder_child = folder_new['id']
 
     return {'new': new, 'id_folder_child': id_folder_child}
@@ -239,7 +256,7 @@ def check_gdrive_path(service_drive, path):
     root = service_drive.files().get(
         fileId='root',
         fields='id'
-    ).execute()
+    ).execute(num_retries=n_retry_api)
     id_folder_parent = root.get('id')
     l_id_folder = [id_folder_parent]
 
@@ -263,7 +280,7 @@ def create_gdrive_path(service_drive, path):
     root = service_drive.files().get(
         fileId='root',
         fields='id'
-    ).execute()
+    ).execute(num_retries=n_retry_api)
     id_folder_parent = root.get('id')
     l_id_folder = [id_folder_parent]
 
@@ -289,7 +306,7 @@ def check_form_exists(service_drive, path_form):
             ),
             fields='files(id, name)',
             pageSize=1
-        ).execute()
+        ).execute(num_retries=n_retry_api)
         if len(resp.get('files', [])) > 0:
             return resp.get('files', [])[0]['id']
         else:
@@ -351,7 +368,7 @@ def _find_file_id(service_drive, id_folder, filename):
         ),
         fields='files(id, name)',
         pageSize=1
-    ).execute()
+    ).execute(num_retries=n_retry_api)
     l_file = resp.get('files', [])
     return l_file[0]['id'] if l_file else None
 
@@ -362,7 +379,7 @@ def _download_bytes(service_drive, id_file):
     downloader = MediaIoBaseDownload(buf, request)
     done = False
     while not done:
-        _, done = downloader.next_chunk()
+        _, done = downloader.next_chunk(num_retries=n_retry_api)
     buf.seek(0)
     return buf
 
@@ -372,11 +389,11 @@ def _upload_bytes(service_drive, id_folder, filename, buf, mimetype):
     id_file = _find_file_id(service_drive, id_folder, filename)
     if id_file is None:
         body = {'name': filename, 'parents': [id_folder]}
-        result = service_drive.files().create(body=body, media_body=media, fields='id').execute()
+        result = service_drive.files().create(body=body, media_body=media, fields='id').execute(num_retries=n_retry_api)
     else:
         # Upsert-by-name: overwrite the existing file's content, matching the old local
         # behavior where re-running a stage overwrote the CSVs already in p_month.
-        result = service_drive.files().update(fileId=id_file, media_body=media, fields='id').execute()
+        result = service_drive.files().update(fileId=id_file, media_body=media, fields='id').execute(num_retries=n_retry_api)
     return result['id']
 
 
@@ -388,7 +405,7 @@ def get_file_web_link(service_drive, id_folder, filename):
     id_file = _find_file_id(service_drive, id_folder, filename)
     if id_file is None:
         return None
-    return service_drive.files().get(fileId=id_file, fields='webViewLink').execute().get('webViewLink')
+    return service_drive.files().get(fileId=id_file, fields='webViewLink').execute(num_retries=n_retry_api).get('webViewLink')
 
 
 def read_csv(service_drive, id_folder, filename, **kwargs):
@@ -442,7 +459,7 @@ def read_gsheet(service_sheets, service_drive, id_folder, filename, sheet_name, 
         raise FileNotFoundError(filename + ' not found in Drive folder ' + id_folder)
     resp = service_sheets.spreadsheets().values().get(
         spreadsheetId=id_file, range=sheet_name, valueRenderOption='UNFORMATTED_VALUE'
-    ).execute()
+    ).execute(num_retries=n_retry_api)
     l_row = resp.get('values', [])
     if not l_row:
         return pd.DataFrame()
@@ -459,7 +476,7 @@ def list_gsheet_tabs(service_sheets, service_drive, id_folder, filename):
         raise FileNotFoundError(filename + ' not found in Drive folder ' + id_folder)
     resp = service_sheets.spreadsheets().get(
         spreadsheetId=id_file, fields='sheets.properties(title)'
-    ).execute()
+    ).execute(num_retries=n_retry_api)
     return [sheet['properties']['title'] for sheet in resp.get('sheets', [])]
 
 
@@ -469,7 +486,7 @@ def _sheet_title_to_id(service_sheets, id_file):
     its title before they can act on it."""
     resp = service_sheets.spreadsheets().get(
         spreadsheetId=id_file, fields='sheets.properties(sheetId,title)'
-    ).execute()
+    ).execute(num_retries=n_retry_api)
     return {sheet['properties']['title']: sheet['properties']['sheetId']
             for sheet in resp.get('sheets', [])}
 
@@ -494,7 +511,7 @@ def copy_gsheet_tab(service_sheets, service_drive, id_folder, filename, sheet_sr
         'sourceSheetId': dict_title_to_id[sheet_src],
         'newSheetName': sheet_dst,
     }}]}
-    service_sheets.spreadsheets().batchUpdate(spreadsheetId=id_file, body=body).execute()
+    service_sheets.spreadsheets().batchUpdate(spreadsheetId=id_file, body=body).execute(num_retries=n_retry_api)
     return 'copied'
 
 
@@ -524,16 +541,16 @@ def ensure_gsheet_tab(service_sheets, service_drive, id_folder, filename, sheet_
                        'sheets': [{'properties': {'title': sheet_name}}]}
         result = service_sheets.spreadsheets().create(
             body=body_create, fields='spreadsheetId,sheets.properties.sheetId'
-        ).execute()
+        ).execute(num_retries=n_retry_api)
         id_file = result['spreadsheetId']
         id_sheet = result['sheets'][0]['properties']['sheetId']
 
         # spreadsheets().create() always creates the file in the caller's My Drive root -- move
         # it into id_folder to match every other Drive-backed file this codebase writes.
-        file_meta = service_drive.files().get(fileId=id_file, fields='parents').execute()
+        file_meta = service_drive.files().get(fileId=id_file, fields='parents').execute(num_retries=n_retry_api)
         str_parent_prev = ','.join(file_meta.get('parents', []))
         service_drive.files().update(fileId=id_file, addParents=id_folder,
-                                     removeParents=str_parent_prev, fields='id').execute()
+                                     removeParents=str_parent_prev, fields='id').execute(num_retries=n_retry_api)
         file_created = True
     else:
         dict_title_to_id = _sheet_title_to_id(service_sheets, id_file)
@@ -543,20 +560,20 @@ def ensure_gsheet_tab(service_sheets, service_drive, id_folder, filename, sheet_
             id_sheet = dict_title_to_id[sheet_name]
             service_sheets.spreadsheets().values().clear(
                 spreadsheetId=id_file, range=sheet_name, body={}
-            ).execute()
+            ).execute(num_retries=n_retry_api)
         else:
             body_add = {'requests': [{'addSheet': {'properties': {'title': sheet_name}}}]}
-            resp_add = service_sheets.spreadsheets().batchUpdate(spreadsheetId=id_file, body=body_add).execute()
+            resp_add = service_sheets.spreadsheets().batchUpdate(spreadsheetId=id_file, body=body_add).execute(num_retries=n_retry_api)
             id_sheet = resp_add['replies'][0]['addSheet']['properties']['sheetId']
 
     service_sheets.spreadsheets().values().update(
         spreadsheetId=id_file, range=sheet_name, valueInputOption='RAW', body={'values': values}
-    ).execute()
+    ).execute(num_retries=n_retry_api)
 
     if build_requests:
         requests = build_requests(id_sheet)
         if requests:
-            service_sheets.spreadsheets().batchUpdate(spreadsheetId=id_file, body={'requests': requests}).execute()
+            service_sheets.spreadsheets().batchUpdate(spreadsheetId=id_file, body={'requests': requests}).execute(num_retries=n_retry_api)
 
     if file_created:
         return 'file_and_tab_created', id_file
@@ -611,7 +628,7 @@ def list_month_folders(service_drive, id_root):
             ),
             fields='files(id, name)',
             pageSize=1000
-        ).execute()
+        ).execute(num_retries=n_retry_api)
         return resp.get('files', [])
 
     l_dir = []

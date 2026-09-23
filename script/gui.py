@@ -66,6 +66,7 @@ from script.parameter import (
 from script.drive_io import (
     load_config, get_services, prep_drive_paths, resolve_folder_id,
     read_json, write_json, month_folder_path, list_month_folders, SCOPE_DRIVE_FORMS, SCOPE_ALL,
+    n_retry_api,
 )
 from script.form import prepare_form
 from script.collect import collect_availability
@@ -1208,7 +1209,7 @@ def _start_google_signin(state, window):
     def _sign_in():
         services = get_services(state.config, SCOPE_ALL)
         try:
-            return services.drive.about().get(fields='user(emailAddress)').execute()['user']['emailAddress']
+            return services.drive.about().get(fields='user(emailAddress)').execute(num_retries=n_retry_api)['user']['emailAddress']
         except Exception:
             return None  # signed in fine either way -- this second call is cosmetic only
 
