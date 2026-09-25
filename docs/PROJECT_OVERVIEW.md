@@ -148,7 +148,8 @@ weights, `type_limit`, manual overrides/skips) are editable widgets grouped into
 **Tab "4. Notify"** stacks four steps, top to bottom:
 - **Create Assignment Sheet** (→ `script/notify.py::create_assignment_sheet`): writes the
   human-readable "調整結果" Google Sheet (a `ver.<today>` roster tab plus a `score` tab) for the
-  month.
+  month. Rerunning it the same day adds `ver.<today>_2`, `_3`, ... instead of touching an
+  existing (possibly hand-edited) tab.
 - **Draft Drop-in Notification** (→ `script/notify.py::draft_dropin_notification`): drafts
   (never sends) an email to active doctors linking to that assignment sheet, for a last look
   while the roster is still a work-in-progress draft — i.e. any time after the step above and

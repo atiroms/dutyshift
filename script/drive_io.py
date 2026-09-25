@@ -142,8 +142,14 @@ def get_credentials(p_cred, p_token, l_scope):
         try:
             with open(p_token, 'r') as f:
                 dict_token_cached = json.load(f)
-            if set(l_scope) <= set(dict_token_cached.get('scopes') or []):
-                creds = Credentials.from_authorized_user_file(p_token, l_scope)
+            l_scope_cached = dict_token_cached.get('scopes') or []
+            if set(l_scope) <= set(l_scope_cached):
+                # Load with the file's own full recorded scopes, not the narrower l_scope: the
+                # token is written back below via creds.to_json(), which records creds.scopes --
+                # loading with l_scope would narrow token.json down to this one stage's scope,
+                # so the next stage needing a different scope (e.g. Calendar after a Gmail-only
+                # draft) would find it "not covered" and re-trigger the browser login.
+                creds = Credentials.from_authorized_user_file(p_token, l_scope_cached)
             # else: cached token doesn't cover everything l_scope now needs -- leave creds=None
             # so the interactive flow below runs and grants the full scope fresh.
         except (ValueError, OSError, json.JSONDecodeError):
@@ -489,6 +495,20 @@ def _sheet_title_to_id(service_sheets, id_file):
     ).execute(num_retries=n_retry_api)
     return {sheet['properties']['title']: sheet['properties']['sheetId']
             for sheet in resp.get('sheets', [])}
+
+
+def next_gsheet_tab_name(service_sheets, service_drive, id_folder, filename, base):
+    """First tab name not yet used in native Google Sheet `filename`: `base` itself, else
+    `base_2`, `base_3`, ... Returns `base` if the spreadsheet doesn't exist yet."""
+    id_file = _find_file_id(service_drive, id_folder, filename)
+    if id_file is None:
+        return base
+    set_title = set(_sheet_title_to_id(service_sheets, id_file))
+    name, n = base, 1
+    while name in set_title:
+        n += 1
+        name = base + '_' + str(n)
+    return name
 
 
 def copy_gsheet_tab(service_sheets, service_drive, id_folder, filename, sheet_src, sheet_dst):

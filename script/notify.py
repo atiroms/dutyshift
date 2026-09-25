@@ -6,7 +6,8 @@ import pandas as pd, datetime as dt
 from script.helper import read_member, load_drive_config, load_email_template, duty_time_table
 from script.parameter import str_email_button_html, dict_duty_info
 from script.drive_io import (
-    get_services, prep_drive_paths, read_csv, read_member_matrix_csv, ensure_gsheet_tab, get_file_web_link,
+    get_services, prep_drive_paths, read_csv, read_member_matrix_csv, ensure_gsheet_tab, next_gsheet_tab_name,
+    get_file_web_link,
     SCOPE_DRIVE_CALENDAR, SCOPE_DRIVE_GMAIL,
 )
 
@@ -58,7 +59,7 @@ def _merge(id_sheet, r0, r1, c0, c1):
 
 
 def _build_assignment_requests(id_sheet, l_title_date):
-    """id_sheet: real sheetId of the 'ver.<today>' tab. l_title_date: this month's '日付' column
+    """id_sheet: real sheetId of the 'ver.<today>[_N]' tab. l_title_date: this month's '日付' column
     values in row order, used only to find which rows are holidays (get the gray row fill and the
     am/pm cell merge)."""
     n_row_data = len(l_title_date)
@@ -143,14 +144,14 @@ def create_assignment_sheet(config, year_plan, month_plan):
                               '', cell(row['日直OC']), cell(row['当直OC']), '', cell(row['ECT'])])
 
     filename = 'assignment_{:04d}{:02d}'.format(year_plan, month_plan)
-    sheet_name_assign = 'ver.' + dt.date.today().strftime('%Y%m%d')
-    result_assign, _ = ensure_gsheet_tab(
+    # A rerun on the same day adds a new tab ('ver.<today>_2', '_3', ...) rather than touching
+    # an existing one, which may have been hand-edited since.
+    sheet_name_assign = next_gsheet_tab_name(
+        services.sheets, services.drive, dp.id_month, filename, 'ver.' + dt.date.today().strftime('%Y%m%d'))
+    ensure_gsheet_tab(
         services.sheets, services.drive, dp.id_month, filename, sheet_name_assign, values_assign,
         build_requests=lambda id_sheet: _build_assignment_requests(id_sheet, l_title_date))
-    if result_assign == 'tab_exists':
-        print(sheet_name_assign + ' tab already exists in ' + filename + ' -- left untouched (avoids clobbering any hand edits).')
-    else:
-        print('Wrote ' + filename + ' tab ' + sheet_name_assign + '.')
+    print('Wrote ' + filename + ' tab ' + sheet_name_assign + '.')
 
     print('[3/3] Creating score table...')
     header_group1 = ['', '', '当月分', '', '', '', '', '今年度分']
