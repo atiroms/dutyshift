@@ -28,6 +28,7 @@ _COLOR_BORDER = {'red': 0.8509804, 'green': 0.8509804, 'blue': 0.8509804}
 _COLOR_HEADER_BG = {'red': 0.34901962, 'green': 0.34901962, 'blue': 0.34901962}
 _COLOR_HEADER_FG = {'red': 1, 'green': 1, 'blue': 1}
 _COLOR_HOLIDAY_BG = {'red': 0.7176471, 'green': 0.7176471, 'blue': 0.7176471}
+_COLOR_UNASSIGNED_FG = {'red': 1, 'green': 0, 'blue': 0}
 _ASSIGN_COL_WIDTH = [90, 71, 64, 86, 145, 47, 55, 59, 59]  # 日付,am,pm,A当直,B当直,ocday,ocnight,ECT(左右)
 _BORDER_ALL_SIDES = {side: {'style': 'SOLID', 'width': 1, 'color': _COLOR_BORDER}
                      for side in ('top', 'bottom', 'left', 'right')}
@@ -107,6 +108,17 @@ def _build_assignment_requests(id_sheet, l_title_date):
         l_request.append(_repeat_cell(id_sheet, r, r + 1, 0, n_col,
             {'backgroundColor': _COLOR_HOLIDAY_BG}, 'userEnteredFormat.backgroundColor'))
         l_request.append(_merge(id_sheet, r, r + 1, 1, 3))
+
+    # Unfilled slots (convert_assignment's '(未定)', possibly suffixed '(救急)'): red text. A
+    # conditional rule rather than a static format, so it clears itself once someone types a
+    # name over it by hand.
+    l_request.append({'addConditionalFormatRule': {'index': 0, 'rule': {
+        'ranges': [{'sheetId': id_sheet, 'startRowIndex': 2, 'endRowIndex': n_row_total,
+                    'startColumnIndex': 1, 'endColumnIndex': n_col}],
+        'booleanRule': {
+            'condition': {'type': 'TEXT_CONTAINS', 'values': [{'userEnteredValue': '(未定)'}]},
+            'format': {'textFormat': {'foregroundColor': _COLOR_UNASSIGNED_FG}}},
+    }}})
 
     return l_request
 
@@ -333,6 +345,10 @@ def update_calendar(config, year_plan, month_plan, num_retries=5):
     # a genuine rate-limit hit is retried in place within seconds rather than needing a
     # preventive multi-minute pause between member-sized batches.
     l_result_add = add_duty(service_calendar, id_calendar, d_date_duty_add, d_member, d_time_duty, d_availability, num_retries, url_replace_form)
+    # A 'change' (same slot, different doctor) is carried out as a delete + re-add above, but
+    # reported here as one overwrite.
+    print('Calendar updated: {} created, {} overwritten, {} deleted.'.format(
+        len(l_date_duty_add), len(l_date_duty_change), len(l_date_duty_delete)))
 
     # Assert result
     d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, num_retries)
