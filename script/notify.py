@@ -138,6 +138,10 @@ def create_assignment_sheet(config, year_plan, month_plan):
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='', make_data_dir=False)
     d_assign_print = read_csv(services.drive, dp.id_month, 'assign_print.csv')
     d_score_print = read_csv(services.drive, dp.id_month, 'score_print.csv')
+    # score_print.csv covers every doctor on the roster; the shared sheet shows active ones only.
+    d_member = read_member(services.drive, services.sheets, dp.id_config, year_plan, month_plan)
+    l_id_active = [int(id) for id in d_member.loc[d_member['active'] == True, 'id_member'].tolist()]
+    d_score_print = d_score_print.loc[d_score_print['id_member'].astype(int).isin(l_id_active), :]
 
     def cell(v):
         return '' if pd.isna(v) else v
