@@ -197,7 +197,10 @@ def get_services(config, l_scope):
         creds = get_credentials(config['credentials_path'], config['token_path'], l_scope)
         _dict_service_cache[key] = DriveServices(
             drive=build('drive', 'v3', credentials=creds),
-            forms=build('forms', 'v1', credentials=creds),
+            # static_discovery=False: the Forms discovery document bundled with the pinned
+            # google-api-python-client predates forms.setPublishSettings (used by
+            # script/form.py::prepare_form), so fetch the live one instead.
+            forms=build('forms', 'v1', credentials=creds, static_discovery=False),
             calendar=build('calendar', 'v3', credentials=creds),
             gmail=build('gmail', 'v1', credentials=creds),
             sheets=build('sheets', 'v4', credentials=creds),

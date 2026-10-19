@@ -232,6 +232,15 @@ def prepare_form(config, year_plan, month_plan, l_holiday, l_date_ect_cancel, l_
 
     services.forms.forms().batchUpdate(formId=id_form, body={"requests": l_request2}).execute()
 
+    # Publish only now, once both passes are done, so no respondent can ever open a half-built
+    # form. A copy (like a forms.create'd form) starts out unpublished and doesn't inherit the
+    # template's publish state. setPublishSettings needs the live discovery document -- see
+    # script/drive_io.py::get_services.
+    services.forms.forms().setPublishSettings(formId=id_form, body={
+        "publishSettings": {"publishState": {"isPublished": True, "isAcceptingResponses": True}},
+        "updateMask": "publishState",
+    }).execute(num_retries=n_retry_api)
+
     # Print responding URL
     str_responder_uri = services.forms.forms().get(formId=id_form).execute(num_retries=n_retry_api).get('responderUri')
     print('Form URL:', str_responder_uri)
