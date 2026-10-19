@@ -1,7 +1,7 @@
 
 import numpy as np, pandas as pd
 from script.helper import read_form_response, convert_assignment
-from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, SCOPE_DRIVE_FORMS
+from script.drive_io import get_services, prep_drive_paths, read_csv, write_csv, read_member_matrix_csv, read_member_keyed_csv, SCOPE_DRIVE_FORMS
 
 
 def _check_designation_pairing(d_replace_checked, d_member, d_assign_date_duty):
@@ -141,7 +141,7 @@ def check_replacement(config, year_plan, month_plan):
     return d_replace_checked
 
 
-def replace_assignment(config, year_plan, month_plan, dict_score_duty, l_class_duty, d_replace_checked=None):
+def replace_assignment(config, year_plan, month_plan, dict_score_duty, d_replace_checked=None):
     services = get_services(config, SCOPE_DRIVE_FORMS)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='rplc')
 
@@ -167,10 +167,10 @@ def replace_assignment(config, year_plan, month_plan, dict_score_duty, l_class_d
             else:
                 d_assign_date_duty.loc[(d_assign_date_duty['date'] == row['date']) & (d_assign_date_duty['duty'] == row['duty']), ['id_member', 'status']] = [row['id_member'], 'assigned']
 
-    d_availability_noskip = read_csv(services.drive, dp.id_month, 'availability.csv', index_col=0)
+    d_availability_noskip = read_member_matrix_csv(services.drive, dp.id_month, 'availability.csv')
     d_date_duty = read_csv(services.drive, dp.id_month, 'date_duty.csv')
-    d_lim_exact = read_csv(services.drive, dp.id_month, 'lim_exact.csv', index_col=0)
-    d_lim_hard = read_csv(services.drive, dp.id_month, 'lim_hard.csv', index_col=0)
+    d_lim_exact = read_member_keyed_csv(services.drive, dp.id_month, 'lim_exact.csv')
+    d_lim_hard = read_member_keyed_csv(services.drive, dp.id_month, 'lim_hard.csv')
     for index in d_lim_hard.index:
         for col in d_lim_hard.columns:
             src = d_lim_hard.loc[index, col]
@@ -179,14 +179,14 @@ def replace_assignment(config, year_plan, month_plan, dict_score_duty, l_class_d
             dst = [src_min, src_max]
             d_lim_hard.loc[index, col] = dst
 
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(services.drive, id_folder, 'assign_date_duty.csv', d_assign_date_duty, index=False)
 
     d_cal = read_csv(services.drive, dp.id_month, 'calendar.csv')
 
     d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print =\
         convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
-                        d_member, d_date_duty, d_cal, l_class_duty, dict_score_duty, d_lim_exact, d_lim_hard)
+                        d_member, d_date_duty, d_cal, dict_score_duty, d_lim_exact, d_lim_hard)
 
     print('Done')
     return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print

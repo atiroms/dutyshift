@@ -5,8 +5,8 @@
 # build_app(state) is the one entry point main.py needs: it combines every stage below into a
 # single window -- common parameters (year/month only; every other stage-specific input lives on
 # its own tab) pinned on top, one Tab per pipeline stage underneath:
-#   common params -> [1. form | 2. collect | 3. assign | 4. notify | 5. replace]
-# "5. Replace" holds both the check-requests and apply-replacement steps, stacked in one panel
+#   common params -> [Ask | Collect | Assign | Notify | Replace]
+# "Replace" holds both the check-requests and apply-replacement steps, stacked in one panel
 # (build_replace_panel), since apply always needs a prior check's result.
 #
 # Each build_*_panel() function returns a QWidget for one stage. None of them wrap their content
@@ -24,8 +24,8 @@
 # both inside build_replace_panel); every other stage re-reads its inputs from Google Drive via
 # script/drive_io.py (state.config, loaded once at AppState() construction time), so panels only
 # need state.year_plan / state.month_plan at click time -- state.l_holiday / state.l_date_ect_cancel
-# (read from the Create Form tab's own calendars) are only used by build_form_panel itself, and
-# the Create Form tab's response deadline is persisted to Drive and re-read automatically by the
+# (read from the Ask tab's own calendars) are only used by build_form_panel itself, and
+# the Ask tab's response deadline is persisted to Drive and re-read automatically by the
 # Collect tab (_save_deadline / _load_deadline) rather than flowing through AppState.
 #
 # Every pipeline call (Google API round-trips, the MILP solve) can take a while, so each button
@@ -36,6 +36,14 @@
 # marshals back onto the GUI thread, never inside the worker function itself. All of the app's
 # action buttons (state.l_button) are disabled while any one worker is running, so only one
 # pipeline stage ever runs at a time -- matching the old single-threaded Jupyter-kernel behavior.
+#
+# build_app() also signs in to Google once, right after building the window (_start_google_signin,
+# same background-QThread pattern), instead of leaving it to happen lazily on whichever tab's Run
+# button gets clicked first. Every stage's own get_services() call requests SCOPE_ALL's union up
+# front (see script/drive_io.py::get_credentials/SCOPE_ALL) whenever it has to run the interactive
+# browser consent flow, so this startup sign-in is normally the only time in the app's life a
+# browser window opens at all -- once token.json exists and covers every scope, every later run
+# (and every individual tab within a run) authenticates silently off that cached local file.
 ###############################################################################
 
 import calendar, contextlib, datetime, traceback
@@ -51,18 +59,18 @@ from PyQt5.QtWidgets import (
 )
 
 from script.parameter import (
-    dict_jpnday, dict_duty, dict_duty_jpn, dict_title_duty, dict_class_duty, dict_score_duty,
-    dict_score_class, dict_time_duty,
-    l_day_ect, day_em, l_week_em, l_class_duty, ll_avoid_adjacent, l_title_fulltime,
-    n_troubleshoot_infeasible_max, n_retry_calendar, year_start, month_start,
+    dict_jpnday, dict_duty_info, dict_title_duty, dict_class_duty, dict_score_duty,
+    l_day_ect, day_em, l_week_em, ll_avoid_adjacent, l_title_fulltime,
+    n_retry_calendar, year_start, month_start,
 )
 from script.drive_io import (
     load_config, get_services, prep_drive_paths, resolve_folder_id,
-    read_json, write_json, month_folder_path, list_month_folders, SCOPE_DRIVE_FORMS,
+    read_json, write_json, month_folder_path, list_month_folders, SCOPE_DRIVE_FORMS, SCOPE_ALL,
+    n_retry_api,
 )
 from script.form import prepare_form
 from script.collect import collect_availability
-from script.helper import load_manual_assign_options, write_manual_assign
+from script.helper import load_manual_assign_options, write_manual_assign, duty_order, duty_jpn_labels
 from script.assign import optimize_count_and_assign
 from script.notify import update_calendar, create_assignment_sheet, draft_dropin_notification, draft_fixed_notification
 from script.replace import check_replacement, replace_assignment
@@ -333,7 +341,7 @@ def _day_button_style(col):
 
 class _CalendarSelector(QWidget):
     """A week-per-row calendar of day-toggle buttons for one month -- used for the Holidays and
-    ECT-cancel pickers in the Create Form tab. Sun-Sat header, Sunday-first weeks (standard
+    ECT-cancel pickers in the Ask tab. Sun-Sat header, Sunday-first weeks (standard
     Japanese calendar layout).
 
     lock_weekend=True (used for Holidays) renders Saturday/Sunday cells as permanently-checked,
@@ -393,6 +401,22 @@ class _CalendarSelector(QWidget):
 ###############################################################################
 # Common parameters panel (replaces the pre-GUI notebook's cell 0)
 ###############################################################################
+_MONTH_BUTTON_ACTIVE_STYLE = 'background: #2e7d32; color: white; font-weight: bold; border-radius: 4px;'
+
+
+def _this_month():
+    today = datetime.date.today()
+    return today.year, today.month
+
+
+def _next_month():
+    today = datetime.date.today()
+    year, month = today.year, today.month + 1
+    if month > 12:
+        month, year = 1, year + 1
+    return year, month
+
+
 def build_common_params_panel(state):
     today = datetime.date.today()
     state.w_year = QComboBox()
@@ -405,16 +429,41 @@ def build_common_params_panel(state):
         state.w_month.addItem(str(month), month)
     state.w_month.setCurrentIndex(state.w_month.findData(today.month))
 
-    label_year = QLabel('Year:')
+    label_year = QLabel('Year')
     label_year.setStyleSheet('font-weight: bold;')
-    label_month = QLabel('Month:')
+    label_month = QLabel('Month')
     label_month.setStyleSheet('font-weight: bold;')
+
+    btn_this_month = QPushButton('This month')
+    btn_next_month = QPushButton('Next Month')
+
+    def _set_year_month(year, month):
+        state.w_year.setCurrentIndex(state.w_year.findData(year))
+        state.w_month.setCurrentIndex(state.w_month.findData(month))
+
+    def on_this_month():
+        _set_year_month(*_this_month())
+    btn_this_month.clicked.connect(on_this_month)
+
+    def on_next_month():
+        _set_year_month(*_next_month())
+    btn_next_month.clicked.connect(on_next_month)
+
+    def _refresh_month_buttons():
+        current = (state.year_plan, state.month_plan)
+        btn_this_month.setStyleSheet(_MONTH_BUTTON_ACTIVE_STYLE if current == _this_month() else '')
+        btn_next_month.setStyleSheet(_MONTH_BUTTON_ACTIVE_STYLE if current == _next_month() else '')
+    _refresh_month_buttons()
+    state.w_year.currentIndexChanged.connect(_refresh_month_buttons)
+    state.w_month.currentIndexChanged.connect(_refresh_month_buttons)
 
     row_dropdown = QHBoxLayout()
     row_dropdown.addWidget(label_year)
     row_dropdown.addWidget(state.w_year)
     row_dropdown.addWidget(label_month)
     row_dropdown.addWidget(state.w_month)
+    row_dropdown.addWidget(btn_this_month)
+    row_dropdown.addWidget(btn_next_month)
     row_dropdown.addStretch()
 
     widget = QWidget()
@@ -465,7 +514,7 @@ def _load_deadline(config, year_plan, month_plan):
 
 
 def build_form_panel(state):
-    w_deadline = QDateEdit(QDate.currentDate())
+    w_deadline = QDateEdit(QDate.currentDate().addDays(3))
     w_deadline.setCalendarPopup(True)
 
     # Holidays/ECT-cancel only ever matter to this stage (script/form.py::prepare_form), so they
@@ -481,7 +530,7 @@ def build_form_panel(state):
     state.w_year.currentIndexChanged.connect(_refresh_calendars)
     state.w_month.currentIndexChanged.connect(_refresh_calendars)
 
-    button = QPushButton('Create Google Form')
+    button = QPushButton('Create form && draft email')
     status = _make_status_label()
     output = _make_output()
     state.l_button.append(button)
@@ -493,7 +542,7 @@ def build_form_panel(state):
 
         def run():
             prepare_form(state.config, year_plan, month_plan, l_holiday, l_date_ect_cancel,
-                         l_day_ect, day_em, l_week_em, l_class_duty, dict_duty, dict_score_duty, dict_duty_jpn,
+                         l_day_ect, day_em, l_week_em, dict_score_duty,
                          dict_title_duty, dict_class_duty, str_deadline)
             _save_deadline(state.config, year_plan, month_plan, str_deadline)
         _run_async(state, output, run, status=status)
@@ -527,13 +576,13 @@ def build_collect_panel(state):
         year_plan, month_plan = state.year_plan, state.month_plan
 
         def run():
-            # The response deadline set on the Create Form tab is reused automatically here
+            # The response deadline set on the Ask tab is reused automatically here
             # (script/gui.py::_save_deadline / _load_deadline via dutyshift/result/<year>/
             # <month>/deadline.json) -- collect_availability itself only drafts a reminder email
             # when there is at least one not-yet-answered doctor, so this stays a no-op the rest
             # of the time.
             str_deadline = _load_deadline(state.config, year_plan, month_plan)
-            collect_availability(state.config, year_plan, month_plan, dict_jpnday, dict_duty_jpn, str_deadline)
+            collect_availability(state.config, year_plan, month_plan, dict_jpnday, str_deadline)
         _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
 
@@ -549,7 +598,7 @@ def build_collect_panel(state):
 #   dutyshift/result/<year>/<month>/solver_params.json  -- {...params...} (this month's own)
 ###############################################################################
 def _pack_solver_params(dict_w_current, dict_w_total, dict_w_closeduty,
-                        w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                        w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                         w_type_limit, w_fulltime, w_skip):
     """Read the Assign panel's current widget values into the JSON shape saved as a preset or
     per-month audit record."""
@@ -560,6 +609,7 @@ def _pack_solver_params(dict_w_current, dict_w_total, dict_w_closeduty,
                                       for group, w in dict_w_closeduty.items()},
         'c_assign_suboptimal': w_c_assign_suboptimal.value(),
         'c_cnt_deviation': w_c_cnt_deviation.value(),
+        'c_cnt_limit': w_c_cnt_limit.value(),
         'c_closeduty': w_c_closeduty.value(),
         'type_limit': w_type_limit.currentText(),
         'l_date_duty_fulltime': [s.strip() for s in w_fulltime.text().split(',') if s.strip()],
@@ -568,7 +618,7 @@ def _pack_solver_params(dict_w_current, dict_w_total, dict_w_closeduty,
 
 
 def _apply_solver_params(dict_params, dict_w_current, dict_w_total, dict_w_closeduty,
-                         w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                         w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                          w_type_limit, w_fulltime, w_skip):
     """Set the Assign panel's widget values from a loaded preset/audit-record dict. Missing keys
     (e.g. an older record saved before a field existed) are left at whatever the widgets already
@@ -588,6 +638,8 @@ def _apply_solver_params(dict_params, dict_w_current, dict_w_total, dict_w_close
         w_c_assign_suboptimal.setValue(dict_params['c_assign_suboptimal'])
     if 'c_cnt_deviation' in dict_params:
         w_c_cnt_deviation.setValue(dict_params['c_cnt_deviation'])
+    if 'c_cnt_limit' in dict_params:
+        w_c_cnt_limit.setValue(dict_params['c_cnt_limit'])
     if 'c_closeduty' in dict_params:
         w_c_closeduty.setValue(dict_params['c_closeduty'])
     if 'type_limit' in dict_params:
@@ -643,6 +695,10 @@ def build_assign_panel(state):
 
     w_c_assign_suboptimal = _float_spin(0.00001, step=0.00001)
     w_c_cnt_deviation = _float_spin(0.1, step=0.01)
+    # Weight on breaching a member's hard min/max count range (type_limit='soft' only). Kept
+    # deliberately above c_cnt_deviation: overshooting someone's stated limit is a worse outcome
+    # than missing their target count by the same amount, and both used to share one coefficient.
+    w_c_cnt_limit = _float_spin(1.0, step=0.1)
     w_c_closeduty = _float_spin(0.00001, step=0.00001)
 
     w_type_limit = QComboBox()
@@ -668,7 +724,7 @@ def build_assign_panel(state):
     _dict_solver_defaults = _load_last_month_solver_params(state)
     if _dict_solver_defaults:
         _apply_solver_params(_dict_solver_defaults, dict_w_current, dict_w_total, dict_w_closeduty,
-                             w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                             w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                              w_type_limit, w_fulltime, w_skip)
 
     row_current = QHBoxLayout()
@@ -683,6 +739,7 @@ def build_assign_panel(state):
     row_objective = QHBoxLayout()
     row_objective.addWidget(_labeled('c_assign_suboptimal', w_c_assign_suboptimal))
     row_objective.addWidget(_labeled('c_cnt_deviation', w_c_cnt_deviation))
+    row_objective.addWidget(_labeled('c_cnt_limit', w_c_cnt_limit))
     row_objective.addWidget(_labeled('c_closeduty', w_c_closeduty))
 
     advanced_content = QVBoxLayout()
@@ -727,7 +784,7 @@ def build_assign_panel(state):
 
     def _current_params():
         return _pack_solver_params(dict_w_current, dict_w_total, dict_w_closeduty,
-                                   w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                                   w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                                    w_type_limit, w_fulltime, w_skip)
 
     def on_save_preset():
@@ -774,7 +831,7 @@ def build_assign_panel(state):
             if dict_params is None:
                 return
             _apply_solver_params(dict_params, dict_w_current, dict_w_total, dict_w_closeduty,
-                                 w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                                 w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                                  w_type_limit, w_fulltime, w_skip)
             _append_text(output_preset, 'Loaded preset "' + name + '".\n')
         _run_async(state, output_preset, run, apply)
@@ -791,7 +848,7 @@ def build_assign_panel(state):
             if dict_params is None:
                 return
             _apply_solver_params(dict_params, dict_w_current, dict_w_total, dict_w_closeduty,
-                                 w_c_assign_suboptimal, w_c_cnt_deviation, w_c_closeduty,
+                                 w_c_assign_suboptimal, w_c_cnt_deviation, w_c_cnt_limit, w_c_closeduty,
                                  w_type_limit, w_fulltime, w_skip)
             _append_text(output_preset, "Loaded last month's configuration.\n")
         _run_async(state, output_preset, run, apply)
@@ -804,7 +861,8 @@ def build_assign_panel(state):
     # edit; it's only written to Drive (write_manual_assign, script/helper.py) right before 'Run
     # Optimization' actually runs, so optimize_count_and_assign's read of assign_manual.csv picks
     # up whatever is staged at that moment.
-    dict_duty_jpn_full = dict(zip(dict_time_duty['duty'], dict_time_duty['duty_jpn']))  # includes 'ect', unlike dict_duty_jpn
+    dict_duty_jpn_full = duty_jpn_labels(dict_duty_info, include_ect=True)
+    dict_duty = duty_order(dict_duty_info)
     l_manual_designation = []
     dict_manual_date_duty = {}    # date (int) -> [duty, ...] valid that date, from date_duty.csv
     dict_manual_member_name = {}  # id_member (int) -> name_jpn_full
@@ -938,6 +996,7 @@ def build_assign_panel(state):
         type_limit = w_type_limit.currentText()
         c_assign_suboptimal = w_c_assign_suboptimal.value()
         c_cnt_deviation = w_c_cnt_deviation.value()
+        c_cnt_limit = w_c_cnt_limit.value()
         c_closeduty = w_c_closeduty.value()
         current_params = _current_params()  # snapshot for the post-run solver_params.json audit write
 
@@ -945,14 +1004,13 @@ def build_assign_panel(state):
             write_manual_assign(state.config, year_plan, month_plan, l_manual_designation_snapshot)
             print('Wrote', len(l_manual_designation_snapshot), 'manual assignment(s) to assign_manual.csv')
             result = optimize_count_and_assign(state.config, year_plan, month_plan, year_start, month_start,
-                                      l_class_duty, dict_c_diff_score_current, dict_c_diff_score_total,
+                                      dict_c_diff_score_current, dict_c_diff_score_total,
                                       l_date_duty_skip_manual, dict_closeduty, ll_avoid_adjacent,
                                       l_title_fulltime, l_date_duty_fulltime, type_limit,
-                                      c_assign_suboptimal, c_cnt_deviation, c_closeduty,
-                                      dict_score_duty, dict_score_class, dict_class_duty,
-                                      n_troubleshoot_infeasible_max)
-            # result[0] (d_assign) is None on failure regardless of the differing success/failure
-            # tuple lengths -- duck-typed success check, doesn't unpack the tuple.
+                                      c_assign_suboptimal, c_cnt_deviation, c_cnt_limit, c_closeduty,
+                                      dict_score_duty, dict_class_duty)
+            # result[0] (d_assign) is None on failure -- duck-typed success check rather than
+            # unpacking the tuple here.
             if result is not None and result[0] is not None:
                 try:
                     services = get_services(state.config, SCOPE_DRIVE_FORMS)
@@ -1007,14 +1065,14 @@ def build_notify_panel(state):
     # just created above -- meant for a last look before Publish to Calendar below. The
     # correction deadline next to the button is embedded in the draft's subject
     # ('【{deadline} 修正〆】...', dutyshift/template/dropin.json) -- same date-picker pattern as
-    # "1. Create Form"'s response deadline (build_form_panel/_format_deadline above), but not
+    # the Ask tab's response deadline (build_form_panel/_format_deadline above), but not
     # persisted to Drive: unlike the survey deadline, nothing downstream needs to reuse it.
     button_dropin = QPushButton('Draft Drop-in Notification')
     status_dropin = _make_status_label()
     output_dropin = _make_output(min_height=100)
     state.l_button.append(button_dropin)
 
-    label_deadline_dropin = QLabel('Deadline:')
+    label_deadline_dropin = QLabel('Response deadline')
     w_deadline_dropin = QDateEdit(QDate.currentDate())
     w_deadline_dropin.setCalendarPopup(True)
 
@@ -1040,7 +1098,7 @@ def build_notify_panel(state):
         year_plan, month_plan = state.year_plan, state.month_plan
 
         def run():
-            update_calendar(state.config, year_plan, month_plan, dict_time_duty, n_retry_calendar)
+            update_calendar(state.config, year_plan, month_plan, n_retry_calendar)
         _run_async(state, output, run, status=status)
     button.clicked.connect(on_click)
 
@@ -1096,9 +1154,7 @@ def build_replace_panel(state):
         year_plan, month_plan = state.year_plan, state.month_plan
 
         def run():
-            d_replace_checked = check_replacement(state.config, year_plan, month_plan)
-            print(d_replace_checked.to_string())
-            return d_replace_checked
+            return check_replacement(state.config, year_plan, month_plan)
 
         def apply(d_replace_checked):
             state.d_replace_checked = d_replace_checked
@@ -1122,7 +1178,7 @@ def build_replace_panel(state):
             if d_replace_checked is None:
                 print("Run 'Check Replacement Requests' first.")
                 return
-            replace_assignment(state.config, year_plan, month_plan, dict_score_duty, l_class_duty, d_replace_checked)
+            replace_assignment(state.config, year_plan, month_plan, dict_score_duty, d_replace_checked)
         _run_async(state, output_apply, run, status=status_apply)
     button_apply.clicked.connect(on_apply)
 
@@ -1134,6 +1190,48 @@ def build_replace_panel(state):
 ###############################################################################
 # Combined app: one window, all stages -- the function main.py calls
 ###############################################################################
+def _start_google_signin(state, window):
+    """Kick off Google sign-in once, right when the window is built, instead of leaving it to
+    happen lazily -- and separately, per scope combination -- on whichever tab's Run button the
+    user clicks first. get_services(..., SCOPE_ALL) reuses/refreshes the machine's cached
+    token.json when one already covers every scope the app needs (see
+    drive_io.get_credentials/SCOPE_ALL); a browser window only appears the very first time this
+    machine ever authenticates (or if that token is later revoked). Every action button stays
+    disabled and the status bar shows a "signing in" message until this finishes, so no
+    individual stage's own get_services() call ever has to trigger -- or block on -- that flow
+    itself; once this succeeds, every stage's own (narrower-scope) get_services() call just loads
+    the same already-valid cached credentials, no network round trip or prompt at all."""
+    status_bar = window.statusBar()
+    status_bar.showMessage('Google アカウントにサインイン中…')
+    for button in state.l_button:
+        button.setEnabled(False)
+
+    def _sign_in():
+        services = get_services(state.config, SCOPE_ALL)
+        try:
+            return services.drive.about().get(fields='user(emailAddress)').execute(num_retries=n_retry_api)['user']['emailAddress']
+        except Exception:
+            return None  # signed in fine either way -- this second call is cosmetic only
+
+    def _on_succeeded(email):
+        status_bar.showMessage('Google アカウント: ' + email if email else 'Google サインイン完了')
+        for button in state.l_button:
+            button.setEnabled(True)
+
+    def _on_failed(tb):
+        print(tb)
+        status_bar.showMessage('Google サインインに失敗しました（各タブの実行時に再試行されます）')
+        for button in state.l_button:
+            button.setEnabled(True)
+
+    worker = _Worker(_sign_in)
+    worker.succeeded.connect(_on_succeeded, Qt.QueuedConnection)
+    worker.failed.connect(_on_failed, Qt.QueuedConnection)
+    worker.finished.connect(lambda: state.l_worker.remove(worker), Qt.QueuedConnection)
+    state.l_worker.append(worker)
+    worker.start()
+
+
 def build_app(state):
     """Single combined window for the whole pipeline: common parameters pinned above a Tab
     holding one stage per tab. `state` must be a fresh AppState() -- build_common_params_panel
@@ -1146,11 +1244,11 @@ def build_app(state):
     layout.addWidget(build_common_params_panel(state))
 
     l_tab = [
-        ('1. Create Form', build_form_panel(state)),
-        ('2. Collect', build_collect_panel(state)),
-        ('3. Assign', build_assign_panel(state)),
-        ('4. Notify', build_notify_panel(state)),
-        ('5. Replace', build_replace_panel(state)),
+        ('Ask', build_form_panel(state)),
+        ('Collect', build_collect_panel(state)),
+        ('Assign', build_assign_panel(state)),
+        ('Notify', build_notify_panel(state)),
+        ('Replace', build_replace_panel(state)),
     ]
     tabs = QTabWidget()
     for title, panel in l_tab:
@@ -1159,4 +1257,8 @@ def build_app(state):
 
     window.setCentralWidget(central)
     window.resize(900, 700)
+
+    # All of state.l_button is populated by now (every build_*_panel() call above registered its
+    # Run button) -- safe to disable them for the duration of the startup sign-in.
+    _start_google_signin(state, window)
     return window

@@ -15,11 +15,14 @@ hand-edited code across multiple cells.
 For a full deep-dive (data model, MILP formulation, module-by-module walkthrough, known issues),
 see [docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md).
 
-## Scope: ignore `arch/` and `refs/`
+## Scope: ignore `arch/`, `refs/`, and `test/`
 
 `arch/` and `refs/` contain archived, obsolete notebooks and reference material (old per-season
-scheduling notebooks, superseded docs). Do not read, edit, or base new work on files in these
-directories unless the user explicitly asks about archived history.
+scheduling notebooks, superseded docs). `test/` (`test01.py` … `test19.py`) is 19 undocumented,
+ad hoc developer scratch scripts, not a maintained automated test suite (see Testing below). Do
+not read, edit, or base new work on files in these directories unless the user explicitly asks
+about archived history or these scripts specifically — a refactor elsewhere in `script/` is not
+expected to keep `test/` in sync.
 
 ## Tech stack
 
@@ -27,7 +30,7 @@ Pure Python. Dependencies are pinned in `requirements.txt` (`pip install -r requ
 — pinned to the versions this codebase is developed and tested against (Python 3.8.13); re-pin
 deliberately, don't let installs silently drift. Core libraries actually imported by the code:
 - `pulp`, `ortoolpy` — the MILP optimizer (PuLP modeling + CBC solver)
-- `jpholiday` — Japanese national-holiday lookup, used only to default the "1. Create Form"
+- `jpholiday` — Japanese national-holiday lookup, used only to default the "Ask"
   tab's Holidays calendar. Pinned to `0.1.10` (not the current `1.0.x` line, which requires
   Python 3.9+ and breaks import on this codebase's pinned Python 3.8.13).
 - `pandas`, `numpy` — all data handling
@@ -47,7 +50,13 @@ deliberately, don't let installs silently drift. Core libraries actually importe
   `script/gui.py`) instead of the GUI thread; anything a worker needs from a widget is captured
   into a plain value *before* dispatch, and anything its result needs to write back to a widget
   happens in an `on_success` callback marshaled back onto the GUI thread — Qt widgets may only
-  be touched from the thread that owns them.
+  be touched from the thread that owns them. `build_app` also signs in to Google once, right
+  when the window opens (`_start_google_signin`, same background-thread pattern), requesting the
+  union of every scope any stage needs (`drive_io.SCOPE_ALL`) so no individual tab's own Google
+  call ever has to trigger — or block on — its own separate sign-in; a browser window opens only
+  the very first time a machine ever authenticates (or after that grant is revoked) — every run
+  after that authenticates silently off the cached local `token.json`. See
+  `script/drive_io.py::get_credentials`/`SCOPE_ALL`.
 
 ## How it runs
 
@@ -60,10 +69,15 @@ content in a titled `QGroupBox` any more (the Tab already names the stage); each
 (`_make_status_label()` / `_run_async(..., status=...)`), and its live output log — the pipeline
 functions themselves print their own stage-by-stage progress (e.g. `[2/4] Creating Google
 Form...`, ending `Done`):
-1. **1. Create Form** — `script/form.py::prepare_form`, creates the availability Google Form
-   (cloned from `id_template_form`, its grid questions keyed by `dict_itemid_form` — both read
-   fresh from Drive, `dutyshift/config/config.json`, on every click; see
-   `script/helper.py::load_drive_config`), copies forward next month's `dutyshift/config/member`
+1. **Ask** — `script/form.py::prepare_form`, creates the availability Google Form
+   (every question built from scratch via `forms.batchUpdate`, but the form file itself is a
+   Drive **copy** of an empty settings-only template form — `id_template_form`, read fresh from
+   Drive, `dutyshift/config/config.json`, on every click; see
+   `script/helper.py::load_drive_config` — because Forms API v1's `FormSettings` only exposes
+   `quizSettings`/`emailCollectionType`, so the "回答のコピーを回答者に送信" (email the respondent a
+   copy of their response) setting can only be enabled by hand once on that template and
+   inherited by each copy. The template must stay empty; `prepare_form` refuses to run if it
+   isn't, since every item is created at an explicit `location.index`), copies forward next month's `dutyshift/config/member`
    tab from the nearest prior month (`script/helper.py::ensure_member_sheet`, never overwrites an
    existing tab), and drafts (never sends) a notification email to active doctors via Gmail,
    using a required response deadline date picker and wording read fresh from Drive
@@ -72,20 +86,27 @@ Form...`, ending `Done`):
    grids (`script/gui.py::_CalendarSelector`); Holidays defaults to that month's official Japanese
    holidays via `jpholiday`, with weekend cells locked on since weekends are always holidays
    automatically regardless of this selection. The deadline is also saved to Drive
-   (`dutyshift/result/<year>/<month>/deadline.json`) for "2. Collect" to reuse.
-2. **2. Collect** — `script/collect.py::collect_availability`, parses form responses and drafts
+   (`dutyshift/result/<year>/<month>/deadline.json`) for "Collect" to reuse.
+2. **Collect** — `script/collect.py::collect_availability`, parses form responses and drafts
    (never sends) a reminder email Bcc'd to not-yet-answered doctors (wording from
-   `dutyshift/template/reminder.json`), reusing the deadline saved by "1. Create Form" — no
+   `dutyshift/template/reminder.json`), reusing the deadline saved by "Ask" — no
    separate opt-in checkbox; it's a no-op once everyone has answered.
-3. **3. Assign** — `script/assign.py::optimize_count_and_assign`, runs the two-stage MILP. Its
+3. **Assign** — `script/assign.py::optimize_count_and_assign`, runs the two-stage MILP. Its
    hyperparameters (score-deviation weights, close-duty thresholds, `type_limit`, etc.) are
    editable widgets in a collapsed "Advanced solver parameters" section (`_CollapsibleBox`).
+   Both stages solve through `script/helper.py::make_solver` (CBC, log suppressed, search-time
+   budget, pinned random seeds -- the models are degenerate enough that an unpinned CBC returns a
+   different roster every run *and* swings from 42s to 1241s on the same instance), and check
+   `warn_if_not_proven_optimal` afterwards, since a solve cut short by the budget still reports
+   `LpStatus` `'Optimal'`. When the assignment is infeasible it retries with `type_limit` demoted
+   `hard` -> `soft`, then falls back to an elastic two-pass solve that names the slots nobody can
+   fill -- see `build_assign_model(..., elastic=True)`.
    They persist via
    `drive_io.read_json`/`write_json`: named presets in `dutyshift/config/solver_presets.json`,
    and an automatic per-month audit record (`dutyshift/result/<year>/<month>/solver_params.json`)
    written on every successful run. The panel seeds its defaults from the nearest prior month's
    audit record on build, falling back to hardcoded defaults if none exists.
-4. **4. Notify** — four steps stacked in one tab: `script/notify.py::create_assignment_sheet`
+4. **Notify** — four steps stacked in one tab: `script/notify.py::create_assignment_sheet`
    (the human-readable "調整結果" Google Sheet); `draft_dropin_notification` (drafts, never
    sends, an email to active doctors linking to that sheet, wording from
    `dutyshift/template/dropin.json` — meant for a last look before publishing); `update_calendar`
@@ -94,7 +115,7 @@ Form...`, ending `Done`):
    announcing the finalized roster, Bcc'd to active doctors plus any extras configured in
    `dutyshift/config/config.json`'s `l_email_extra_fixed`, wording from
    `dutyshift/template/fixed.json`).
-5. **5. Replace** — one tab holding both check and apply steps stacked, since apply always needs
+5. **Replace** — one tab holding both check and apply steps stacked, since apply always needs
    a specific check's result: `script/replace.py::check_replacement` /`replace_assignment` handle
    shift-swap requests. `check_replacement`'s result is held on `state.d_replace_checked` (the
    only value that flows between steps in memory) and consumed by the apply step below it.
@@ -122,7 +143,7 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
 | `script/drive_io.py` | Google Drive-backed data I/O layer: OAuth credential caching/reuse (`get_credentials`/`get_services`), Drive folder resolution/creation, `read_csv`/`write_csv`/`read_gsheet`/`read_json`/`write_json`/`get_file_web_link`/`list_month_folders`, and `prep_drive_paths` (replaces the old local-path resolver `prep_dirs`). No pipeline logic. |
 | `script/parameter.py` | Fixed config: duty types, scoring weights, per-title duty eligibility, `str_email_button_html` (shared notification-email button styling). Edited rarely. Google resource IDs (`id_template_form`, `dict_itemid_form`, `id_calendar`) and every notification email's wording live on Drive instead — see `script/helper.py::load_drive_config`/`load_email_template` and the Drive folder layout bullet below. |
 | `script/helper.py` | Shared building blocks: calendar prep, roster loading/parsing, `load_drive_config`/`load_email_template` (Drive-backed config/email-template loaders, read fresh on every call), the Stage-1 count-optimization MILP (`optimize_count`), result extraction/CSV export (all via `script/drive_io.py`). |
-| `script/assign.py` | The Stage-2 assignment MILP (`optimize_assign`) and orchestration (`optimize_count_and_assign`), including infeasibility recovery. |
+| `script/assign.py` | The Stage-2 assignment MILP (`build_assign_model`/`optimize_assign`) and orchestration (`optimize_count_and_assign`), including elastic infeasibility recovery. |
 | `script/form.py` | Creates the monthly availability Google Form. |
 | `script/collect.py` | Parses Google Form responses into an availability matrix. |
 | `script/notify.py` | Creates the assignment Google Sheet, drafts drop-in/fixed notification emails, and publishes/diffs the schedule against Google Calendar events. |
@@ -144,9 +165,9 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
   are always holidays automatically.
 - **Drive folder layout**: `dutyshift/config/member` (roster, a native Google Sheet with one
   tab per month, `member_<yyyymm>`); `dutyshift/config/config.json` (`id_template_form`,
-  `dict_itemid_form`, `id_calendar`, `l_email_extra_fixed` — seeded with this codebase's
-  original hardcoded values the first time `script/helper.py::load_drive_config` reads it, then
-  edited directly on Drive, no code change needed); `dutyshift/template/<name>.json` (one file
+  `id_calendar`, `l_email_extra_fixed`, `url_replace_form` — read fresh from Drive by
+  `script/helper.py::load_drive_config` on every call and edited directly on Drive, no code
+  change needed); `dutyshift/template/<name>.json` (one file
   per notification email — `announce`/`reminder`/`dropin`/`fixed`, each `{subject, body,
   button_label}` — same seed-on-first-read pattern via `script/helper.py::load_email_template`);
   `dutyshift/result/<year>/
@@ -156,13 +177,15 @@ old `lp_root`). Nothing under the Drive `dutyshift` folder is version-controlled
   trail this system has). `script/drive_io.py::month_folder_path(year, month)` is the single
   source of truth for that path shape and `prep_drive_paths` resolves/creates it — don't
   hand-build Drive paths elsewhere.
-- `script/parameter.py`'s duty-related tables have single sources of truth, not independent
-  hand-typed copies: `dict_duty`/`dict_duty_jpn`/`dict_time_duty` are all derived from one
-  `_dict_duty_info` table; `l_class_duty` is derived from `dict_class_duty`; `dict_score_class`
-  (per-`class_duty` score weights, used by `optimize_count`) is derived from `dict_score_duty`
-  (per-duty score weights) via `_derive_score_class_constants`, which raises `ValueError` if the
-  two can no longer be reconciled. **To change scoring weights, edit `dict_score_duty`, not
-  `dict_score_class`** — the latter is computed, not a knob.
+- `script/parameter.py` holds base data only — no precomputed derived globals. Views that used
+  to live there as `dict_duty`/`dict_duty_jpn`/`dict_time_duty`/`l_class_duty`/`dict_score_class`
+  are now computed on demand, at the point of use, by shared functions in `script/helper.py`:
+  `duty_order`/`duty_jpn_labels`/`duty_time_table` (from `dict_duty_info`), `class_duty_names`
+  (from `dict_class_duty`), and `score_class_table`/`derive_score_class_constants` (from
+  `dict_score_duty` + `dict_class_duty` + `dict_score_classes` — a `{score axis: [class_duty,
+  ...]}` mapping — raising `ValueError` if the two can no longer be reconciled). **To change
+  scoring weights, edit `dict_score_duty`, not
+  `score_class_table`'s output** — the latter is computed, not a knob.
 
 ## Testing
 

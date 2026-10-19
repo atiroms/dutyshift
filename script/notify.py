@@ -3,10 +3,11 @@ import base64
 from email.mime.text import MIMEText
 import numpy as np
 import pandas as pd, datetime as dt
-from script.helper import read_member, load_drive_config, load_email_template
-from script.parameter import str_email_button_html
+from script.helper import read_member, load_drive_config, load_email_template, duty_time_table
+from script.parameter import str_email_button_html, dict_duty_info
 from script.drive_io import (
-    get_services, prep_drive_paths, read_csv, ensure_gsheet_tab, get_file_web_link,
+    get_services, prep_drive_paths, read_csv, read_member_matrix_csv, ensure_gsheet_tab, next_gsheet_tab_name,
+    get_file_web_link,
     SCOPE_DRIVE_CALENDAR, SCOPE_DRIVE_GMAIL,
 )
 
@@ -27,6 +28,7 @@ _COLOR_BORDER = {'red': 0.8509804, 'green': 0.8509804, 'blue': 0.8509804}
 _COLOR_HEADER_BG = {'red': 0.34901962, 'green': 0.34901962, 'blue': 0.34901962}
 _COLOR_HEADER_FG = {'red': 1, 'green': 1, 'blue': 1}
 _COLOR_HOLIDAY_BG = {'red': 0.7176471, 'green': 0.7176471, 'blue': 0.7176471}
+_COLOR_UNASSIGNED_FG = {'red': 1, 'green': 0, 'blue': 0}
 _ASSIGN_COL_WIDTH = [90, 71, 64, 86, 145, 47, 55, 59, 59]  # 日付,am,pm,A当直,B当直,ocday,ocnight,ECT(左右)
 _BORDER_ALL_SIDES = {side: {'style': 'SOLID', 'width': 1, 'color': _COLOR_BORDER}
                      for side in ('top', 'bottom', 'left', 'right')}
@@ -58,7 +60,7 @@ def _merge(id_sheet, r0, r1, c0, c1):
 
 
 def _build_assignment_requests(id_sheet, l_title_date):
-    """id_sheet: real sheetId of the 'ver.<today>' tab. l_title_date: this month's '日付' column
+    """id_sheet: real sheetId of the 'ver.<today>[_N]' tab. l_title_date: this month's '日付' column
     values in row order, used only to find which rows are holidays (get the gray row fill and the
     am/pm cell merge)."""
     n_row_data = len(l_title_date)
@@ -107,6 +109,17 @@ def _build_assignment_requests(id_sheet, l_title_date):
             {'backgroundColor': _COLOR_HOLIDAY_BG}, 'userEnteredFormat.backgroundColor'))
         l_request.append(_merge(id_sheet, r, r + 1, 1, 3))
 
+    # Unfilled slots (convert_assignment's '(未定)', possibly suffixed '(救急)'): red text. A
+    # conditional rule rather than a static format, so it clears itself once someone types a
+    # name over it by hand.
+    l_request.append({'addConditionalFormatRule': {'index': 0, 'rule': {
+        'ranges': [{'sheetId': id_sheet, 'startRowIndex': 2, 'endRowIndex': n_row_total,
+                    'startColumnIndex': 1, 'endColumnIndex': n_col}],
+        'booleanRule': {
+            'condition': {'type': 'TEXT_CONTAINS', 'values': [{'userEnteredValue': '(未定)'}]},
+            'format': {'textFormat': {'foregroundColor': _COLOR_UNASSIGNED_FG}}},
+    }}})
+
     return l_request
 
 
@@ -125,6 +138,10 @@ def create_assignment_sheet(config, year_plan, month_plan):
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='', make_data_dir=False)
     d_assign_print = read_csv(services.drive, dp.id_month, 'assign_print.csv')
     d_score_print = read_csv(services.drive, dp.id_month, 'score_print.csv')
+    # score_print.csv covers every doctor on the roster; the shared sheet shows active ones only.
+    d_member = read_member(services.drive, services.sheets, dp.id_config, year_plan, month_plan)
+    l_id_active = [int(id) for id in d_member.loc[d_member['active'] == True, 'id_member'].tolist()]
+    d_score_print = d_score_print.loc[d_score_print['id_member'].astype(int).isin(l_id_active), :]
 
     def cell(v):
         return '' if pd.isna(v) else v
@@ -143,14 +160,14 @@ def create_assignment_sheet(config, year_plan, month_plan):
                               '', cell(row['日直OC']), cell(row['当直OC']), '', cell(row['ECT'])])
 
     filename = 'assignment_{:04d}{:02d}'.format(year_plan, month_plan)
-    sheet_name_assign = 'ver.' + dt.date.today().strftime('%Y%m%d')
-    result_assign, _ = ensure_gsheet_tab(
+    # A rerun on the same day adds a new tab ('ver.<today>_2', '_3', ...) rather than touching
+    # an existing one, which may have been hand-edited since.
+    sheet_name_assign = next_gsheet_tab_name(
+        services.sheets, services.drive, dp.id_month, filename, 'ver.' + dt.date.today().strftime('%Y%m%d'))
+    ensure_gsheet_tab(
         services.sheets, services.drive, dp.id_month, filename, sheet_name_assign, values_assign,
         build_requests=lambda id_sheet: _build_assignment_requests(id_sheet, l_title_date))
-    if result_assign == 'tab_exists':
-        print(sheet_name_assign + ' tab already exists in ' + filename + ' -- left untouched (avoids clobbering any hand edits).')
-    else:
-        print('Wrote ' + filename + ' tab ' + sheet_name_assign + '.')
+    print('Wrote ' + filename + ' tab ' + sheet_name_assign + '.')
 
     print('[3/3] Creating score table...')
     header_group1 = ['', '', '当月分', '', '', '', '', '今年度分']
@@ -206,7 +223,7 @@ def draft_dropin_notification(config, year_plan, month_plan, str_deadline):
         return
 
     print('[2/2] Drafting notification email...')
-    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    id_config = dp.id_config
     d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
     d_member_active = d_member.loc[d_member['active'] == True, :]
     l_email_active = [email for email in d_member_active['email'].tolist()
@@ -247,7 +264,7 @@ def draft_fixed_notification(config, year_plan, month_plan):
         return
 
     print('[2/2] Drafting notification email...')
-    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    id_config = dp.id_config
     l_email_extra = load_drive_config(services.drive, id_config).get('l_email_extra_fixed', [])
     d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
     d_member_active = d_member.loc[d_member['active'] == True, :]
@@ -294,13 +311,13 @@ def compare_event(d_assign_date_duty, d_event_exist):
     return l_date_duty_delete, l_date_duty_change, l_date_duty_add
 
 
-def update_calendar(config, year_plan, month_plan, dict_time_duty, num_retries=5):
+def update_calendar(config, year_plan, month_plan, num_retries=5):
     services = get_services(config, SCOPE_DRIVE_CALENDAR)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='', make_data_dir=False)
     # id_calendar (target Google Calendar) and url_replace_form (embedded in each event's
     # description) live on Drive (dutyshift/config/config.json), not in code -- see
     # script/helper.py::load_drive_config. Read fresh on every publish.
-    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    id_config = dp.id_config
     dict_drive_config = load_drive_config(services.drive, id_config)
     id_calendar = dict_drive_config['id_calendar']
     url_replace_form = dict_drive_config['url_replace_form']
@@ -310,7 +327,7 @@ def update_calendar(config, year_plan, month_plan, dict_time_duty, num_retries=5
     service_calendar = services.calendar
 
     # Read events on G calendar
-    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, dict_time_duty, num_retries)
+    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, num_retries)
 
     # Read target assignment
     d_assign_date_duty = read_csv(services.drive, dp.id_month, 'assign_date_duty.csv')
@@ -324,17 +341,21 @@ def update_calendar(config, year_plan, month_plan, dict_time_duty, num_retries=5
     # Add events
     d_date_duty_add = d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_add + l_date_duty_change), :]
     d_member = read_csv(services.drive, dp.id_month, 'member.csv')
-    d_availability = read_csv(services.drive, dp.id_month, 'availability.csv', index_col=0)
-    d_time_duty = pd.DataFrame(dict_time_duty)
+    d_availability = read_member_matrix_csv(services.drive, dp.id_month, 'availability.csv')
+    d_time_duty = pd.DataFrame(duty_time_table(dict_duty_info))
 
     # Single pass over all additions/changes: with num_retries applying googleapiclient's own
     # randomized-exponential-backoff to each call (see script/parameter.py::n_retry_calendar),
     # a genuine rate-limit hit is retried in place within seconds rather than needing a
     # preventive multi-minute pause between member-sized batches.
     l_result_add = add_duty(service_calendar, id_calendar, d_date_duty_add, d_member, d_time_duty, d_availability, num_retries, url_replace_form)
+    # A 'change' (same slot, different doctor) is carried out as a delete + re-add above, but
+    # reported here as one overwrite.
+    print('Calendar updated: {} created, {} overwritten, {} deleted.'.format(
+        len(l_date_duty_add), len(l_date_duty_change), len(l_date_duty_delete)))
 
     # Assert result
-    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, dict_time_duty, num_retries)
+    d_assign_calendar = list_duty(service_calendar, id_calendar, year_plan, month_plan, d_member, num_retries)
     l_date_duty_delete, l_date_duty_change, l_date_duty_add = compare_event(d_assign_date_duty, d_assign_calendar)
     if len(l_date_duty_delete) > 0:
         print('Duty not deleted ', l_date_duty_delete)
@@ -430,7 +451,7 @@ def delete_duty(service_calendar, id_calendar, l_date_duty_delete, d_event_exist
     return l_result
 
 
-def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_duty, num_retries=5):
+def list_duty(service_calendar, id_calendar, year, month, d_member, num_retries=5):
     #d_member = d_member.reset_index()
 
     if month == 12:
@@ -454,7 +475,7 @@ def list_duty(service_calendar, id_calendar, year, month, d_member, dict_time_du
     d_event = pd.DataFrame(l_event.get('items', []))
 
     # Convert result
-    d_time_duty = pd.DataFrame(dict_time_duty)
+    d_time_duty = pd.DataFrame(duty_time_table(dict_duty_info))
     l_assign_calendar = []
     for id, row in d_event.iterrows():
         str_ymd = row['start']['dateTime']

@@ -3,14 +3,22 @@ import base64, traceback
 from email.mime.text import MIMEText
 import numpy as np, pandas as pd
 import datetime
-from script.helper import read_form_response, read_member, load_email_template
+from script.helper import read_form_response, read_member, load_email_template, duty_jpn_labels
 from script.check import check_availability_duty, check_availability_member
-from script.parameter import str_email_button_html
+from script.parameter import str_email_button_html, dict_duty_info
 from script.drive_io import (
     get_services, prep_drive_paths, read_csv, write_csv, check_form_exists, SCOPE_DRIVE_FORMS_GMAIL,
+    n_retry_api,
 )
 
-def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_jpn, str_deadline=None):
+# Form-answer text -> availability code, shared by both places below that turn a raw response
+# column into 0/1/2 (the weekly-pattern grid and the per-date-override grid parse the same three
+# choices -- see script/form.py::l_availability_choice).
+_DICT_AVAILABILITY_CODE = {'不可': 0, '可': 1, '希望': 2}
+
+def collect_availability(config, year_plan, month_plan, dict_jpnday, str_deadline=None):
+    dict_duty_jpn = duty_jpn_labels(dict_duty_info)
+
     print('[1/3] Reading form responses...')
     services = get_services(config, SCOPE_DRIVE_FORMS_GMAIL)
     dp = prep_drive_paths(config, services, year_plan, month_plan, prefix_dir='clct')
@@ -20,7 +28,7 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_j
     # creates the form under.
     path_form = '/dutyshift/result/' + str(year_plan) + '/' + str(month_plan).zfill(2) + '/form_' + str(year_plan) + str(month_plan).zfill(2)
     d_availability_src = read_form_response(services, path_form)
-    id_config = dp.cache.get_or_create(services.drive, 'dutyshift/config')
+    id_config = dp.id_config
     d_member = read_member(services.drive, services.sheets, id_config, year_plan, month_plan)
 
     # Check missing members
@@ -43,45 +51,35 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_j
             col_dayduty = item_day + '　' + item_duty
             l_col_dayduty = [idx_col for idx_col, col in enumerate(l_col) if ('[' + col_dayduty + ']') in col]
             if len(l_col_dayduty) > 0:
-                l_availability = [np.nan] * d_availability_src.shape[0]
+                s_availability = pd.Series(np.nan, index=d_availability_src.index)
                 for idx_col in l_col_dayduty:
-                    l_availability_src = d_availability_src.iloc[:, idx_col].tolist()
-                    for idx, availability_src in enumerate(l_availability_src):
-                        if availability_src == '不可':
-                            l_availability[idx] = 0
-                        elif availability_src == '可':
-                            l_availability[idx] = 1
-                        elif availability_src == '希望':
-                            l_availability[idx] = 2
-                dict_l_weekly[str(key_day) + '_' + key_duty] = l_availability
+                    # combine_first keeps s_availability wherever this column's answer isn't one
+                    # of 不可/可/希望 (e.g. left blank), overwriting it only where recognized --
+                    # same as the old per-cell if/elif it replaces.
+                    s_availability = d_availability_src.iloc[:, idx_col].map(_DICT_AVAILABILITY_CODE).combine_first(s_availability)
+                dict_l_weekly[str(key_day) + '_' + key_duty] = s_availability.tolist()
     d_weekly = pd.DataFrame(dict_l_weekly)
 
     # Apply weekly pattern to list of date_duty
     dict_l_availability = {}
     for _, row in d_cal_duty.iterrows(): # Iterate over date_duty's
-        title_dateduty = row['title_dateduty']
-        dateduty = str(row['date']) + '_' + row['duty']
-        #l_col_dateduty = [idx_col for col in l_col if ('[' + title_dateduty + ']') in col]
-        l_col_dateduty = [idx_col for idx_col, col in enumerate(l_col) if ('[' + title_dateduty + ']') in col]
+        title_date_duty = row['title_date_duty']
+        date_duty = str(row['date']) + '_' + row['duty']
+        #l_col_date_duty = [idx_col for col in l_col if ('[' + title_date_duty + ']') in col]
+        l_col_date_duty = [idx_col for idx_col, col in enumerate(l_col) if ('[' + title_date_duty + ']') in col]
         day = row['wday']
         duty = row['duty']
         holiday_wday = row['holiday_wday']
         # Apply weekly pattern
         if not holiday_wday:
-            l_availability = d_weekly[str(day) + '_' + duty].tolist()
+            s_availability = d_weekly[str(day) + '_' + duty]
         else:
-            l_availability = [np.nan] * d_availability_src.shape[0]
-        # Apply irregular pattern
-        for idx_col in l_col_dateduty: # Iterate over columns of specific date_duty in columns of d_availability_src
-            l_availability_src = d_availability_src.iloc[:, idx_col].tolist()
-            for idx, availability_src in enumerate(l_availability_src):
-                if availability_src == '不可':
-                    l_availability[idx] = 0
-                elif availability_src == '可':
-                    l_availability[idx] = 1
-                elif availability_src == '希望':
-                    l_availability[idx] = 2
-        dict_l_availability[dateduty] = l_availability
+            s_availability = pd.Series(np.nan, index=d_availability_src.index)
+        # Apply irregular pattern (an explicit per-date override wins over the weekly pattern
+        # wherever it's answered -- see the combine_first comment above)
+        for idx_col in l_col_date_duty: # Iterate over columns of specific date_duty in columns of d_availability_src
+            s_availability = d_availability_src.iloc[:, idx_col].map(_DICT_AVAILABILITY_CODE).combine_first(s_availability)
+        dict_l_availability[date_duty] = s_availability.tolist()
 
     d_availability = pd.DataFrame(dict_l_availability)
 
@@ -185,7 +183,7 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_j
     d_availability_member = check_availability_member(d_member, d_availability)
 
     print('[3/3] Saving results and drafting reminder email...')
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(services.drive, id_folder, 'availability.csv', d_availability, index=True)
         write_csv(services.drive, id_folder, 'availability_ratio.csv', d_availability_ratio, index=True)
         write_csv(services.drive, id_folder, 'info.csv', d_info, index=False)
@@ -206,7 +204,7 @@ def collect_availability(config, year_plan, month_plan, dict_jpnday, dict_duty_j
             print('No missing responses -- skipping reminder email draft.')
         else:
             id_form = check_form_exists(services.drive, path_form)
-            str_responder_uri = services.forms.forms().get(formId=id_form).execute().get('responderUri')
+            str_responder_uri = services.forms.forms().get(formId=id_form).execute(num_retries=n_retry_api).get('responderUri')
             id_template = dp.cache.get_or_create(services.drive, 'dutyshift/template')
             dict_email = load_email_template(services.drive, id_template, 'reminder')
             str_button = str_email_button_html.format(url=str_responder_uri, label=dict_email['button_label'])

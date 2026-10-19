@@ -5,13 +5,161 @@
 import datetime, calendar, itertools
 import numpy as np, pandas as pd
 from math import ceil
-from pulp import LpProblem, LpVariable, LpStatus, lpSum, lpDot, value
+from pulp import LpProblem, LpVariable, LpStatus, LpSolutionIntegerFeasible, lpSum, lpDot, value, PULP_CBC_CMD
 from ortoolpy import addvars
 from script.drive_io import (
-    read_csv, write_csv, read_gsheet, read_json, write_json, check_form_exists, list_gsheet_tabs,
+    read_csv, write_csv, read_gsheet, read_json, check_form_exists, list_gsheet_tabs,
     copy_gsheet_tab, list_month_folders, month_folder_path, get_services, prep_drive_paths,
-    SCOPE_DRIVE_FORMS,
+    SCOPE_DRIVE_FORMS, n_retry_api,
 )
+from script.parameter import dict_class_duty
+
+
+###############################################################################
+# Solver
+###############################################################################
+# Search-time budget per solve, in seconds, handed to CBC as `sec`. Both MILPs here normally
+# finish in well under a minute; the budget exists so that a pathological instance degrades into
+# "returns the best solution it has" instead of pinning the GUI's background worker thread
+# indefinitely with no way to cancel it.
+#
+# It bounds CBC's branch-and-bound search, NOT wall-clock: CBC only checks it between nodes, and
+# a measured run against a 600s budget took 1087s. Treat it as "stop looking soon", not as a
+# guaranteed timeout.
+SOLVER_TIME_LIMIT = 600
+
+
+def make_solver(time_limit=SOLVER_TIME_LIMIT, msg=False):
+    """CBC, configured explicitly instead of relying on LpProblem.solve()'s bare default.
+
+    Three reasons not to take the default: its log goes straight to stdout and floods the GUI's
+    output pane; it has no search-time budget (see SOLVER_TIME_LIMIT); and it does not pin CBC's
+    random seeds. That last one is not only about reproducibility -- both models here are heavily
+    degenerate (large numbers of rosters are exactly equally good), so an unpinned CBC returns a
+    different roster on every run, and on the count model it was also measurably slower and less
+    reliable: n_member=50 solved to 132.975 in 41s with the seeds pinned, and to 132.982 (worse,
+    and not proven optimal) in 1087s without."""
+    return PULP_CBC_CMD(msg=msg, timeLimit=time_limit,
+                        options=['randomSeed 1', 'randomCbcSeed 1'])
+
+
+def warn_if_not_proven_optimal(prob, label):
+    """Print a warning when a solve returned a feasible solution without proving it optimal.
+
+    A CBC run stopped by SOLVER_TIME_LIMIT still reports LpStatus 'Optimal' -- PuLP only records
+    the difference in `sol_status` -- so a `LpStatus[prob.status] == 'Optimal'` check alone cannot
+    tell "this is the best roster" from "this is the best roster found before the clock ran out".
+    Observed in practice: the same instance solved to 132.975 within the limit and to 132.982
+    when the search was cut short, with no visible difference in status."""
+    if prob.sol_status == LpSolutionIntegerFeasible:
+        print('  [WARNING] ' + label + ': the solver ran out of its ' + str(SOLVER_TIME_LIMIT) +
+              's search budget and returned a feasible but not provably optimal solution.')
+        return False
+    return True
+
+
+###############################################################################
+# Derived views of script/parameter.py's base tables. parameter.py holds base data only
+# (dict_duty_info, dict_class_duty, dict_score_duty, dict_score_classes); every function below that
+# needs a particular derived shape of that data (duty sort order, Japanese labels, a class_duty
+# name list, the class_duty score-weight table, ...) calls the matching function here to cut out
+# just the part it needs, rather than importing an already-derived global.
+###############################################################################
+def duty_order(dict_duty_info):
+    """duty -> sort-order int."""
+    return dict(zip(dict_duty_info['duty'], dict_duty_info['order']))
+
+
+def duty_jpn_labels(dict_duty_info, include_ect=False):
+    """duty -> Japanese label. ECT is excluded by default: it has no dedicated availability
+    question on the Google Form -- script/form.py skips generating a question/column for it,
+    inferring its availability from the 'am' question on ECT days instead (see
+    script/collect.py). Pass include_ect=True for contexts that do want it (e.g. labeling a
+    manual-assignment dropdown in script/gui.py)."""
+    return {duty: jpn for duty, jpn in zip(dict_duty_info['duty'], dict_duty_info['duty_jpn'])
+            if include_ect or duty != 'ect'}
+
+
+def duty_time_table(dict_duty_info):
+    """{'duty', 'duty_jpn', 'start', 'end'} table (includes 'ect', unlike duty_jpn_labels'
+    default) -- ready to build a DataFrame of duty clock times from."""
+    return {'duty': dict_duty_info['duty'], 'duty_jpn': dict_duty_info['duty_jpn'],
+            'start': dict_duty_info['start'], 'end': dict_duty_info['end']}
+
+
+def duty_holiday_flags():
+    """{holiday: [duty, ...]} -- the fixed structural rule for which of the 8 raw duties occur
+    on a non-holiday weekday (False) vs a holiday/weekend day (True). This is prep_calendar's
+    own rule for building d_cal, pulled out so script/form.py can derive each Google Form
+    section's weekly-pattern grid rows (weekday x duty) from the same source of truth instead of
+    duplicating it. 'ect' and 'emnight' are deliberately absent from both lists -- they're
+    irregular/date-specific (l_day_ect, the em schedule), not simple weekday/holiday facts, so
+    they never appear in the weekly-pattern grid; only the per-date grids handle them."""
+    return {False: ['am', 'pm', 'night', 'ocnight'], True: ['day', 'night', 'ocday', 'ocnight']}
+
+
+def build_weekly_pattern_rows(l_duty_section, dict_duty_info, dict_jpnday):
+    """Row labels (e.g. '月　当直') for a Google Form section's weekly-pattern grid: for each
+    weekday Mon..Sun, the duties in l_duty_section (a section's title(s) eligible duties, from
+    dict_title_duty) that also occur on that weekday per duty_holiday_flags() (weekday rule for
+    Mon-Fri, holiday rule for Sat/Sun), in dict_duty_info's duty order. Used by
+    script/form.py::prepare_form to build each section's weekly-pattern grid from scratch."""
+    dict_duty_holiday_flag = duty_holiday_flags()
+    dict_order = duty_order(dict_duty_info)
+    dict_jpn = duty_jpn_labels(dict_duty_info)
+    l_row = []
+    for wday in range(7):
+        is_holiday = wday in [5, 6]
+        l_duty_wday = [duty for duty in dict_duty_holiday_flag[is_holiday] if duty in l_duty_section]
+        l_duty_wday = sorted(l_duty_wday, key=lambda duty: dict_order[duty])
+        for duty in l_duty_wday:
+            l_row.append(dict_jpnday[wday] + '　' + dict_jpn[duty])
+    return l_row
+
+
+def class_duty_names(dict_class_duty):
+    """Unique class_duty names, in first-appearance order of dict_class_duty (order matters for
+    output column ordering, e.g. in the member Google Sheet / lim_*.csv columns)."""
+    return list(dict.fromkeys(dict_class_duty['class']))
+
+
+def derive_score_class_constants(dict_score_duty, dict_class_duty, dict_score_classes):
+    """For each score axis in dict_score_classes (score -> list of class_duty names), solve the
+    per-class_duty constant such that summing constants over the axis's classes reproduces
+    dict_score_duty's per-duty weight for that axis. Only dict_class_duty rows with date == 'all'
+    participate: weekday/holiday-qualified classes (night_wd, daynight_hd, ...) exist purely for
+    per-doctor count limits and never carry score weight.
+    """
+    d_score_duty = pd.DataFrame(dict_score_duty).set_index('duty')
+    d_class_duty_all = pd.DataFrame(dict_class_duty)
+    d_class_duty_all = d_class_duty_all[d_class_duty_all['date'] == 'all']
+
+    l_constant = []
+    for score, l_class in dict_score_classes.items():
+        l_duty = sorted(set(d_class_duty_all.loc[d_class_duty_all['class'].isin(l_class), 'duty']))
+        m_incidence = np.array([[duty in set(d_class_duty_all.loc[d_class_duty_all['class'] == class_duty, 'duty'])
+                                  for class_duty in l_class] for duty in l_duty], dtype=float)
+        v_target = d_score_duty.loc[l_duty, score].to_numpy(dtype=float)
+        v_constant, _, _, _ = np.linalg.lstsq(m_incidence, v_target, rcond=None)
+        v_constant = np.round(v_constant, 6)
+        if not np.allclose(m_incidence @ v_constant, v_target):
+            raise ValueError(
+                "dict_class_duty can't exactly reproduce dict_score_duty['" + score + "'] via classes " +
+                str(l_class) + " -- dict_score_duty and dict_class_duty have drifted out of sync, or " +
+                "the score->classes mapping in dict_score_classes needs updating to match.")
+        l_constant.extend(v_constant.tolist())
+    return l_constant
+
+
+def score_class_table(dict_score_duty, dict_class_duty, dict_score_classes):
+    """dict_score_class: score weight per class_duty, per score axis -- derived from
+    dict_score_duty (per-duty weights) + dict_class_duty via derive_score_class_constants, so an
+    edit to dict_score_duty can't silently desync assignment-count fairness (stage 1) from
+    actual assignment scoring (stage 2)."""
+    l_pair = [(score, class_duty) for score, l_class in dict_score_classes.items() for class_duty in l_class]
+    return {'score': [score for score, _ in l_pair],
+            'class': [class_duty for _, class_duty in l_pair],
+            'constant': derive_score_class_constants(dict_score_duty, dict_class_duty, dict_score_classes)}
 
 
 ###############################################################################
@@ -32,12 +180,12 @@ def print_candidate_replacement(service_drive, id_month, dict_class_duty, d_devi
             l_result = []
             for i1, col1 in duty_assigned.iterrows():
                 date_duty = col1['date_duty']
-                # availability_duty.csv has a blank (NaN, not str) 'l_member' for a date_duty no
+                # availability_duty.csv has a blank (NaN, not str) 'str_member' for a date_duty no
                 # one was available for -- can still show up here if it was only filled via a
                 # manual override (assign_manual.csv). No one to suggest as a proxy in that case.
-                if type(d_availability_duty.loc[date_duty, 'l_member']) == str:
-                    l_member = d_availability_duty.loc[date_duty, 'l_member'].split(', ')
-                    l_member_jpn = d_availability_duty.loc[date_duty, 'l_member_jpn'].split(', ')
+                if type(d_availability_duty.loc[date_duty, 'str_member']) == str:
+                    l_member = d_availability_duty.loc[date_duty, 'str_member'].split(', ')
+                    l_member_jpn = d_availability_duty.loc[date_duty, 'str_member_jpn'].split(', ')
                     l_member_proxy = [i2 + '_' + name for i2, name in zip(l_member, l_member_jpn) if int(i2) != int(id_member)]
                     str_member_proxy = ', '.join(l_member_proxy)
                 else:
@@ -45,7 +193,7 @@ def print_candidate_replacement(service_drive, id_month, dict_class_duty, d_devi
                 l_result.append([date_duty, str_member_proxy])
             ll_result.append(['excess', str_member, class_deviant, l_result])
         elif col0['deviation_exact'] < 0:
-            l_duty_available = d_availability_member.loc[d_availability_member['id_member'] == id_member, 'l_date_duty'].tolist()[0].split(', ')
+            l_duty_available = d_availability_member.loc[d_availability_member['id_member'] == id_member, 'str_date_duty'].tolist()[0].split(', ')
             l_duty_available = [duty for duty in l_duty_available if duty.split('_')[1] in duty_deviant]
             l_duty_assigned = d_assign_member.loc[d_assign_member['id_member'] == id_member, 'duty_all'].tolist()[0].split(', ')
             l_duty_available = [duty for duty in l_duty_available if duty not in l_duty_assigned]
@@ -73,9 +221,9 @@ def print_candidate_replacement(service_drive, id_month, dict_class_duty, d_devi
         l_result = []
         for i0, col0 in d_closeduty_temp.iterrows():
             date_duty = col0['date_duty']
-            if type(d_availability_duty.loc[date_duty, 'l_member']) == str:
-                l_member_proxy = d_availability_duty.loc[date_duty, 'l_member'].split(', ')
-                l_member_proxy_jpn = d_availability_duty.loc[date_duty, 'l_member_jpn'].split(', ')
+            if type(d_availability_duty.loc[date_duty, 'str_member']) == str:
+                l_member_proxy = d_availability_duty.loc[date_duty, 'str_member'].split(', ')
+                l_member_proxy_jpn = d_availability_duty.loc[date_duty, 'str_member_jpn'].split(', ')
                 l_member_proxy = [i2 + '_' + name for i2, name in zip(l_member_proxy, l_member_proxy_jpn) if int(i2) != int(id_member)]
                 str_member_proxy = ', '.join(l_member_proxy)
                 l_result.append([date_duty, str_member_proxy])
@@ -98,7 +246,7 @@ def read_form_response(services, path_form):
     id_form = check_form_exists(service_drive, path_form)
 
     # Fetch the form metadata (to map questionId → question title)
-    form = service_forms.forms().get(formId=id_form).execute()
+    form = service_forms.forms().get(formId=id_form).execute(num_retries=n_retry_api)
     # Build a mapping of questionId → title
     qid2title = {}
     for item in form.get('items', []):
@@ -126,7 +274,7 @@ def read_form_response(services, path_form):
             formId=id_form,
             pageToken=page_token,
             pageSize=100  # up to 5000 max
-        ).execute()
+        ).execute(num_retries=n_retry_api)
         for r in resp.get('responses', []):
             timestamp = r['lastSubmittedTime']
             # each answer is keyed by questionId
@@ -157,57 +305,78 @@ def read_form_response(services, path_form):
 
 
 ################################################################################
-# Update grid question of Google form
+# Wire up Google Form navigation (goToSectionId) after the items it targets exist.
+#
+# The Forms API never lets a caller choose a new item's itemId (it's always server-generated,
+# returned only in the createItem reply), and per-section "after this page" navigation can only
+# be attached to a choice question's option -- there's no unconditional per-section default
+# (PageBreakItem itself has no navigation field). So script/form.py::prepare_form builds a form
+# in two passes: first create every item (name dropdown, per-section grids/questions, the
+# section-end "next" question), then -- once every item's real itemId is known -- come back with
+# the two functions below to fill in the goToSectionId values that couldn't be set at creation.
 ################################################################################
 
-def generate_request_delete_item(id_form, service, l_itemid):
-    form = service.forms().get(formId=id_form).execute()
-    l_position = []
+def generate_request_update_name_choices(id_form, service, d_member, dict_sectionid_title, id_item_name):
+    """Build the single request that replaces the name dropdown's options with this month's
+    active doctors, each option's goToSectionId routing to the Google Form section matching
+    that doctor's title_short (dict_sectionid_title: title_short -> that section's pageBreakItem
+    itemId, built from parameter.py's l_form_section + the itemIds returned by the create pass --
+    see script/form.py::prepare_form; several title_short values can map to the same section id,
+    e.g. assist_subleader/assist_kokoro sharing one section). Without this, a doctor who
+    joined/left/changed title would need the form hand-edited.
 
-    for id_item in l_itemid:
-        # Determine the position index of the grid item in the form
-        position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item)
-        l_position.append(position_item)
-    l_position = reversed(sorted(l_position))
+    Returns (request, l_title_unmapped): l_title_unmapped lists the title_short value(s) of any
+    active doctor not covered by dict_sectionid_title (a typo, or a title newly added to
+    config/member but not yet to l_form_section/dict_title_duty) -- those doctors are silently
+    excluded from the option list, so the caller should warn about them rather than let them
+    quietly vanish from the form."""
+    form = service.forms().get(formId=id_form).execute(num_retries=n_retry_api)
+    position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item_name)
 
-    l_request = []
-    for position_item in l_position:
-        # Use updateItem to replace the questions array on the questionGroupItem
-        l_request.append({
-            "deleteItem": {
-                "location": {"index": position_item}
-            }
-        })
+    d_member_active = d_member.loc[d_member['active'] == True, :]
+    l_title_unmapped = sorted(set(
+        d_member_active.loc[~d_member_active['title_short'].isin(dict_sectionid_title.keys()), 'title_short'].tolist()
+    ))
+    d_member_mapped = d_member_active.loc[d_member_active['title_short'].isin(dict_sectionid_title.keys()), :]
 
-    return l_request
+    new_options = [
+        {"value": row['name_jpn_full'], "goToSectionId": dict_sectionid_title[row['title_short']]}
+        for _, row in d_member_mapped.iterrows()
+    ]
 
-def generate_request_update_question(id_form, service, dict_dateduty_form, dict_itemid_form):
-    form = service.forms().get(formId=id_form).execute()
-    l_request = []
+    request = {
+        "updateItem": {
+            "location": {"index": position_item},
+            "item": {
+                "itemId": id_item_name,
+                "questionItem": {"question": {"choiceQuestion": {"options": new_options}}}
+            },
+            "updateMask": "questionItem.question.choiceQuestion.options"
+        }
+    }
+    return request, l_title_unmapped
 
-    l_itemid_missing = [dict_itemid_form[key] for key in dict_itemid_form.keys() if key not in dict_dateduty_form.keys()]
 
-    for key, l_dateduty_form in dict_dateduty_form.items():
-        id_item = dict_itemid_form[key]
-        # Determine the position index of the grid item in the form
-        position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item)
-        # Build the new questionGroupItem payload: one question per row label
-        new_questions = [{"rowQuestion": {"title": val}} for val in l_dateduty_form]
-        # Use updateItem to replace the questions array on the questionGroupItem
-        l_request.append({
-                "updateItem": {
-                    "location": {"index": position_item},
-                    "item": {
-                        "itemId": id_item,
-                        "questionGroupItem": {
-                            "questions": new_questions
-                        }
-                    },
-                    "updateMask": "questionGroupItem.questions"
-                }
-            })
+def generate_request_update_section_nav(id_form, service, id_item_confirm, id_section_target):
+    """Build the single request that points a section-end '次へ' confirmation question's one
+    option at id_section_target (the closing survey section's itemId) -- see
+    script/form.py::prepare_form. Mirrors generate_request_update_name_choices's shape."""
+    form = service.forms().get(formId=id_form).execute(num_retries=n_retry_api)
+    position_item = next(i for i, itm in enumerate(form['items']) if itm['itemId'] == id_item_confirm)
 
-    return l_request, l_itemid_missing
+    request = {
+        "updateItem": {
+            "location": {"index": position_item},
+            "item": {
+                "itemId": id_item_confirm,
+                "questionItem": {"question": {"choiceQuestion": {
+                    "options": [{"value": "次へ", "goToSectionId": id_section_target}]
+                }}}
+            },
+            "updateMask": "questionItem.question.choiceQuestion.options"
+        }
+    }
+    return request
 
 
 ################################################################################
@@ -321,158 +490,59 @@ def ensure_member_sheet(service_drive, service_sheets, id_config, year_plan, mon
 # Drive-backed app config (dutyshift/config/config.json) and email templates
 # (dutyshift/template/<name>.json)
 #
-# id_template_form, dict_itemid_form, id_calendar, and every notification email's wording used
-# to be hardcoded in script/parameter.py. They now live on Drive so an admin can edit them
-# without a code change, and every pipeline call reads them fresh (script/form.py::prepare_form,
+# id_calendar and every notification email's wording used to be hardcoded in
+# script/parameter.py. They now live on Drive so an admin can edit them without a code change,
+# and every pipeline call reads them fresh (script/form.py::prepare_form,
 # script/collect.py::collect_availability, script/notify.py::update_calendar/
 # draft_dropin_notification/draft_fixed_notification all call the loaders below on every run --
-# nothing is cached across calls). Each loader seeds its file with this codebase's original
-# hardcoded content the first time it's read, so an existing installation keeps working without
-# a manual migration step.
+# nothing is cached across calls). Neither loader has a code-side default or seeding step --
+# config.json/each template file must already exist on Drive; a missing one is an error, not a
+# silently-created fallback.
+#
+# id_template_form/dict_itemid_form/id_item_name/dict_sectionid_title used to live here too (the
+# Google Form template "1. Create Form" copied each month, its grid/name-dropdown item IDs, and
+# the title_short -> section-item-id routing rebuilt from them). They're gone now that
+# script/form.py::prepare_form builds the form from scratch every run (forms.create +
+# batchUpdate) instead of copying a template -- every item id it needs is ephemeral, read back
+# from that run's own create-items response, so there's nothing stable left to persist on Drive.
 ################################################################################
-_DICT_CONFIG_DEFAULT = {
-    'id_template_form': '1JweYEQfU93Ts2k2ZCvfezj01MYYtdyeyRiZ2I99zbjo',
-    'dict_itemid_form': {'assoc_holiday': '3fd28d79', 'assoc_others': '03f37999',
-                         'instr_holiday': '49978020', 'instr_others': '015bf8cf',
-                         'assist_leader_holiday': '6f8a4c28', 'assist_leader_others': '5a3e91e3',
-                         'assist_subleader_holiday': '3f06625b', 'assist_subleader_others': '5301996a',
-                         'limtermclin_holiday': '02401b89', 'limtermclin_others': '0e55b20f',
-                         'stud_holiday': '48b9378b', 'stud_others': '32b66da2'},
-    'id_calendar': 'ht4svlr03krt7jcqho5guou32c@group.calendar.google.com',
-    # Extra recipients (beyond active doctors) Bcc'd on the "draft fixed notification" email --
-    # e.g. secretaries or administrators who want the finalized roster but never fill in the
-    # availability form. Empty by default; add addresses directly in
-    # dutyshift/config/config.json.
-    'l_email_extra_fixed': [],
-    # Shift-swap request form -- the same link embedded in every calendar event's description
-    # (script/notify.py::add_duty) and rendered as a button in the "draft drop-in notification"/
-    # "draft fixed notification" emails (script/notify.py::draft_dropin_notification/
-    # draft_fixed_notification).
-    'url_replace_form': 'https://forms.gle/oxvdt8CNkW6iPPFm6',
-}
-
-
 def load_drive_config(service_drive, id_config):
-    """Read dutyshift/config/config.json: id_template_form/dict_itemid_form (the Google Form
-    template "1. Create Form" copies each month, and that template's grid-question item IDs),
-    id_calendar (target Google Calendar for "4. Notify" -> Publish to Calendar),
-    l_email_extra_fixed (extra Bcc recipients for the "draft fixed notification" button), and
-    url_replace_form (the shift-swap request form link embedded in calendar events and the
-    drop-in/fixed notification emails). Seeded with _DICT_CONFIG_DEFAULT the first time it's
-    read. If the file already exists but predates a key later added to _DICT_CONFIG_DEFAULT
-    (e.g. an installation that seeded config.json before url_replace_form/l_email_extra_fixed
-    existed), that key is backfilled in place -- without this, a caller reading it would KeyError
-    on a key an admin never had a chance to remove."""
+    """Read dutyshift/config/config.json: id_calendar (target Google Calendar for "4. Notify" ->
+    Publish to Calendar), l_email_extra_fixed (extra Bcc recipients for the "draft fixed
+    notification" button), url_replace_form (the shift-swap request form link embedded in
+    calendar events and the drop-in/fixed notification emails), and id_template_form (the empty
+    settings-only Google Form each month's availability form is copied from -- see
+    script/form.py::prepare_form). Wording lives on Drive only --
+    there is no code-side default or seeding, same as load_email_template below. Raises
+    FileNotFoundError if config.json doesn't exist on Drive (there is no code-side default to
+    fall back to) -- any Drive access error (auth, network) propagates as-is from read_json."""
     dict_config = read_json(service_drive, id_config, 'config.json', default=None)
     if dict_config is None:
-        dict_config = dict(_DICT_CONFIG_DEFAULT)
-        write_json(service_drive, id_config, 'config.json', dict_config)
-    else:
-        dict_missing = {key: value for key, value in _DICT_CONFIG_DEFAULT.items() if key not in dict_config}
-        if dict_missing:
-            dict_config.update(dict_missing)
-            write_json(service_drive, id_config, 'config.json', dict_config)
+        raise FileNotFoundError(
+            "dutyshift/config/config.json not found on Drive -- create it there "
+            "(id_calendar, l_email_extra_fixed, url_replace_form) before running this stage.")
     return dict_config
 
 
-# Each entry is {'subject', 'body', 'button_label', ...}: 'subject' and 'body' are str.format()
-# templates. 'button_label'/'button_label_replace' are the visible text of the HTML buttons
-# script/parameter.py::str_email_button_html renders in place of {button}/{button_replace} --
-# {button} links to the assignment Google Sheet, {button_replace} to the shift-swap request form
-# (dutyshift/config/config.json's url_replace_form). Every caller below passes all of
-# {deadline}/{year}/{month}/{button}/{button_replace} regardless of which ones its own
-# subject/body actually references, so an admin can freely add/remove any of them on Drive
-# without a code change.
-_DICT_EMAIL_TEMPLATE_DEFAULT = {
-    # script/form.py::prepare_form's initial announcement, once a month's Google Form is created.
-    'announce': {
-        'subject': '【{deadline}〆】東大当直希望調査',
-        'body': ('東大精神科の日当直をご担当される先生方<br><br>\n'
-                '平素より大変お世話になっております。<br>\n'
-                '下記のフォームより、来月分の日当直の希望のご入力をお願いいたします。<br>\n'
-                '{button}<br><br>\n'
-                '締切は{deadline}とさせていただきます。<br>\n'
-                'よろしくお願いいたします。<br><br>\n'
-                '当直係　森田　進<br>\n'
-                '調整用プログラム：<a href="https://github.com/atiroms/dutyshift">https://github.com/atiroms/dutyshift</a>'),
-        'button_label': '回答',
-    },
-    # script/collect.py::collect_availability's reminder, Bcc'd to doctors who haven't answered.
-    'reminder': {
-        'subject': '【{deadline}〆】東大当直希望調査',
-        'body': ('先生方<br><br>\n'
-                'お世話になっております。<br>\n'
-                'こちらの回答期限を{deadline}までとさせていただいておりました。<br>\n'
-                '{button}<br><br>\n'
-                'お忙しいところ誠に恐縮ですが、お早めにご回答をお願いいたします。<br><br>\n'
-                '森田'),
-        'button_label': '回答',
-    },
-    # script/notify.py::draft_dropin_notification's "please take a look at the still-editable
-    # draft" email -- {deadline} is the correction deadline set next to the "Draft Drop-in
-    # Notification" button (script/gui.py::build_notify_panel), not the availability-survey
-    # deadline announce/reminder above use.
-    'dropin': {
-        'subject': '【{deadline} 修正〆】東大暫定当直表',
-        'body': ('東大病院精神科日当直のご勤務をされる先生方<br><br>\n'
-                'お世話になっております。<br>\n'
-                '来月の日当直表の暫定版をお送りいたします。<br>\n'
-                '{button}<br><br>\n'
-                'ご確認いただき、お気づきの点はご連絡をお願いします。<br><br>\n'
-                'ご自身の事由でご都合が合わなくなった際は先生方同士で交代を調整の上、下記のフォームでご連絡ください。'
-                '平日当直・休日日当直の交代は指定医同士、非指定医同士でお願いします。<br>\n'
-                '{button_replace}<br><br>\n'
-                '何卒よろしくお願い申し上げます。<br><br>\n'
-                '当直係　森田<br>\n'
-                '調整プログラム：<a href="https://github.com/atiroms/dutyshift">https://github.com/atiroms/dutyshift</a>'),
-        'button_label': '当直表を見る',
-        'button_label_replace': '変更申請',
-    },
-    # script/notify.py::draft_fixed_notification's "the roster is finalized" email. The CC line
-    # is descriptive body text (this program only Bcc's active doctors + l_email_extra_fixed --
-    # see script/helper.py::load_drive_config) -- edit it directly on Drive when the department/
-    # name list changes.
-    'fixed': {
-        'subject': '東大{month}月当直表',
-        'body': ('東大精神科日当直をご担当される先生方<br>\n'
-                'CC：精神科医局、精神科外来、森田（健）先生、辻田先生（B直係）入山師長、須佐副師長、矢澤副師長、'
-                'リエゾンチーム、こころの発達診療部<br><br>\n'
-                '平素より大変お世話になっております。<br>\n'
-                '来月の日当直表の確定版をお送りいたします。<br>\n'
-                '{button}<br><br>\n'
-                '個人的にご都合が合わない場合には先生方同士で交代を調整の上、下記フォームで申請をお願いします。'
-                'なお、平日当直・休日日当直の交代は指定医同士、非指定医同士でお願いします。<br>\n'
-                '{button_replace}<br>\n'
-                'さらに外来、DHへのご連絡と、病棟・研修医室に貼ってある日当直表への変更記載お願いします。<br><br>\n'
-                '宜しくお願い申し上げます。<br><br>\n'
-                '当直係　森田<br>\n'
-                '調整プログラム：<a href="https://github.com/atiroms/dutyshift">https://github.com/atiroms/dutyshift</a>'),
-        'button_label': '当直表を見る',
-        'button_label_replace': '変更申請',
-    },
-}
-
-
+# Each dutyshift/template/<name>.json entry is {'subject', 'body', 'button_label', ...}:
+# 'subject' and 'body' are str.format() templates. 'button_label'/'button_label_replace' are the
+# visible text of the HTML buttons script/parameter.py::str_email_button_html renders in place of
+# {button}/{button_replace} -- {button} links to the assignment Google Sheet, {button_replace} to
+# the shift-swap request form (dutyshift/config/config.json's url_replace_form). Every caller
+# below passes all of {deadline}/{year}/{month}/{button}/{button_replace} regardless of which
+# ones its own subject/body actually references, so an admin can freely add/remove any of them on
+# Drive without a code change. Wording lives on Drive only -- there is no code-side default or
+# seeding; the file must already exist there.
 def load_email_template(service_drive, id_template, name):
     """Read one email template (subject/body/button_label) from
-    dutyshift/template/<name>.json -- seeded with _DICT_EMAIL_TEMPLATE_DEFAULT[name] the first
-    time it's read. Called fresh on every button click (never cached across runs), so an admin's
-    edit on Drive takes effect on the very next click. If the file already exists but predates a
-    key later added to _DICT_EMAIL_TEMPLATE_DEFAULT[name] (e.g. button_label_replace, added
-    after dropin/fixed's templates were first seeded), that key is backfilled in place -- note
-    this only adds a *missing key*, it can't retroactively fix 'subject'/'body' wording an
-    earlier code version seeded, since a human may have since hand-edited that wording on
-    Drive."""
-    dict_default = _DICT_EMAIL_TEMPLATE_DEFAULT[name]
+    dutyshift/template/<name>.json. Called fresh on every button click (never cached across
+    runs), so an admin's edit on Drive takes effect on the very next click. Raises
+    FileNotFoundError if the template file doesn't exist on Drive (there is no code-side default
+    to fall back to) -- any Drive access error (auth, network) propagates as-is from read_json."""
     dict_template = read_json(service_drive, id_template, name + '.json', default=None)
     if dict_template is None:
-        dict_template = dict(dict_default)
-        write_json(service_drive, id_template, name + '.json', dict_template)
-    else:
-        dict_missing = {key: value for key, value in dict_default.items() if key not in dict_template}
-        if dict_missing:
-            dict_template.update(dict_missing)
-            write_json(service_drive, id_template, name + '.json', dict_template)
+        raise FileNotFoundError(
+            f"dutyshift/template/{name}.json not found on Drive -- create it there before running this stage.")
     return dict_template
 
 
@@ -517,7 +587,8 @@ def prep_assign_previous(dp, year_plan, month_plan):
 # Optimize exact count of assignment
 ################################################################################
 def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score_class,
-                   d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total, l_type_score, l_class_duty):
+                   d_grp_score, dict_c_diff_score_current, dict_c_diff_score_total, l_type_score,
+                   l_class_duty, solver=None):
 
     # Dataframe of variables
     l_member = d_member.loc[d_member['active'], 'id_member'].tolist()
@@ -577,6 +648,15 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
     # Sum of inter-member differences of current + past month score
     dv_sigma_diff_score_total = pd.DataFrame(np.array(addvars(n_grp_max, len(l_type_score))),
                                              index=range(n_grp_max), columns=l_type_score)
+    # One variable per *ordered* member pair. Each is >= 0 and minimized, so it settles at
+    # max(0, s_0 - s_1) and the two directions of a pair sum to |s_0 - s_1| -- the mean absolute
+    # inter-member score difference this objective is really made of.
+    #
+    # Halving this to one variable per *unordered* pair (with both `d >= s_0 - s_1` and
+    # `d >= s_1 - s_0`) gives an identical objective value and half the variables, and was tried:
+    # it made CBC roughly 2x *slower* (n_member=50: 42s -> 93s, same seed), because it puts each
+    # variable in two rows instead of one and destroys the singleton-row structure presolve was
+    # exploiting. Keep the redundant-looking ordered pairs.
     dict_dv_diff_score_current = {}
     dict_dv_diff_score_total = {}
     for type_score in l_type_score:
@@ -610,14 +690,18 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
     prob_cnt += (lpDot(lc_diff_score, l_sum_diff_score))
 
     # Solve problem
-    prob_cnt.solve()
+    prob_cnt.solve(solver if solver is not None else make_solver())
+    warn_if_not_proven_optimal(prob_cnt, 'count optimization (' + ', '.join(l_class_duty) + ')')
     str_status = str(LpStatus[prob_cnt.status])
     loss_opt = value(prob_cnt.objective)
     if str_status == 'Optimal':
         status_opt = True
         #print('Solved, ' + str(round(loss_solution, 2)))
         # Extract data
-        d_lim_exact = pd.DataFrame(np.vectorize(value)(dv_lim_exact),
+        # dv_lim_exact are Integer variables, but CBC hands their values back as floats that can
+        # sit a hair either side of the integer (2.9999999). Round here, at the one place they
+        # leave the solver, rather than letting a downstream int() truncate one of them.
+        d_lim_exact = pd.DataFrame(np.round(np.vectorize(value)(dv_lim_exact)),
                                 columns=dv_lim_exact.columns, index=dv_lim_exact.index)
         d_score_current = pd.DataFrame(np.vectorize(value)(dv_score_current),
                                     columns=dv_score_current.columns, index=dv_score_current.index)
@@ -637,13 +721,14 @@ def optimize_count(d_member, s_cnt_class_duty, d_lim_hard, d_score_past, d_score
 ################################################################################
 # Prepare data of member specs and assignment limits
 ################################################################################
-def prep_member2(dp, l_class_duty, year_plan, month_plan, year_start, month_start, dict_score_duty):
+def prep_member2(dp, year_plan, month_plan, year_start, month_start, dict_score_duty):
+    l_class_duty = class_duty_names(dict_class_duty)
     l_col_member = ['id_member','name_jpn','name_jpn_full','email','title_jpn',
                     'designation_jpn','ect_asgn_jpn','name','title_short',
                     'designation', 'team', 'ect_leader', 'ect_subleader', 'active']
 
     # Load source member and assignment limit of the month
-    id_config = dp.cache.get_or_create(dp.service_drive, 'dutyshift/config')
+    id_config = dp.id_config
     d_src = read_member(dp.service_drive, dp.service_sheets, id_config, year_plan, month_plan)
     d_src = d_src.loc[d_src['active'], ]
     l_col_member = [col for col in l_col_member if col in d_src.columns]
@@ -655,7 +740,7 @@ def prep_member2(dp, l_class_duty, year_plan, month_plan, year_start, month_star
     d_score_past = past_score(dp, d_member, year_plan, month_plan, year_start, month_start, dict_score_duty)
 
     # Split assignment limit data into hard and soft
-    d_lim_hard, d_lim_soft = split_lim(d_lim, l_class_duty)
+    d_lim_hard, d_lim_soft = split_lim(d_lim)
 
     # Dataframe of score equilization groups
     d_grp_score = d_src[[col for col in d_src.columns if col.startswith('grp_')]].copy()
@@ -665,12 +750,16 @@ def prep_member2(dp, l_class_duty, year_plan, month_plan, year_start, month_star
     d_grp_score = d_grp_score.astype('Int64')
 
     # Save data
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
-        write_csv(dp.service_drive, id_folder, 'member.csv', d_member, index=True)
-        write_csv(dp.service_drive, id_folder, 'score_past.csv', d_score_past, index=True)
-        write_csv(dp.service_drive, id_folder, 'lim_hard.csv', d_lim_hard, index=True)
-        write_csv(dp.service_drive, id_folder, 'lim_soft.csv', d_lim_soft, index=True)
-        write_csv(dp.service_drive, id_folder, 'grp_score.csv', d_grp_score, index=True)
+    # member.csv is written only by collect_availability (script/collect.py) -- not here, to
+    # avoid two writers disagreeing on its shape. lim_hard/lim_soft/grp_score/score_past below
+    # keep id_member as an explicit column (never as the CSV's own row index, which round-trips
+    # unreliably) via rename_axis('id_member').reset_index(); the in-memory DataFrames used by
+    # the solver are unaffected -- only how they're written to Drive changes.
+    for id_folder in dp.l_id_write:
+        write_csv(dp.service_drive, id_folder, 'score_past.csv', d_score_past, index=False)
+        write_csv(dp.service_drive, id_folder, 'lim_hard.csv', d_lim_hard.rename_axis('id_member').reset_index(), index=False)
+        write_csv(dp.service_drive, id_folder, 'lim_soft.csv', d_lim_soft.rename_axis('id_member').reset_index(), index=False)
+        write_csv(dp.service_drive, id_folder, 'grp_score.csv', d_grp_score.rename_axis('id_member').reset_index(), index=False)
 
     return d_member, d_score_past, d_lim_hard, d_lim_soft, d_grp_score
 
@@ -698,7 +787,7 @@ def extract_assignment(dp, year_plan, month_plan, dv_assign, d_date_duty_noskip,
     d_assign_date_duty.loc[d_assign_date_duty['date_duty'].isin(l_date_duty_skip), 'status'] = 'skipped'
     d_assign_date_duty = d_assign_date_duty.loc[:,['date_duty', 'year', 'month', 'date', 'duty', 'id_member', 'status']]
 
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(dp.service_drive, id_folder, 'assign_date_duty.csv', d_assign_date_duty, index=False)
 
     return d_assign_date_duty
@@ -741,7 +830,7 @@ def extract_closeduty(dp, dict_dv_closeduty, d_assign_date_duty, d_member, dict_
     d_closeduty = d_closeduty.sort_values('id_member', kind='stable').reset_index(drop=True)
     d_closeduty = d_closeduty[['id_member', 'name_jpn', 'date_duty']]
 
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(dp.service_drive, id_folder, 'closeduty.csv', d_closeduty, index=False)
 
     return d_closeduty
@@ -751,7 +840,8 @@ def extract_closeduty(dp, dict_dv_closeduty, d_assign_date_duty, d_member, dict_
 # Convert assignment result
 ################################################################################
 def convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
-                   d_member, d_date_duty, d_cal, l_class_duty, dict_score_duty, d_lim_exact, d_lim_hard):
+                   d_member, d_date_duty, d_cal, dict_score_duty, d_lim_exact, d_lim_hard):
+    l_class_duty = class_duty_names(dict_class_duty)
     # d_assign_date_duty >> d_assign
     d_assign = pd.DataFrame(index=d_availability_noskip.index, columns=d_availability_noskip.columns)
     for id, row in d_assign_date_duty.iterrows():
@@ -857,7 +947,7 @@ def convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
     d_score_current.index = d_score_current['id_member'].tolist()
     d_score_current = d_score_current[['id_member'] + l_type_score]
 
-    d_score_past = read_csv(dp.service_drive, dp.id_month, 'score_past.csv', index_col=0)
+    d_score_past = read_csv(dp.service_drive, dp.id_month, 'score_past.csv')
     d_score_past = d_score_past.loc[~np.isnan(d_score_past['id_member']), :]
     d_score_past.index = d_score_past['id_member'].tolist()
 
@@ -873,7 +963,7 @@ def convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
     d_score_print = pd.merge(d_score_print, d_score_total, on='id_member', how='left')
     d_score_print.columns = ['id_member', 'name_jpn'] + ['score_' + col for col in l_type_score] + ['score_sigma_' + col for col in l_type_score]
 
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(dp.service_drive, id_folder, 'assign.csv', d_assign, index=True)
         write_csv(dp.service_drive, id_folder, 'assign_print.csv', d_assign_date_print, index=False)
         write_csv(dp.service_drive, id_folder, 'assign_member.csv', d_assign_member, index=False)
@@ -885,46 +975,10 @@ def convert_assignment(dp, d_assign_date_duty, d_availability_noskip,
 
     return d_assign, d_assign_date_print, d_assign_member, d_deviation, d_deviation_summary, d_score_current, d_score_total, d_score_print
 
-
-################################################################################
-# Prepare data of member availability
-################################################################################
-'''
-def prep_availability(p_month, p_data, d_date_duty, d_cal):
-    #d_availability = pd.read_csv(os.path.join(p_month, 'availability_src.csv'))
-    #d_availability.set_index('id_member', inplace = True)
-    #d_availability.drop(['name_jpn_full'], axis = 1, inplace = True)
-    #d_availability = d_availability.T
-    #d_availability = pd.concat([pd.DataFrame({'id_member': d_availability.index}), d_availability], axis = 1)
-    d_availability = pd.read_csv(os.path.join(p_month, 'availability.csv'), index_col = 0)
-    d_availability.columns = [int(col) for col in d_availability.columns]
-
-    d_availability_ratio = pd.DataFrame(index = d_availability.index, columns = ['total','available','ratio'])
-    d_availability_ratio['total'] = d_availability.count(axis = 1)
-    d_availability_ratio['available'] = d_availability.replace(2,1).sum(axis = 1)
-    d_availability_ratio['ratio'] = d_availability_ratio['available'] / d_availability_ratio['total']
-
-    d_availability.fillna(0, inplace = True)
-    l_date_ect = d_cal.loc[d_cal['ect'] == True, 'date'].tolist()
-    d_availability_ect = d_availability.loc[[str(date_ect) + '_am' for date_ect in l_date_ect], :]
-    d_availability_ect.index = ([str(date_ect) + '_ect' for date_ect in l_date_ect])
-    d_availability = pd.concat([d_availability, d_availability_ect], axis = 0)
-    d_availability = d_availability.loc[d_date_duty['date_duty'],:]
-    d_availability = pd.concat([pd.DataFrame({'date_duty': d_availability.index}, index = d_availability.index), d_availability], axis = 1)
-    for p_save in [p_month, p_data]:
-        #d_availability.to_csv(os.path.join(p_save, 'availability.csv'), index = False)
-        d_availability_ratio.to_csv(os.path.join(p_save, 'availability_ratio.csv'), index = False)
-
-    l_member = [col for col in d_availability.columns.to_list() if col != 'date_duty']
-    d_availability = d_availability[l_member]
-
-    return d_availability, l_member, d_availability_ratio
-'''
-
 ################################################################################
 # Prepare calendar of the month
 ################################################################################
-def prep_calendar(dp, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
+def prep_calendar(dp, l_holiday, l_day_ect, l_date_ect_cancel, day_em, l_week_em,
                   year_plan, month_plan, dict_score_duty, dict_class_duty):
     dict_jpnday = {0: '月', 1: '火', 2: '水', 3: '木', 4: '金', 5: '土', 6: '日'}
 
@@ -939,15 +993,16 @@ def prep_calendar(dp, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day
         d_cal.loc[d_cal['date'] == date, 'holiday'] = True
     d_cal[['em', 'am', 'pm', 'day', 'night', 'emnight', 'ocday', 'ocnight', 'ect']] = False
     d_cal.loc[(d_cal['wday'] == day_em) & (d_cal['week'].isin(l_week_em)) & (d_cal['holiday'] == False), 'em'] = True
-    d_cal.loc[d_cal['holiday'] == False, ['am', 'pm', 'night', 'ocnight']] = True
+    dict_duty_holiday_flag = duty_holiday_flags()
+    d_cal.loc[d_cal['holiday'] == False, dict_duty_holiday_flag[False]] = True
     d_cal.loc[d_cal['em'] == True, ['night', 'emnight','ocnight']] = [False, True, False]
-    d_cal.loc[d_cal['holiday'] == True, ['day', 'night', 'ocday', 'ocnight']] = True
+    d_cal.loc[d_cal['holiday'] == True, dict_duty_holiday_flag[True]] = True
     d_cal.loc[(d_cal['wday'].isin(l_day_ect)) & (d_cal['holiday'] == False), 'ect'] = True
     d_cal.loc[d_cal['date'].isin(l_date_ect_cancel), 'ect'] = False
 
     d_cal['holiday_wday'] = ''
     d_cal.loc[(d_cal['holiday'] == True) & (d_cal['wday'].isin([0,1,2,3,4])), 'holiday_wday'] = '・祝'
-    d_cal['title_date'] = [str(month_plan) + '/' + str(date) + '(' + wday_jpn + holiday_wday + ')' for [date, wday_jpn, holiday_wday] in zip(d_cal['date'], d_cal['wday_jpn'], d_cal['holiday_wday'])]
+    d_cal['title_date'] = str(month_plan) + '/' + d_cal['date'].astype(str) + '(' + d_cal['wday_jpn'] + d_cal['holiday_wday'] + ')'
     d_cal = d_cal.drop('holiday_wday', axis=1)
 
     # Prepare s_cnt_duty (necessary assignment counts of each duty)
@@ -970,16 +1025,16 @@ def prep_calendar(dp, l_class_duty, l_holiday, l_day_ect, l_date_ect_cancel, day
     d_date_duty = pd.merge(d_date_duty, d_score_duty, on='duty', how='left')
 
     # Calculate class of duty
-    d_date_duty, s_cnt_class_duty = date_duty2class(d_date_duty, l_class_duty, dict_class_duty)
+    d_date_duty, s_cnt_class_duty = date_duty2class(d_date_duty, dict_class_duty)
 
     d_assign_manual = pd.DataFrame({'date_duty': d_date_duty['date_duty'].to_list(), 'id_member': None})
 
     # Save data
-    for id_folder in [id for id in [dp.id_month, dp.id_data] if id is not None]:
+    for id_folder in dp.l_id_write:
         write_csv(dp.service_drive, id_folder, 'calendar.csv', d_cal, index=False)
         write_csv(dp.service_drive, id_folder, 'date_duty.csv', d_date_duty, index=False)
         write_csv(dp.service_drive, id_folder, 'assign_manual.csv', d_assign_manual, index=False)
-        write_csv(dp.service_drive, id_folder, 'cnt_duty.csv', s_cnt_duty, index=False)
+        write_csv(dp.service_drive, id_folder, 'cnt_duty.csv', s_cnt_duty, index=True)
         write_csv(dp.service_drive, id_folder, 'cnt_class_duty.csv', s_cnt_class_duty, index=True)
 
     return d_cal, d_date_duty, s_cnt_duty, s_cnt_class_duty
@@ -1005,7 +1060,7 @@ def load_manual_assign_options(config, year_plan, month_plan):
     d_date_duty = read_csv(services.drive, dp.id_month, 'date_duty.csv')
     d_assign_manual = read_csv(services.drive, dp.id_month, 'assign_manual.csv')
 
-    id_config = dp.cache.get_or_create(dp.service_drive, 'dutyshift/config')
+    id_config = dp.id_config
     d_member = read_member(dp.service_drive, dp.service_sheets, id_config, year_plan, month_plan)
     d_member = d_member.loc[d_member['active'], ['id_member', 'name_jpn_full']]
     dict_member_name = {int(id_member): name for id_member, name in
@@ -1042,14 +1097,14 @@ def write_manual_assign(config, year_plan, month_plan, l_manual):
 ################################################################################
 # Split assignment limit data into hard and soft
 ################################################################################
-def split_lim(d_lim, l_class_duty):
+def split_lim(d_lim):
     # Split assignment limit data into hard and soft
     d_lim_hard = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0],
                               index=d_lim.index, columns=d_lim.columns)
     d_lim_soft = pd.DataFrame([[[np.nan]*2]*d_lim.shape[1]]*d_lim.shape[0],
                               index=d_lim.index, columns=d_lim.columns)
 
-    for col in l_class_duty:
+    for col in d_lim.columns:
         d_lim[col] = d_lim[col].astype(str)
         for idx in d_lim.index.tolist():
 
@@ -1130,7 +1185,8 @@ def past_score(dp, d_member, year_plan, month_plan, year_start, month_start, dic
 ################################################################################
 # Convert date_duty to class
 ################################################################################
-def date_duty2class(d_date_duty, l_class_duty, dict_class_duty):
+def date_duty2class(d_date_duty, dict_class_duty):
+    l_class_duty = class_duty_names(dict_class_duty)
     d_class_duty = pd.DataFrame(dict_class_duty)
     d_date_duty[['class_' + class_duty for class_duty in  l_class_duty]] = False
 
