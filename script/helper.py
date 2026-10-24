@@ -2,10 +2,10 @@
 ###############################################################################
 # Libraries
 ###############################################################################
-import datetime, calendar, itertools
+import datetime, calendar, itertools, os, shutil
 import numpy as np, pandas as pd
 from math import ceil
-from pulp import LpProblem, LpVariable, LpStatus, LpSolutionIntegerFeasible, lpSum, lpDot, value, PULP_CBC_CMD
+from pulp import LpProblem, LpVariable, LpStatus, LpSolutionIntegerFeasible, lpSum, lpDot, value, PULP_CBC_CMD, COIN_CMD
 from ortoolpy import addvars
 from script.drive_io import (
     read_csv, write_csv, read_gsheet, read_json, check_form_exists, list_gsheet_tabs,
@@ -28,6 +28,13 @@ from script.parameter import dict_class_duty
 # guaranteed timeout.
 SOLVER_TIME_LIMIT = 600
 
+# Where to look for a natively built `cbc` before falling back to the one bundled with PuLP.
+# PuLP 2.6.0's bundled macOS binary is x86_64-only, so on Apple Silicon it needs Rosetta -- without
+# it every solve fails with "OSError: [Errno 86] Bad CPU type in executable". `brew install cbc`
+# provides a native one; Homebrew's bin dirs are listed explicitly since a GUI launched outside a
+# login shell may not have them on PATH.
+CBC_SEARCH_PATH = os.pathsep.join([os.environ.get('PATH', ''), '/opt/homebrew/bin', '/usr/local/bin'])
+
 
 def make_solver(time_limit=SOLVER_TIME_LIMIT, msg=False):
     """CBC, configured explicitly instead of relying on LpProblem.solve()'s bare default.
@@ -39,8 +46,11 @@ def make_solver(time_limit=SOLVER_TIME_LIMIT, msg=False):
     different roster on every run, and on the count model it was also measurably slower and less
     reliable: n_member=50 solved to 132.975 in 41s with the seeds pinned, and to 132.982 (worse,
     and not proven optimal) in 1087s without."""
-    return PULP_CBC_CMD(msg=msg, timeLimit=time_limit,
-                        options=['randomSeed 1', 'randomCbcSeed 1'])
+    options = ['randomSeed 1', 'randomCbcSeed 1']
+    path_cbc = shutil.which('cbc', path=CBC_SEARCH_PATH)
+    if path_cbc is not None:
+        return COIN_CMD(path=path_cbc, msg=msg, timeLimit=time_limit, options=options)
+    return PULP_CBC_CMD(msg=msg, timeLimit=time_limit, options=options)
 
 
 def warn_if_not_proven_optimal(prob, label):
